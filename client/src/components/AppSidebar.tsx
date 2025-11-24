@@ -11,6 +11,7 @@ import {
   BarChart3,
   Calendar,
   Package,
+  Bot,
 } from "lucide-react";
 import {
   Sidebar,
@@ -33,6 +34,7 @@ const projectTabs = [
   { title: "Issues", icon: AlertCircle, path: "/issues" },
   { title: "Change Requests", icon: FileEdit, path: "/change-requests" },
   { title: "Cost Management", icon: DollarSign, path: "/cost" },
+  { title: "AI Assistant", icon: Bot, path: "/ai-assistant" },
   { title: "SOP", icon: FileText, path: "/sop" },
   { title: "Analytics", icon: BarChart3, path: "/analytics" },
 ];

@@ -20,6 +20,7 @@ import StakeholdersPage from "@/pages/StakeholdersPage";
 import RisksPage from "@/pages/RisksPage";
 import IssuesPage from "@/pages/IssuesPage";
 import CostPage from "@/pages/CostPage";
+import AIAssistantPage from "@/pages/AIAssistantPage";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -58,6 +59,7 @@ function Router() {
           <p className="text-muted-foreground">Advanced analytics coming soon</p>
         </div>
       </Route>
+      <Route path="/ai-assistant" component={AIAssistantPage} />
       <Route path="/pmo/dashboard">
         <div className="p-6">
           <h1 className="text-3xl font-semibold">PMO Dashboard</h1>
