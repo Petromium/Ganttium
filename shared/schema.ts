@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, decimal, boolean, serial, pgEnum, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, decimal, boolean, serial, pgEnum, index, unique } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -136,7 +136,9 @@ export const risks = pgTable("risks", {
   identifiedDate: timestamp("identified_date").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  uniqueCodePerProject: unique("risks_project_code_unique").on(table.projectId, table.code),
+}));
 
 // Issues
 export const issues = pgTable("issues", {
@@ -155,7 +157,9 @@ export const issues = pgTable("issues", {
   resolution: text("resolution"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  uniqueCodePerProject: unique("issues_project_code_unique").on(table.projectId, table.code),
+}));
 
 // Change Requests
 export const changeRequests = pgTable("change_requests", {
