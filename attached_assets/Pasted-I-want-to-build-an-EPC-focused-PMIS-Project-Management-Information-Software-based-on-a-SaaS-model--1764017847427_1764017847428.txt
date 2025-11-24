@@ -1,0 +1,37 @@
+I want to build an EPC focused PMIS (Project Management Information Software) based on a SaaS model.
+It should be a PWA with support for mobile and desktop, with temp offline access as project managers may go to office locations with limited network for few hours or days (up to 7 days).
+
+The app should have the following features:
+1. Organization, Projects, Project tabs: as PM could work with multiple organizations with multiple projects each.
+2. App should hand Task Management & WBS, dependencies, Finish to start, start to start ... etc.
+3. App should be able to view above in Gantt, Calendar, Kanban.
+4. App should be able to show dashboard and metrics for each project tab.
+5. Project tabs are: Overview, WBS & Task Management, Stakeholders, Resources, Risks, Issues, Change Requests, Cost Management, SOP (standard operating procedures), Reports, Analytics.
+Each project is up to 5 levels WBS, where the lowest level is a checklist for it's parent.
+Each project has Risk management log, issues log, change management log, resource sheet, document file directory, SOP, reports, cost log.
+Software should present PMO level (all projects) and filtered projects for following:
+Dashboard, cost analytics, Calendar, resource load, inventory management (quantity focused, not actual workflow), report.
+Task/WBS level features:
+User want to CRUD following to each task: name, resources (multiple resources, MACI matrix), budget cost, actual cost, effort (hours), actual effort (hours), SOP document attachment, Task document/file attachment, evidence gallery, associated risks, associated issues, notes.
+User wants to see projects in a regular list/table/card view, Kanban, Gantt, Calendar. 
+Typical project management scheduling feature: start to start, finish to start, finish to finish, start to start.
+Can be people, equipment, material, services: resource cost can be money per hour, money per use, money per unit.
+Cost Page: shows accrued cost analytics, forecasted budget cost and forecasted projected cost.
+Progress report, Project Management Plan, resource report, cost report.
+Owners (can add and edit), Editors (can edit but not delete or add without permission), Views (can read-comment).
+Users should be able to import/export projects as json, or csv.
+Ideal design should be: Left bar (houses pined tabs), Top Bar (from left to right: Organisation dropdown, Project dropdown, Project Tabs dropdown, Add+ dropdown, search bar, import/exort, theme toggle, notification toggle, other toggles), Right Bar houses Tab speicific metrics and dashboards, space between the three bars for Tab specific data table (example: WBS Table, Gantt view ... etc) which we can call center table.
+Center tables is made of row cards, they are dragable, they show good information about the content, there is a search and filteration on top of the table, users could hide or add columns to the table, there is a check/select boxes on left side of each row for group CRUD operations.
+The app follows PMO and PMI termninology and guidelines.
+Currency exchange data is sync with reliable source such as European Center bank, default currency is USD, user may pick another currency for each task or project.
+We will use specific focused center modals for each new or CRUD data entry, linked to Add in top bar or when clicking on a row in center table.
+
+
+App features:
+Google sign in and google authenticator
+Google Drive integration (optional for user)
+Google Email integration (optional for user)
+Google Gemini AI (optional for user, able to CRUD all above).
+Google Translate
+Projects can be imported (via downloadable template), or exported in PDF, Google Documents, or Google Sheets, or .md/txt.
+Currency selection (default is USD).
