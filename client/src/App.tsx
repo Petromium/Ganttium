@@ -8,6 +8,9 @@ import { AppSidebar } from "@/components/AppSidebar";
 import { TopBar } from "@/components/TopBar";
 import { RightSidebar } from "@/components/RightSidebar";
 import { ThemeProvider } from "@/contexts/ThemeContext";
+import { ProjectProvider } from "@/contexts/ProjectContext";
+import { useAuth } from "@/hooks/useAuth";
+import LoginPage from "@/pages/LoginPage";
 import Dashboard from "@/pages/Dashboard";
 import WBSPage from "@/pages/WBSPage";
 import GanttPage from "@/pages/GanttPage";
@@ -78,31 +81,53 @@ function Router() {
   );
 }
 
-export default function App() {
+function AuthenticatedApp() {
   const sidebarStyle = {
     "--sidebar-width": "16rem",
     "--sidebar-width-icon": "3rem",
   } as React.CSSProperties;
 
   return (
+    <ProjectProvider>
+      <SidebarProvider style={sidebarStyle}>
+        <div className="flex h-screen w-full">
+          <AppSidebar />
+          <div className="flex flex-col flex-1 overflow-hidden">
+            <TopBar />
+            <div className="flex flex-1 overflow-hidden">
+              <main className="flex-1 overflow-y-auto bg-background">
+                <Router />
+              </main>
+              <RightSidebar />
+            </div>
+          </div>
+        </div>
+      </SidebarProvider>
+      <Toaster />
+    </ProjectProvider>
+  );
+}
+
+function AppContent() {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-muted-foreground">Loading...</p>
+      </div>
+    );
+  }
+
+  return isAuthenticated ? <AuthenticatedApp /> : <LoginPage />;
+}
+
+export default function App() {
+  return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <ThemeProvider>
-          <SidebarProvider style={sidebarStyle}>
-            <div className="flex h-screen w-full">
-              <AppSidebar />
-              <div className="flex flex-col flex-1 overflow-hidden">
-                <TopBar />
-                <div className="flex flex-1 overflow-hidden">
-                  <main className="flex-1 overflow-y-auto bg-background">
-                    <Router />
-                  </main>
-                  <RightSidebar />
-                </div>
-              </div>
-            </div>
-          </SidebarProvider>
-          <Toaster />
+          <AppContent />
         </ThemeProvider>
       </TooltipProvider>
     </QueryClientProvider>

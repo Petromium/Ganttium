@@ -1,4 +1,4 @@
-import { Search, Plus, Download, Upload, Bell, Moon, Sun, User } from "lucide-react";
+import { Search, Plus, Download, Bell, Moon, Sun, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -18,34 +18,75 @@ import {
 } from "@/components/ui/select";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useTheme } from "@/contexts/ThemeContext";
+import { useProject } from "@/contexts/ProjectContext";
+import { useAuth } from "@/hooks/useAuth";
 import { Badge } from "@/components/ui/badge";
 
 export function TopBar() {
   const { theme, toggleTheme } = useTheme();
+  const { user } = useAuth();
+  const {
+    organizations,
+    projects,
+    selectedOrgId,
+    selectedProjectId,
+    setSelectedOrgId,
+    setSelectedProjectId,
+    isLoadingOrgs,
+    isLoadingProjects,
+    orgsError,
+    projectsError,
+  } = useProject();
+
+  const handleLogout = () => {
+    window.location.href = "/api/logout";
+  };
 
   return (
     <header className="flex h-16 items-center gap-4 border-b bg-background px-4">
       <SidebarTrigger data-testid="button-sidebar-toggle" />
       
-      <Select defaultValue="acme-corp" data-testid="select-organization">
+      <Select
+        value={selectedOrgId?.toString() || ""}
+        onValueChange={(value) => setSelectedOrgId(parseInt(value))}
+        disabled={isLoadingOrgs || organizations.length === 0 || !!orgsError}
+        data-testid="select-organization"
+      >
         <SelectTrigger className="w-48" data-testid="trigger-organization">
-          <SelectValue placeholder="Select Organization" />
+          <SelectValue placeholder={
+            orgsError ? "Error loading orgs" :
+            isLoadingOrgs ? "Loading..." :
+            "Select Organization"
+          } />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="acme-corp">ACME Corporation</SelectItem>
-          <SelectItem value="tech-solutions">Tech Solutions Inc</SelectItem>
-          <SelectItem value="global-eng">Global Engineering</SelectItem>
+          {organizations.map((org) => (
+            <SelectItem key={org.id} value={org.id.toString()}>
+              {org.name}
+            </SelectItem>
+          ))}
         </SelectContent>
       </Select>
 
-      <Select defaultValue="refinery-expansion" data-testid="select-project">
+      <Select
+        value={selectedProjectId?.toString() || ""}
+        onValueChange={(value) => setSelectedProjectId(parseInt(value))}
+        disabled={isLoadingProjects || projects.length === 0 || !selectedOrgId || !!projectsError}
+        data-testid="select-project"
+      >
         <SelectTrigger className="w-56" data-testid="trigger-project">
-          <SelectValue placeholder="Select Project" />
+          <SelectValue placeholder={
+            projectsError ? "Error loading projects" :
+            isLoadingProjects ? "Loading..." :
+            "Select Project"
+          } />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="refinery-expansion">Refinery Expansion Project</SelectItem>
-          <SelectItem value="pipeline-construction">Pipeline Construction</SelectItem>
-          <SelectItem value="offshore-platform">Offshore Platform Build</SelectItem>
+          {projects.map((project) => (
+            <SelectItem key={project.id} value={project.id.toString()}>
+              {project.name}
+            </SelectItem>
+          ))}
         </SelectContent>
       </Select>
 
@@ -119,12 +160,16 @@ export function TopBar() {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuLabel>My Account</DropdownMenuLabel>
+          <DropdownMenuLabel>
+            {user?.firstName} {user?.lastName}
+          </DropdownMenuLabel>
           <DropdownMenuSeparator />
           <DropdownMenuItem data-testid="menu-item-profile">Profile</DropdownMenuItem>
           <DropdownMenuItem data-testid="menu-item-settings">Settings</DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem data-testid="menu-item-logout">Logout</DropdownMenuItem>
+          <DropdownMenuItem onClick={handleLogout} data-testid="menu-item-logout">
+            Logout
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </header>
