@@ -3,25 +3,34 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { TableRowCard } from "@/components/TableRowCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Filter, LayoutGrid, List, Calendar as CalendarIcon, GanttChartSquare } from "lucide-react";
+import { Search, Filter, LayoutGrid, List, Calendar as CalendarIcon, GanttChartSquare, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { TaskModal } from "@/components/TaskModal";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useProject } from "@/contexts/ProjectContext";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import type { Task } from "@shared/schema";
 
 export default function WBSPage() {
   const { selectedProjectId } = useProject();
+  const { toast } = useToast();
   const [selectedTasks, setSelectedTasks] = useState<number[]>([]);
   const [expandedTasks, setExpandedTasks] = useState<number[]>([]);
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [viewMode, setViewMode] = useState<string>("list");
 
   // Fetch tasks for selected project
-  const { data: tasks = [], isLoading } = useQuery<Task[]>({
+  const { 
+    data: tasks = [], 
+    isLoading, 
+    error, 
+    refetch 
+  } = useQuery<Task[]>({
     queryKey: [`/api/projects/${selectedProjectId}/tasks`],
     enabled: !!selectedProjectId,
+    retry: 1,
   });
 
   // Delete task mutation
@@ -31,6 +40,17 @@ export default function WBSPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/tasks`] });
+      toast({
+        title: "Success",
+        description: "Task deleted successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete task",
+        variant: "destructive",
+      });
     },
   });
 
@@ -119,6 +139,7 @@ export default function WBSPage() {
                 variant="ghost"
                 size="sm"
                 onClick={() => handleDeleteTask(task.id)}
+                disabled={deleteMutation.isPending}
                 data-testid={`button-delete-${task.id}`}
               >
                 Delete
@@ -153,6 +174,23 @@ export default function WBSPage() {
           Create Task
         </Button>
       </div>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="flex items-center justify-between">
+            <span>Failed to load tasks. {(error as Error).message}</span>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => refetch()}
+              data-testid="button-retry"
+            >
+              Retry
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="flex items-center gap-4">
         <div className="relative flex-1 max-w-md">

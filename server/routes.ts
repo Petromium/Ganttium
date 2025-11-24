@@ -367,6 +367,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.delete('/api/stakeholders/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+      
+      const stakeholder = await storage.getStakeholder(id);
+      if (!stakeholder) {
+        return res.status(404).json({ message: "Stakeholder not found" });
+      }
+      
+      // Check access
+      if (!await checkProjectAccess(userId, stakeholder.projectId)) {
+        return res.status(404).json({ message: "Stakeholder not found" });
+      }
+      
+      await storage.deleteStakeholder(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting stakeholder:", error);
+      res.status(500).json({ message: "Failed to delete stakeholder" });
+    }
+  });
+
   // ===== Risk Routes =====
   app.get('/api/projects/:projectId/risks', isAuthenticated, async (req: any, res) => {
     try {
@@ -396,6 +419,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Access denied" });
       }
       
+      // Auto-generate code if not provided
+      if (!data.code) {
+        const existingRisks = await storage.getRisksByProject(data.projectId);
+        const nextNumber = existingRisks.length + 1;
+        data.code = `RISK-${String(nextNumber).padStart(3, '0')}`;
+      }
+      
       const risk = await storage.createRisk(data);
       res.json(risk);
     } catch (error) {
@@ -405,6 +435,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.patch('/api/risks/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+      
+      const existing = await storage.getRisk(id);
+      if (!existing) {
+        return res.status(404).json({ message: "Risk not found" });
+      }
+      
+      // Check access
+      if (!await checkProjectAccess(userId, existing.projectId)) {
+        return res.status(404).json({ message: "Risk not found" });
+      }
+      
+      const data = updateRiskSchema.parse(req.body);
+      // Filter out undefined values
+      const updateFields = Object.fromEntries(
+        Object.entries(data).filter(([_, value]) => value !== undefined)
+      );
+      
+      // Merge with existing to preserve required fields
+      const mergedData = {
+        code: existing.code,
+        projectId: existing.projectId,
+        identifiedDate: existing.identifiedDate,
+        ...updateFields,
+      };
+      
+      const updated = await storage.updateRisk(id, mergedData);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating risk:", error);
+      res.status(400).json({ message: "Failed to update risk" });
+    }
+  });
+
+  app.delete('/api/risks/:id', isAuthenticated, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const id = parseInt(req.params.id);
@@ -419,12 +486,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Risk not found" });
       }
       
-      const data = updateRiskSchema.parse(req.body);
-      const updated = await storage.updateRisk(id, data);
-      res.json(updated);
+      await storage.deleteRisk(id);
+      res.json({ success: true });
     } catch (error) {
-      console.error("Error updating risk:", error);
-      res.status(400).json({ message: "Failed to update risk" });
+      console.error("Error deleting risk:", error);
+      res.status(500).json({ message: "Failed to delete risk" });
     }
   });
 
@@ -457,8 +523,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Access denied" });
       }
       
+      // Auto-generate code if not provided
+      if (!data.code) {
+        const existingIssues = await storage.getIssuesByProject(data.projectId);
+        const nextNumber = existingIssues.length + 1;
+        data.code = `ISS-${String(nextNumber).padStart(3, '0')}`;
+      }
+      
       const issue = await storage.createIssue({
         ...data,
+        code: data.code,
         reportedBy: userId,
       });
       
@@ -474,6 +548,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = getUserId(req);
       const id = parseInt(req.params.id);
       
+      const existing = await storage.getIssue(id);
+      if (!existing) {
+        return res.status(404).json({ message: "Issue not found" });
+      }
+      
+      // Check access
+      if (!await checkProjectAccess(userId, existing.projectId)) {
+        return res.status(404).json({ message: "Issue not found" });
+      }
+      
+      const data = updateIssueSchema.parse(req.body);
+      // Filter out undefined values
+      const updateFields = Object.fromEntries(
+        Object.entries(data).filter(([_, value]) => value !== undefined)
+      );
+      
+      // Merge with existing to preserve required fields
+      const mergedData = {
+        code: existing.code,
+        projectId: existing.projectId,
+        reportedBy: existing.reportedBy,
+        reportedDate: existing.reportedDate,
+        ...updateFields,
+      };
+      
+      const updated = await storage.updateIssue(id, mergedData);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating issue:", error);
+      res.status(400).json({ message: "Failed to update issue" });
+    }
+  });
+
+  app.delete('/api/issues/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+      
       const issue = await storage.getIssue(id);
       if (!issue) {
         return res.status(404).json({ message: "Issue not found" });
@@ -484,12 +596,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Issue not found" });
       }
       
-      const data = updateIssueSchema.parse(req.body);
-      const updated = await storage.updateIssue(id, data);
-      res.json(updated);
+      await storage.deleteIssue(id);
+      res.json({ success: true });
     } catch (error) {
-      console.error("Error updating issue:", error);
-      res.status(400).json({ message: "Failed to update issue" });
+      console.error("Error deleting issue:", error);
+      res.status(500).json({ message: "Failed to delete issue" });
     }
   });
 

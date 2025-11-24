@@ -277,7 +277,9 @@ export type UpdateStakeholder = z.infer<typeof updateStakeholderSchema>;
 export type Stakeholder = typeof stakeholders.$inferSelect;
 
 // Zod Schemas for Risks
-export const insertRiskSchema = createInsertSchema(risks).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertRiskSchema = createInsertSchema(risks).omit({ id: true, createdAt: true, updatedAt: true, code: true }).extend({
+  code: z.string().optional(), // Auto-generated if not provided
+});
 export const updateRiskSchema = insertRiskSchema.partial();
 export const selectRiskSchema = createSelectSchema(risks);
 export type InsertRisk = z.infer<typeof insertRiskSchema>;
@@ -285,7 +287,10 @@ export type UpdateRisk = z.infer<typeof updateRiskSchema>;
 export type Risk = typeof risks.$inferSelect;
 
 // Zod Schemas for Issues
-export const insertIssueSchema = createInsertSchema(issues).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertIssueSchema = createInsertSchema(issues).omit({ id: true, createdAt: true, updatedAt: true, code: true, reportedBy: true }).extend({
+  code: z.string().optional(), // Auto-generated if not provided
+  reportedBy: z.string().optional(), // Auto-set to current user if not provided
+});
 export const updateIssueSchema = insertIssueSchema.partial();
 export const selectIssueSchema = createSelectSchema(issues);
 export type InsertIssue = z.infer<typeof insertIssueSchema>;
