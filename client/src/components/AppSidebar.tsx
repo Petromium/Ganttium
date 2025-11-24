@@ -1,0 +1,90 @@
+import {
+  LayoutDashboard,
+  ListTree,
+  Users,
+  Briefcase,
+  AlertTriangle,
+  AlertCircle,
+  FileEdit,
+  DollarSign,
+  FileText,
+  BarChart3,
+  Calendar,
+  Package,
+} from "lucide-react";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from "@/components/ui/sidebar";
+import { Link, useLocation } from "wouter";
+
+const projectTabs = [
+  { title: "Overview", icon: LayoutDashboard, path: "/" },
+  { title: "WBS & Tasks", icon: ListTree, path: "/wbs" },
+  { title: "Stakeholders", icon: Users, path: "/stakeholders" },
+  { title: "Resources", icon: Briefcase, path: "/resources" },
+  { title: "Risks", icon: AlertTriangle, path: "/risks" },
+  { title: "Issues", icon: AlertCircle, path: "/issues" },
+  { title: "Change Requests", icon: FileEdit, path: "/change-requests" },
+  { title: "Cost Management", icon: DollarSign, path: "/cost" },
+  { title: "SOP", icon: FileText, path: "/sop" },
+  { title: "Analytics", icon: BarChart3, path: "/analytics" },
+];
+
+const pmoTabs = [
+  { title: "PMO Dashboard", icon: LayoutDashboard, path: "/pmo/dashboard" },
+  { title: "Calendar", icon: Calendar, path: "/pmo/calendar" },
+  { title: "Inventory", icon: Package, path: "/pmo/inventory" },
+];
+
+export function AppSidebar() {
+  const [location] = useLocation();
+
+  return (
+    <Sidebar data-testid="sidebar-main">
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupLabel>Project Tabs</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {projectTabs.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton asChild isActive={location === item.path} data-testid={`sidebar-link-${item.path.slice(1) || 'overview'}`}>
+                    <Link href={item.path}>
+                      <item.icon />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>PMO Level</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {pmoTabs.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton asChild isActive={location === item.path} data-testid={`sidebar-link-pmo-${item.path.split('/').pop()}`}>
+                    <Link href={item.path}>
+                      <item.icon />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+    </Sidebar>
+  );
+}
