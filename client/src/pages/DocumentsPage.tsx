@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useProject } from "@/contexts/ProjectContext";
+import { DocumentProvider, useDocuments } from "@/contexts/DocumentContext";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { 
@@ -125,8 +126,9 @@ interface DocumentFormData {
   fileSize: number | null;
 }
 
-export default function DocumentsPage() {
+function DocumentsPageContent() {
   const { selectedProjectId } = useProject();
+  const { selectedDocumentId, setSelectedDocumentId } = useDocuments();
   const { toast } = useToast();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingDoc, setEditingDoc] = useState<Document | null>(null);
@@ -610,7 +612,12 @@ export default function DocumentsPage() {
                   {filteredDocs.map((doc) => (
                     <tr 
                       key={doc.id} 
-                      className="border-b hover:bg-muted/30"
+                      className={`border-b cursor-pointer transition-colors ${
+                        selectedDocumentId === doc.id 
+                          ? "bg-primary/10 hover:bg-primary/15" 
+                          : "hover:bg-muted/30"
+                      }`}
+                      onClick={() => setSelectedDocumentId(doc.id)}
                       data-testid={`document-row-${doc.id}`}
                     >
                       <td className="p-4 font-mono text-sm">{doc.documentNumber}</td>
@@ -840,5 +847,13 @@ export default function DocumentsPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+export default function DocumentsPage() {
+  return (
+    <DocumentProvider>
+      <DocumentsPageContent />
+    </DocumentProvider>
   );
 }

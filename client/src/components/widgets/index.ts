@@ -6,3 +6,4 @@ export { RiskSnapshot } from "./RiskSnapshot";
 export { CostSnapshot } from "./CostSnapshot";
 export { WBSLinkage } from "./WBSLinkage";
 export { DocumentStats } from "./DocumentStats";
+export { DocumentDetails } from "./DocumentDetails";

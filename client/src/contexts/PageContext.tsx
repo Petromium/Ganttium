@@ -39,6 +39,7 @@ export interface PageContextType {
   showWBSLinkage: boolean;
   showAIAssistantGuide: boolean;
   showDocumentStats: boolean;
+  showDocumentDetails: boolean;
 }
 
 const PageContext = createContext<PageContextType | undefined>(undefined);
@@ -115,6 +116,7 @@ export function PageProvider({ children }: { children: React.ReactNode }) {
     showWBSLinkage: ["wbs", "gantt", "kanban", "risks", "issues", "stakeholders"].includes(currentPage),
     showAIAssistantGuide: currentPage === "ai-assistant",
     showDocumentStats: currentPage === "documents",
+    showDocumentDetails: currentPage === "documents",
   };
 
   return (
