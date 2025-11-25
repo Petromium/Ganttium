@@ -457,3 +457,47 @@ export const insertEmailUsageSchema = createInsertSchema(emailUsage).omit({ id: 
 export const selectEmailUsageSchema = createSelectSchema(emailUsage);
 export type InsertEmailUsage = z.infer<typeof insertEmailUsageSchema>;
 export type EmailUsage = typeof emailUsage.$inferSelect;
+
+// File Uploads (Project Documents)
+export const projectFiles = pgTable("project_files", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  originalName: text("original_name").notNull(),
+  mimeType: text("mime_type").notNull(),
+  size: integer("size").notNull(), // Size in bytes
+  objectPath: text("object_path").notNull(), // Path in object storage
+  category: text("category").notNull().default("general"), // document, drawing, report, photo, other
+  description: text("description"),
+  uploadedBy: varchar("uploaded_by", { length: 255 }).notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  projectIdx: index("project_files_project_idx").on(table.projectId),
+  orgIdx: index("project_files_org_idx").on(table.organizationId),
+}));
+
+// Storage Quota (Organization-level tracking)
+export const storageQuotas = pgTable("storage_quotas", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }).unique(),
+  usedBytes: integer("used_bytes").notNull().default(0),
+  quotaBytes: integer("quota_bytes").notNull().default(1073741824), // 1GB default quota
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Zod Schemas for Project Files
+export const insertProjectFileSchema = createInsertSchema(projectFiles).omit({ id: true, createdAt: true, updatedAt: true, uploadedBy: true });
+export const updateProjectFileSchema = insertProjectFileSchema.partial();
+export const selectProjectFileSchema = createSelectSchema(projectFiles);
+export type InsertProjectFile = z.infer<typeof insertProjectFileSchema>;
+export type UpdateProjectFile = z.infer<typeof updateProjectFileSchema>;
+export type ProjectFile = typeof projectFiles.$inferSelect;
+
+// Zod Schemas for Storage Quotas
+export const insertStorageQuotaSchema = createInsertSchema(storageQuotas).omit({ id: true, createdAt: true, updatedAt: true });
+export const selectStorageQuotaSchema = createSelectSchema(storageQuotas);
+export type InsertStorageQuota = z.infer<typeof insertStorageQuotaSchema>;
+export type StorageQuota = typeof storageQuotas.$inferSelect;

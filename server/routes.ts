@@ -1376,6 +1376,267 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
+  // ===== File Upload Routes =====
+  
+  // Get upload URL for a project file
+  app.post('/api/projects/:projectId/files/upload-url', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+      
+      if (!await verifyProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const project = await storage.getProject(projectId);
+      if (!project) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      
+      const { fileSize } = req.body;
+      if (!fileSize || typeof fileSize !== 'number') {
+        return res.status(400).json({ message: "fileSize is required" });
+      }
+      
+      // Check quota
+      const quota = await storage.getStorageQuota(project.organizationId);
+      const currentUsed = quota?.usedBytes || 0;
+      const maxQuota = quota?.quotaBytes || 1073741824; // 1GB default
+      
+      if (currentUsed + fileSize > maxQuota) {
+        return res.status(400).json({ 
+          message: "Storage quota exceeded",
+          currentUsed,
+          maxQuota,
+          requested: fileSize
+        });
+      }
+      
+      const { ObjectStorageService } = await import('./objectStorage');
+      const objectStorage = new ObjectStorageService();
+      const { uploadURL, objectId } = await objectStorage.getObjectEntityUploadURL(
+        project.organizationId, 
+        projectId
+      );
+      
+      res.json({ uploadURL, objectId });
+    } catch (error) {
+      console.error("Error getting upload URL:", error);
+      res.status(500).json({ message: "Failed to get upload URL" });
+    }
+  });
+  
+  // Register uploaded file after upload completes
+  app.post('/api/projects/:projectId/files', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+      
+      if (!await verifyProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const project = await storage.getProject(projectId);
+      if (!project) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      
+      const { name, originalName, mimeType, size, objectPath, category, description } = req.body;
+      
+      if (!name || !originalName || !mimeType || !size || !objectPath) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+      
+      // Set ACL policy on the uploaded object
+      const { ObjectStorageService } = await import('./objectStorage');
+      const objectStorage = new ObjectStorageService();
+      
+      try {
+        await objectStorage.trySetObjectEntityAclPolicy(objectPath, {
+          owner: userId,
+          organizationId: project.organizationId,
+          visibility: "private",
+        });
+      } catch (aclError) {
+        console.error("Error setting ACL policy:", aclError);
+      }
+      
+      // Create file record
+      const file = await storage.createProjectFile({
+        projectId,
+        organizationId: project.organizationId,
+        name,
+        originalName,
+        mimeType,
+        size,
+        objectPath,
+        category: category || 'general',
+        description,
+        uploadedBy: userId
+      });
+      
+      // Update storage quota
+      await storage.incrementStorageUsage(project.organizationId, size);
+      
+      // Notify via WebSocket
+      wsManager.notifyProjectUpdate(projectId, 'file-created', file, userId);
+      
+      res.status(201).json(file);
+    } catch (error) {
+      console.error("Error creating file:", error);
+      res.status(500).json({ message: "Failed to create file" });
+    }
+  });
+  
+  // Get project files
+  app.get('/api/projects/:projectId/files', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+      
+      if (!await verifyProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const files = await storage.getProjectFilesByProject(projectId);
+      res.json(files);
+    } catch (error) {
+      console.error("Error getting files:", error);
+      res.status(500).json({ message: "Failed to get files" });
+    }
+  });
+  
+  // Update project file
+  app.patch('/api/projects/:projectId/files/:fileId', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+      const fileId = parseInt(req.params.fileId);
+      
+      if (!await verifyProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const existingFile = await storage.getProjectFile(fileId);
+      if (!existingFile || existingFile.projectId !== projectId) {
+        return res.status(404).json({ message: "File not found" });
+      }
+      
+      const { name, category, description } = req.body;
+      const updated = await storage.updateProjectFile(fileId, { name, category, description });
+      
+      wsManager.notifyProjectUpdate(projectId, 'file-updated', updated, userId);
+      
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating file:", error);
+      res.status(500).json({ message: "Failed to update file" });
+    }
+  });
+  
+  // Delete project file
+  app.delete('/api/projects/:projectId/files/:fileId', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+      const fileId = parseInt(req.params.fileId);
+      
+      if (!await verifyProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const existingFile = await storage.getProjectFile(fileId);
+      if (!existingFile || existingFile.projectId !== projectId) {
+        return res.status(404).json({ message: "File not found" });
+      }
+      
+      const project = await storage.getProject(projectId);
+      
+      // Delete from object storage
+      const { ObjectStorageService } = await import('./objectStorage');
+      const objectStorage = new ObjectStorageService();
+      try {
+        await objectStorage.deleteObject(existingFile.objectPath);
+      } catch (deleteError) {
+        console.error("Error deleting from object storage:", deleteError);
+      }
+      
+      // Delete from database
+      await storage.deleteProjectFile(fileId);
+      
+      // Update storage quota
+      if (project) {
+        await storage.decrementStorageUsage(project.organizationId, existingFile.size);
+      }
+      
+      wsManager.notifyProjectUpdate(projectId, 'file-deleted', { id: fileId }, userId);
+      
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting file:", error);
+      res.status(500).json({ message: "Failed to delete file" });
+    }
+  });
+  
+  // Serve private object files (with access control)
+  app.get('/objects/:objectPath(*)', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const objectPath = `/objects/${req.params.objectPath}`;
+      
+      const { ObjectStorageService, ObjectNotFoundError } = await import('./objectStorage');
+      const { ObjectPermission } = await import('./objectAcl');
+      const objectStorage = new ObjectStorageService();
+      
+      // Get user's organization IDs for ACL check
+      const userOrgs = await storage.getUserOrganizations(userId);
+      const userOrgIds = userOrgs.map(uo => uo.organizationId);
+      
+      const objectFile = await objectStorage.getObjectEntityFile(objectPath);
+      const canAccess = await objectStorage.canAccessObjectEntity({
+        objectFile,
+        userId,
+        requestedPermission: ObjectPermission.READ,
+        userOrganizationIds: userOrgIds
+      });
+      
+      if (!canAccess) {
+        return res.status(401).json({ message: "Access denied" });
+      }
+      
+      objectStorage.downloadObject(objectFile, res);
+    } catch (error) {
+      console.error("Error serving object:", error);
+      if ((error as any).name === 'ObjectNotFoundError') {
+        return res.status(404).json({ message: "File not found" });
+      }
+      res.status(500).json({ message: "Failed to serve file" });
+    }
+  });
+  
+  // Get storage quota for organization
+  app.get('/api/organizations/:orgId/storage', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const quota = await storage.getStorageQuota(orgId);
+      
+      res.json({
+        usedBytes: quota?.usedBytes || 0,
+        quotaBytes: quota?.quotaBytes || 1073741824,
+        usedPercent: quota ? Math.round((quota.usedBytes / quota.quotaBytes) * 100) : 0
+      });
+    } catch (error) {
+      console.error("Error getting storage quota:", error);
+      res.status(500).json({ message: "Failed to get storage quota" });
+    }
+  });
+
   const httpServer = createServer(app);
   
   // Initialize WebSocket server

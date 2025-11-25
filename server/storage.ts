@@ -44,6 +44,9 @@ import type {
   SentEmail,
   InsertEmailUsage,
   EmailUsage,
+  InsertProjectFile,
+  ProjectFile,
+  StorageQuota,
 } from "@shared/schema";
 
 const sql = neon(process.env.DATABASE_URL!);
@@ -179,6 +182,20 @@ export interface IStorage {
   // Email Usage
   getEmailUsage(organizationId: number, month: string): Promise<EmailUsage | undefined>;
   incrementEmailUsage(organizationId: number): Promise<EmailUsage>;
+
+  // Project Files
+  getProjectFile(id: number): Promise<ProjectFile | undefined>;
+  getProjectFilesByProject(projectId: number): Promise<ProjectFile[]>;
+  getProjectFilesByOrganization(organizationId: number): Promise<ProjectFile[]>;
+  createProjectFile(file: InsertProjectFile & { uploadedBy: string }): Promise<ProjectFile>;
+  updateProjectFile(id: number, file: Partial<InsertProjectFile>): Promise<ProjectFile | undefined>;
+  deleteProjectFile(id: number): Promise<void>;
+
+  // Storage Quotas
+  getStorageQuota(organizationId: number): Promise<StorageQuota | undefined>;
+  updateStorageQuota(organizationId: number, usedBytes: number): Promise<StorageQuota>;
+  incrementStorageUsage(organizationId: number, bytes: number): Promise<StorageQuota>;
+  decrementStorageUsage(organizationId: number, bytes: number): Promise<StorageQuota>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -776,6 +793,79 @@ export class DatabaseStorage implements IStorage {
         .returning();
       return created;
     }
+  }
+
+  // Project Files
+  async getProjectFile(id: number): Promise<ProjectFile | undefined> {
+    const [file] = await db.select().from(schema.projectFiles)
+      .where(eq(schema.projectFiles.id, id));
+    return file;
+  }
+
+  async getProjectFilesByProject(projectId: number): Promise<ProjectFile[]> {
+    return await db.select().from(schema.projectFiles)
+      .where(eq(schema.projectFiles.projectId, projectId))
+      .orderBy(desc(schema.projectFiles.createdAt));
+  }
+
+  async getProjectFilesByOrganization(organizationId: number): Promise<ProjectFile[]> {
+    return await db.select().from(schema.projectFiles)
+      .where(eq(schema.projectFiles.organizationId, organizationId))
+      .orderBy(desc(schema.projectFiles.createdAt));
+  }
+
+  async createProjectFile(file: InsertProjectFile & { uploadedBy: string }): Promise<ProjectFile> {
+    const [created] = await db.insert(schema.projectFiles).values(file).returning();
+    return created;
+  }
+
+  async updateProjectFile(id: number, file: Partial<InsertProjectFile>): Promise<ProjectFile | undefined> {
+    const [updated] = await db.update(schema.projectFiles)
+      .set({ ...file, updatedAt: new Date() })
+      .where(eq(schema.projectFiles.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteProjectFile(id: number): Promise<void> {
+    await db.delete(schema.projectFiles).where(eq(schema.projectFiles.id, id));
+  }
+
+  // Storage Quotas
+  async getStorageQuota(organizationId: number): Promise<StorageQuota | undefined> {
+    const [quota] = await db.select().from(schema.storageQuotas)
+      .where(eq(schema.storageQuotas.organizationId, organizationId));
+    return quota;
+  }
+
+  async updateStorageQuota(organizationId: number, usedBytes: number): Promise<StorageQuota> {
+    const existing = await this.getStorageQuota(organizationId);
+    
+    if (existing) {
+      const [updated] = await db.update(schema.storageQuotas)
+        .set({ usedBytes, updatedAt: new Date() })
+        .where(eq(schema.storageQuotas.id, existing.id))
+        .returning();
+      return updated;
+    } else {
+      const [created] = await db.insert(schema.storageQuotas)
+        .values({ organizationId, usedBytes })
+        .returning();
+      return created;
+    }
+  }
+
+  async incrementStorageUsage(organizationId: number, bytes: number): Promise<StorageQuota> {
+    const existing = await this.getStorageQuota(organizationId);
+    const currentUsed = existing?.usedBytes || 0;
+    return this.updateStorageQuota(organizationId, currentUsed + bytes);
+  }
+
+  async decrementStorageUsage(organizationId: number, bytes: number): Promise<StorageQuota> {
+    const existing = await this.getStorageQuota(organizationId);
+    const currentUsed = existing?.usedBytes || 0;
+    const newUsed = Math.max(0, currentUsed - bytes);
+    return this.updateStorageQuota(organizationId, newUsed);
   }
 }
 
