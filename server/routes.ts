@@ -106,6 +106,96 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== Organization PMO Routes (cross-project aggregation) =====
+  app.get('/api/organizations/:orgId/pmo/dashboard', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const projects = await storage.getProjectsByOrganization(orgId);
+      const tasks = await storage.getTasksByOrganization(orgId);
+      const risks = await storage.getRisksByOrganization(orgId);
+      const issues = await storage.getIssuesByOrganization(orgId);
+      const costs = await storage.getCostItemsByOrganization(orgId);
+      
+      const totalBudget = projects.reduce((sum, p) => sum + (Number(p.budget) || 0), 0);
+      const actualCost = costs.reduce((sum, c) => sum + (Number(c.actualCost) || 0), 0);
+      
+      res.json({
+        projectCount: projects.length,
+        projects: projects.map(p => ({ id: p.id, name: p.name, status: p.status })),
+        taskStats: {
+          total: tasks.length,
+          completed: tasks.filter(t => t.status === 'completed').length,
+          inProgress: tasks.filter(t => t.status === 'in-progress').length,
+          notStarted: tasks.filter(t => t.status === 'not-started').length,
+          onHold: tasks.filter(t => t.status === 'on-hold').length,
+        },
+        riskStats: {
+          total: risks.length,
+          open: risks.filter(r => r.status === 'open').length,
+          mitigated: risks.filter(r => r.status === 'mitigated').length,
+          closed: risks.filter(r => r.status === 'closed').length,
+          highRisks: risks.filter(r => r.probability === 'high' || r.impact === 'high').length,
+        },
+        issueStats: {
+          total: issues.length,
+          open: issues.filter(i => i.status === 'open').length,
+          inProgress: issues.filter(i => i.status === 'in-progress').length,
+          resolved: issues.filter(i => i.status === 'resolved').length,
+          critical: issues.filter(i => i.priority === 'critical').length,
+        },
+        budgetStats: {
+          totalBudget,
+          actualCost,
+          variance: totalBudget - actualCost,
+          utilizationPercent: totalBudget > 0 ? Math.round((actualCost / totalBudget) * 100) : 0,
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching PMO dashboard:", error);
+      res.status(500).json({ message: "Failed to fetch PMO dashboard data" });
+    }
+  });
+
+  app.get('/api/organizations/:orgId/pmo/calendar', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const tasks = await storage.getTasksByOrganization(orgId);
+      res.json(tasks);
+    } catch (error) {
+      console.error("Error fetching PMO calendar:", error);
+      res.status(500).json({ message: "Failed to fetch PMO calendar data" });
+    }
+  });
+
+  app.get('/api/organizations/:orgId/pmo/inventory', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const resources = await storage.getResourcesByOrganization(orgId);
+      res.json(resources);
+    } catch (error) {
+      console.error("Error fetching PMO inventory:", error);
+      res.status(500).json({ message: "Failed to fetch PMO inventory data" });
+    }
+  });
+
   // ===== Project Routes =====
   app.get('/api/organizations/:orgId/projects', isAuthenticated, async (req: any, res) => {
     try {

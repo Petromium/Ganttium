@@ -281,6 +281,13 @@ export interface IStorage {
   getInheritedDocuments(taskId: number): Promise<{ taskDocumentId: number; documentId: number; document: Document | null; sourceTaskId: number; sourceTask: Task | null }[]>;
   getInheritedRisks(taskId: number): Promise<{ taskRiskId: number; riskId: number; risk: Risk | null; sourceTaskId: number; sourceTask: Task | null }[]>;
   getInheritedIssues(taskId: number): Promise<{ taskIssueId: number; issueId: number; issue: Issue | null; sourceTaskId: number; sourceTask: Task | null }[]>;
+
+  // Organization-level aggregation (PMO)
+  getTasksByOrganization(organizationId: number): Promise<(Task & { projectName: string })[]>;
+  getRisksByOrganization(organizationId: number): Promise<(Risk & { projectName: string })[]>;
+  getIssuesByOrganization(organizationId: number): Promise<(Issue & { projectName: string })[]>;
+  getResourcesByOrganization(organizationId: number): Promise<(Resource & { projectName: string })[]>;
+  getCostItemsByOrganization(organizationId: number): Promise<(CostItem & { projectName: string })[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1455,6 +1462,92 @@ export class DatabaseStorage implements IStorage {
     }
     
     return results;
+  }
+
+  // Organization-level aggregation (PMO)
+  async getTasksByOrganization(organizationId: number): Promise<(Task & { projectName: string })[]> {
+    const projects = await this.getProjectsByOrganization(organizationId);
+    const projectMap = new Map(projects.map(p => [p.id, p.name]));
+    
+    const allTasks: (Task & { projectName: string })[] = [];
+    for (const project of projects) {
+      const tasks = await this.getTasksByProject(project.id);
+      for (const task of tasks) {
+        allTasks.push({
+          ...task,
+          projectName: projectMap.get(project.id) || project.name,
+        });
+      }
+    }
+    return allTasks;
+  }
+
+  async getRisksByOrganization(organizationId: number): Promise<(Risk & { projectName: string })[]> {
+    const projects = await this.getProjectsByOrganization(organizationId);
+    const projectMap = new Map(projects.map(p => [p.id, p.name]));
+    
+    const allRisks: (Risk & { projectName: string })[] = [];
+    for (const project of projects) {
+      const risks = await this.getRisksByProject(project.id);
+      for (const risk of risks) {
+        allRisks.push({
+          ...risk,
+          projectName: projectMap.get(project.id) || project.name,
+        });
+      }
+    }
+    return allRisks;
+  }
+
+  async getIssuesByOrganization(organizationId: number): Promise<(Issue & { projectName: string })[]> {
+    const projects = await this.getProjectsByOrganization(organizationId);
+    const projectMap = new Map(projects.map(p => [p.id, p.name]));
+    
+    const allIssues: (Issue & { projectName: string })[] = [];
+    for (const project of projects) {
+      const issues = await this.getIssuesByProject(project.id);
+      for (const issue of issues) {
+        allIssues.push({
+          ...issue,
+          projectName: projectMap.get(project.id) || project.name,
+        });
+      }
+    }
+    return allIssues;
+  }
+
+  async getResourcesByOrganization(organizationId: number): Promise<(Resource & { projectName: string })[]> {
+    const projects = await this.getProjectsByOrganization(organizationId);
+    const projectMap = new Map(projects.map(p => [p.id, p.name]));
+    
+    const allResources: (Resource & { projectName: string })[] = [];
+    for (const project of projects) {
+      const resources = await this.getResourcesByProject(project.id);
+      for (const resource of resources) {
+        allResources.push({
+          ...resource,
+          projectName: projectMap.get(project.id) || project.name,
+        });
+      }
+    }
+    return allResources;
+  }
+
+  async getCostItemsByOrganization(organizationId: number): Promise<(CostItem & { projectName: string })[]> {
+    const projects = await this.getProjectsByOrganization(organizationId);
+    const projectMap = new Map(projects.map(p => [p.id, p.name]));
+    
+    const allCostItems: (CostItem & { projectName: string })[] = [];
+    for (const project of projects) {
+      const costs = await this.getCostItemsByProject(project.id);
+      for (const cost of costs) {
+        allCostItems.push({
+          ...cost,
+          projectName: projectMap.get(project.id) || project.name,
+        });
+      }
+    }
+    return allCostItems;
   }
 }
 
