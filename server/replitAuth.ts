@@ -55,13 +55,17 @@ function updateUserSession(
 }
 
 async function upsertUser(claims: any) {
+  const userId = claims["sub"];
   await storage.upsertUser({
-    id: claims["sub"],
+    id: userId,
     email: claims["email"],
     firstName: claims["first_name"],
     lastName: claims["last_name"],
     profileImageUrl: claims["profile_image_url"],
   });
+  
+  // Auto-assign the demo organization to all users
+  await storage.assignDemoOrgToUser(userId);
 }
 
 export async function setupAuth(app: Express) {

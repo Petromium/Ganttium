@@ -79,6 +79,7 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, user: Partial<InsertUser>): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
+  assignDemoOrgToUser(userId: string): Promise<void>;
 
   // User Organizations
   getUserOrganization(userId: string, organizationId: number): Promise<UserOrganization | undefined>;
@@ -326,6 +327,28 @@ export class DatabaseStorage implements IStorage {
       })
       .returning();
     return user;
+  }
+
+  async assignDemoOrgToUser(userId: string): Promise<void> {
+    const DEMO_ORG_SLUG = "demo-solar-project";
+    
+    const demoOrg = await this.getOrganizationBySlug(DEMO_ORG_SLUG);
+    if (!demoOrg) {
+      console.log("Demo organization not found, skipping auto-assignment");
+      return;
+    }
+
+    const existingAssignment = await this.getUserOrganization(userId, demoOrg.id);
+    if (existingAssignment) {
+      return;
+    }
+
+    await db.insert(schema.userOrganizations).values({
+      userId,
+      organizationId: demoOrg.id,
+      role: "viewer",
+    });
+    console.log(`Assigned user ${userId} to demo organization as viewer`);
   }
 
   // User Organizations
