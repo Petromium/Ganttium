@@ -39,17 +39,70 @@ const DISCIPLINES = [
   { value: "other", label: "Other" },
 ];
 
-const DOC_TYPES = [
-  { value: "drawing", label: "Drawing" },
-  { value: "specification", label: "Specification" },
-  { value: "procedure", label: "Procedure" },
-  { value: "datasheet", label: "Datasheet" },
-  { value: "report", label: "Report" },
-  { value: "calculation", label: "Calculation" },
-  { value: "vendor_document", label: "Vendor Document" },
-  { value: "correspondence", label: "Correspondence" },
-  { value: "other", label: "Other" },
+const DOC_TYPE_CATEGORIES = [
+  {
+    label: "Technical",
+    types: [
+      { value: "drawing", label: "Drawing" },
+      { value: "specification", label: "Specification" },
+      { value: "datasheet", label: "Datasheet" },
+      { value: "calculation", label: "Calculation" },
+      { value: "report", label: "Report" },
+    ]
+  },
+  {
+    label: "Procedures",
+    types: [
+      { value: "sop", label: "SOP" },
+      { value: "procedure", label: "Procedure" },
+      { value: "work-instruction", label: "Work Instruction" },
+      { value: "checklist", label: "Checklist" },
+    ]
+  },
+  {
+    label: "Commercial",
+    types: [
+      { value: "invoice", label: "Invoice" },
+      { value: "rfp", label: "RFP" },
+      { value: "contract", label: "Contract" },
+      { value: "purchase-order", label: "Purchase Order" },
+      { value: "quote", label: "Quote" },
+    ]
+  },
+  {
+    label: "Vendor",
+    types: [
+      { value: "vendor-doc", label: "Vendor Document" },
+      { value: "certificate", label: "Certificate" },
+      { value: "warranty", label: "Warranty" },
+    ]
+  },
+  {
+    label: "Project",
+    types: [
+      { value: "lessons-learned", label: "Lessons Learned" },
+      { value: "bulletin", label: "Bulletin" },
+      { value: "meeting-minutes", label: "Meeting Minutes" },
+      { value: "transmittal", label: "Transmittal" },
+    ]
+  },
+  {
+    label: "Correspondence",
+    types: [
+      { value: "correspondence", label: "Correspondence" },
+      { value: "rfi", label: "RFI" },
+      { value: "ncr", label: "NCR" },
+    ]
+  },
+  {
+    label: "Other",
+    types: [
+      { value: "other", label: "Other" },
+    ]
+  }
 ];
+
+const DOC_TYPES = DOC_TYPE_CATEGORIES.flatMap(cat => cat.types);
 
 const DOC_STATUSES = [
   { value: "draft", label: "Draft" },
@@ -76,6 +129,7 @@ export default function DocumentsPage() {
   const [editingDoc, setEditingDoc] = useState<Document | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterDiscipline, setFilterDiscipline] = useState<string>("all");
+  const [filterDocType, setFilterDocType] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [formData, setFormData] = useState<DocumentFormData>({
     documentNumber: "",
@@ -163,10 +217,11 @@ export default function DocumentsPage() {
         doc.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
         doc.documentNumber.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesDiscipline = filterDiscipline === "all" || doc.discipline === filterDiscipline;
+      const matchesDocType = filterDocType === "all" || doc.documentType === filterDocType;
       const matchesStatus = filterStatus === "all" || doc.status === filterStatus;
-      return matchesSearch && matchesDiscipline && matchesStatus;
+      return matchesSearch && matchesDiscipline && matchesDocType && matchesStatus;
     });
-  }, [documents, searchTerm, filterDiscipline, filterStatus]);
+  }, [documents, searchTerm, filterDiscipline, filterDocType, filterStatus]);
 
   const docsByDiscipline = useMemo(() => {
     const grouped: Record<string, Document[]> = {};
@@ -315,6 +370,22 @@ export default function DocumentsPage() {
             <SelectItem value="all">All Disciplines</SelectItem>
             {DISCIPLINES.map(d => (
               <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={filterDocType} onValueChange={setFilterDocType}>
+          <SelectTrigger className="w-[180px]" data-testid="select-filter-doctype">
+            <SelectValue placeholder="Type" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Types</SelectItem>
+            {DOC_TYPE_CATEGORIES.map(cat => (
+              <div key={cat.label}>
+                <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">{cat.label}</div>
+                {cat.types.map(t => (
+                  <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>
+                ))}
+              </div>
             ))}
           </SelectContent>
         </Select>
