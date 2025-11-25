@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, timestamp, decimal, boolean, serial, pgEnum, index, unique } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, integer, timestamp, decimal, boolean, serial, pgEnum, index, unique, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -69,6 +69,10 @@ export const unitTypeEnum = pgEnum("unit_type", [
   "kg", "lb", "ton", "mt",
   "l", "gal", "scm", "scf"
 ]);
+export const contractTypeEnum = pgEnum("contract_type", [
+  "full-time", "part-time", "contract", "temporary", "rental", "purchase", "lease"
+]);
+export const availabilityStatusEnum = pgEnum("availability_status", ["available", "partially_available", "unavailable", "on_leave"]);
 
 // Project Events Enums
 export const eventTypeEnum = pgEnum("event_type", [
@@ -322,16 +326,66 @@ export const resources = pgTable("resources", {
   type: text("type").notNull(), // human, equipment, material
   discipline: disciplineEnum("discipline").default("general"), // EPC discipline
   availability: integer("availability").notNull().default(100), // percentage
+  availabilityStatus: availabilityStatusEnum("availability_status").default("available"),
+  
   // Legacy field - keep for backward compat
   costPerHour: decimal("cost_per_hour", { precision: 10, scale: 2 }),
-  // New pricing model
+  // Primary pricing model
   rateType: rateTypeEnum("rate_type").default("per-hour"), // per-hour, per-use, per-unit
   rate: decimal("rate", { precision: 15, scale: 2 }).default("0"), // The rate amount
   unitType: unitTypeEnum("unit_type").default("hr"), // Unit type for per-unit pricing
   currency: varchar("currency", { length: 3 }).notNull().default("USD"),
-  // Additional details
+  
+  // Multiple pricing models (JSONB array for flexibility)
+  // Format: [{ name: string, rateType: string, rate: number, unitType: string, currency: string, effectiveFrom?: date, effectiveTo?: date }]
+  pricingModels: jsonb("pricing_models").$type<Array<{
+    name: string;
+    rateType: string;
+    rate: number;
+    unitType: string;
+    currency: string;
+    effectiveFrom?: string;
+    effectiveTo?: string;
+    isDefault?: boolean;
+  }>>(),
+  
+  // Skills and certifications (array, max 10)
+  skillsArray: text("skills_array").array(),
+  skills: text("skills"), // Legacy comma-separated skills (backward compat)
+  certifications: text("certifications").array(),
+  
+  // Contract and vendor information
+  contractType: contractTypeEnum("contract_type"),
+  vendorName: varchar("vendor_name", { length: 255 }),
+  vendorContactEmail: varchar("vendor_contact_email", { length: 255 }),
+  vendorContactPhone: varchar("vendor_contact_phone", { length: 50 }),
+  contractStartDate: timestamp("contract_start_date"),
+  contractEndDate: timestamp("contract_end_date"),
+  contractReference: varchar("contract_reference", { length: 100 }),
+  
+  // Capacity and working hours
+  maxHoursPerDay: integer("max_hours_per_day").default(8),
+  maxHoursPerWeek: integer("max_hours_per_week").default(40),
+  workingDays: text("working_days").array(), // ["monday", "tuesday", ...]
+  // Working calendar exceptions (holidays, unavailable dates)
+  // Format: [{ date: string, type: 'holiday' | 'leave' | 'training', note?: string }]
+  calendarExceptions: jsonb("calendar_exceptions").$type<Array<{
+    date: string;
+    type: string;
+    note?: string;
+  }>>(),
+  
+  // Efficiency and productivity metrics
+  efficiencyRating: decimal("efficiency_rating", { precision: 5, scale: 2 }).default("1.0"), // 0.5 to 2.0
+  productivityFactor: decimal("productivity_factor", { precision: 5, scale: 2 }).default("1.0"),
+  qualityScore: integer("quality_score"), // 1-100
+  
+  // Additional metadata
   description: text("description"),
-  skills: text("skills"), // Comma-separated skills/certifications
+  notes: text("notes"),
+  tags: text("tags").array(),
+  profileImageUrl: varchar("profile_image_url", { length: 512 }),
+  
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

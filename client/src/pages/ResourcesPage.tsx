@@ -2,26 +2,25 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useProject } from "@/contexts/ProjectContext";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { 
   Plus, AlertTriangle, Loader2, User, Wrench, Package, 
-  DollarSign, Percent, MoreHorizontal, Pencil, Trash2
+  DollarSign, Percent, MoreHorizontal, Pencil, Trash2, Eye
 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ResourceDetailsModal } from "@/components/modals/ResourceDetailsModal";
+import { EditResourceModal } from "@/components/modals/EditResourceModal";
 import type { Resource } from "@shared/schema";
 
 const RESOURCE_TYPES = [
@@ -42,115 +41,17 @@ const DISCIPLINES = [
   { value: "hse", label: "HSE" },
 ];
 
-const RATE_TYPES = [
-  { value: "per-hour", label: "Per Hour (USD/hr)" },
-  { value: "per-use", label: "Per Use (USD/use)" },
-  { value: "per-unit", label: "Per Unit (USD/unit)" },
-];
-
-const UNIT_TYPES = [
-  { value: "ea", label: "Each (EA)" },
-  { value: "lot", label: "Lot" },
-  { value: "hr", label: "Hour (hr)" },
-  { value: "day", label: "Day" },
-  { value: "week", label: "Week" },
-  { value: "month", label: "Month" },
-  { value: "m", label: "Meter (m)" },
-  { value: "ft", label: "Feet (ft)" },
-  { value: "yd", label: "Yard (yd)" },
-  { value: "km", label: "Kilometer (km)" },
-  { value: "mi", label: "Mile (mi)" },
-  { value: "m2", label: "Square Meter (m²)" },
-  { value: "ft2", label: "Square Feet (ft²)" },
-  { value: "m3", label: "Cubic Meter (m³)" },
-  { value: "ft3", label: "Cubic Feet (ft³)" },
-  { value: "kg", label: "Kilogram (kg)" },
-  { value: "lb", label: "Pound (lb)" },
-  { value: "ton", label: "Ton" },
-  { value: "mt", label: "Metric Ton (MT)" },
-  { value: "l", label: "Liter (L)" },
-  { value: "gal", label: "Gallon (gal)" },
-  { value: "scm", label: "Standard Cubic Meter (SCM)" },
-  { value: "scf", label: "Standard Cubic Feet (SCF)" },
-];
-
-interface ResourceFormData {
-  name: string;
-  type: string;
-  discipline: string;
-  availability: number;
-  costPerHour: string;
-  currency: string;
-  rateType: string;
-  rate: string;
-  unitType: string;
-}
 
 export default function ResourcesPage() {
   const { selectedProjectId } = useProject();
   const { toast } = useToast();
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editingResource, setEditingResource] = useState<Resource | null>(null);
-  const [formData, setFormData] = useState<ResourceFormData>({
-    name: "",
-    type: "human",
-    discipline: "general",
-    availability: 100,
-    costPerHour: "",
-    currency: "USD",
-    rateType: "per-hour",
-    rate: "",
-    unitType: "hr",
-  });
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [detailsModalOpen, setDetailsModalOpen] = useState(false);
+  const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
 
   const { data: resources = [], isLoading } = useQuery<Resource[]>({
     queryKey: [`/api/projects/${selectedProjectId}/resources`],
     enabled: !!selectedProjectId,
-  });
-
-  const createMutation = useMutation({
-    mutationFn: async (data: any) => {
-      return await apiRequest("POST", `/api/resources`, {
-        ...data,
-        projectId: selectedProjectId,
-      });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/resources`] });
-      toast({
-        title: "Success",
-        description: "Resource created successfully",
-      });
-      handleCloseModal();
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to create resource",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: any }) => {
-      return await apiRequest("PATCH", `/api/resources/${id}`, data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/resources`] });
-      toast({
-        title: "Success",
-        description: "Resource updated successfully",
-      });
-      handleCloseModal();
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to update resource",
-        variant: "destructive",
-      });
-    },
   });
 
   const deleteMutation = useMutation({
@@ -173,80 +74,19 @@ export default function ResourcesPage() {
     },
   });
 
-  const handleOpenModal = (resource?: Resource) => {
-    if (resource) {
-      setEditingResource(resource);
-      setFormData({
-        name: resource.name,
-        type: resource.type,
-        discipline: resource.discipline || "general",
-        availability: resource.availability,
-        costPerHour: resource.costPerHour || "",
-        currency: resource.currency,
-        rateType: resource.rateType || "per-hour",
-        rate: resource.rate || "",
-        unitType: resource.unitType || "hr",
-      });
-    } else {
-      setEditingResource(null);
-      setFormData({
-        name: "",
-        type: "human",
-        discipline: "general",
-        availability: 100,
-        costPerHour: "",
-        currency: "USD",
-        rateType: "per-hour",
-        rate: "",
-        unitType: "hr",
-      });
-    }
-    setModalOpen(true);
+  const handleOpenCreate = () => {
+    setSelectedResource(null);
+    setEditModalOpen(true);
   };
 
-  const handleCloseModal = () => {
-    setModalOpen(false);
-    setEditingResource(null);
-    setFormData({
-      name: "",
-      type: "human",
-      discipline: "general",
-      availability: 100,
-      costPerHour: "",
-      currency: "USD",
-      rateType: "per-hour",
-      rate: "",
-      unitType: "hr",
-    });
+  const handleOpenEdit = (resource: Resource) => {
+    setSelectedResource(resource);
+    setEditModalOpen(true);
   };
 
-  const handleSave = () => {
-    if (!formData.name.trim()) {
-      toast({
-        title: "Validation Error",
-        description: "Resource name is required",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    const data = {
-      name: formData.name,
-      type: formData.type,
-      discipline: formData.discipline,
-      availability: formData.availability,
-      costPerHour: formData.costPerHour || null,
-      currency: formData.currency,
-      rateType: formData.rateType,
-      rate: formData.rate || null,
-      unitType: formData.unitType,
-    };
-
-    if (editingResource) {
-      updateMutation.mutate({ id: editingResource.id, data });
-    } else {
-      createMutation.mutate(data);
-    }
+  const handleOpenDetails = (resource: Resource) => {
+    setSelectedResource(resource);
+    setDetailsModalOpen(true);
   };
 
   const handleDelete = (resource: Resource) => {
@@ -303,8 +143,6 @@ export default function ResourcesPage() {
     );
   }
 
-  const isLoading2 = createMutation.isPending || updateMutation.isPending;
-
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -312,7 +150,7 @@ export default function ResourcesPage() {
           <h1 className="text-3xl font-semibold" data-testid="page-title-resources">Resources</h1>
           <p className="text-muted-foreground">Manage project resources and assignments</p>
         </div>
-        <Button onClick={() => handleOpenModal()} data-testid="button-add-resource">
+        <Button onClick={handleOpenCreate} data-testid="button-add-resource">
           <Plus className="h-4 w-4 mr-2" />
           Add Resource
         </Button>
@@ -388,7 +226,7 @@ export default function ResourcesPage() {
             <p className="text-muted-foreground mb-4">
               Add resources like team members, equipment, or materials to manage your project.
             </p>
-            <Button onClick={() => handleOpenModal()} data-testid="button-add-first-resource">
+            <Button onClick={handleOpenCreate} data-testid="button-add-first-resource">
               <Plus className="h-4 w-4 mr-2" />
               Add First Resource
             </Button>
@@ -461,10 +299,15 @@ export default function ResourcesPage() {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end">
-                                <DropdownMenuItem onClick={() => handleOpenModal(resource)}>
+                                <DropdownMenuItem onClick={() => handleOpenDetails(resource)}>
+                                  <Eye className="h-4 w-4 mr-2" />
+                                  View Details
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => handleOpenEdit(resource)}>
                                   <Pencil className="h-4 w-4 mr-2" />
                                   Edit
                                 </DropdownMenuItem>
+                                <DropdownMenuSeparator />
                                 <DropdownMenuItem 
                                   className="text-destructive"
                                   onClick={() => handleDelete(resource)}
@@ -486,164 +329,17 @@ export default function ResourcesPage() {
         </div>
       )}
 
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="max-w-md" data-testid="modal-resource">
-          <DialogHeader>
-            <DialogTitle>{editingResource ? "Edit Resource" : "Add Resource"}</DialogTitle>
-          </DialogHeader>
+      <ResourceDetailsModal
+        resource={selectedResource}
+        open={detailsModalOpen}
+        onOpenChange={setDetailsModalOpen}
+      />
 
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="resource-name">Name *</Label>
-              <Input
-                id="resource-name"
-                placeholder="Enter resource name"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                data-testid="input-resource-name"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="resource-type">Type</Label>
-                <Select 
-                  value={formData.type} 
-                  onValueChange={(value) => setFormData({ ...formData, type: value })}
-                >
-                  <SelectTrigger id="resource-type" data-testid="select-resource-type">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {RESOURCE_TYPES.map((type) => (
-                      <SelectItem key={type.value} value={type.value}>
-                        {type.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="resource-discipline">Discipline</Label>
-                <Select 
-                  value={formData.discipline} 
-                  onValueChange={(value) => setFormData({ ...formData, discipline: value })}
-                >
-                  <SelectTrigger id="resource-discipline" data-testid="select-resource-discipline">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {DISCIPLINES.map((disc) => (
-                      <SelectItem key={disc.value} value={disc.value}>
-                        {disc.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="availability">Availability ({formData.availability}%)</Label>
-              <Input
-                id="availability"
-                type="range"
-                min={0}
-                max={100}
-                value={formData.availability}
-                onChange={(e) => setFormData({ ...formData, availability: parseInt(e.target.value) })}
-                data-testid="input-availability"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="rate-type">Pricing Model</Label>
-              <Select 
-                value={formData.rateType} 
-                onValueChange={(value) => setFormData({ ...formData, rateType: value })}
-              >
-                <SelectTrigger id="rate-type" data-testid="select-rate-type">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {RATE_TYPES.map((rt) => (
-                    <SelectItem key={rt.value} value={rt.value}>
-                      {rt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="rate">Rate</Label>
-                <Input
-                  id="rate"
-                  type="number"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={formData.rate}
-                  onChange={(e) => setFormData({ ...formData, rate: e.target.value })}
-                  data-testid="input-rate"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="currency">Currency</Label>
-                <Select 
-                  value={formData.currency} 
-                  onValueChange={(value) => setFormData({ ...formData, currency: value })}
-                >
-                  <SelectTrigger id="currency" data-testid="select-currency">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="USD">USD</SelectItem>
-                    <SelectItem value="EUR">EUR</SelectItem>
-                    <SelectItem value="GBP">GBP</SelectItem>
-                    <SelectItem value="INR">INR</SelectItem>
-                    <SelectItem value="AED">AED</SelectItem>
-                    <SelectItem value="SAR">SAR</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {formData.rateType === "per-unit" && (
-                <div className="space-y-2">
-                  <Label htmlFor="unit-type">Unit</Label>
-                  <Select 
-                    value={formData.unitType} 
-                    onValueChange={(value) => setFormData({ ...formData, unitType: value })}
-                  >
-                    <SelectTrigger id="unit-type" data-testid="select-unit-type">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {UNIT_TYPES.map((ut) => (
-                        <SelectItem key={ut.value} value={ut.value}>
-                          {ut.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={handleCloseModal} disabled={isLoading2} data-testid="button-cancel">
-              Cancel
-            </Button>
-            <Button onClick={handleSave} disabled={isLoading2} data-testid="button-save-resource">
-              {isLoading2 && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              {editingResource ? "Update" : "Create"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <EditResourceModal
+        resource={selectedResource}
+        open={editModalOpen}
+        onOpenChange={setEditModalOpen}
+      />
     </div>
   );
 }
