@@ -47,8 +47,20 @@ export const authorityLevelEnum = pgEnum("authority_level", ["decision-maker", "
 
 // Document Control Enums
 export const documentTypeEnum = pgEnum("document_type", [
-  "drawing", "specification", "datasheet", "procedure", "report", 
-  "calculation", "vendor-doc", "correspondence", "certificate", "other"
+  // Technical
+  "drawing", "specification", "datasheet", "calculation", "report",
+  // Procedures
+  "sop", "procedure", "work-instruction", "checklist",
+  // Commercial
+  "invoice", "rfp", "contract", "purchase-order", "quote",
+  // Vendor
+  "vendor-doc", "certificate", "warranty",
+  // Project
+  "lessons-learned", "bulletin", "meeting-minutes", "transmittal",
+  // Correspondence
+  "correspondence", "rfi", "ncr",
+  // Other
+  "other"
 ]);
 export const documentStatusEnum = pgEnum("document_status", ["draft", "ifa", "ifc", "as-built", "superseded", "cancelled"]);
 export const transmittalStatusEnum = pgEnum("transmittal_status", ["issued", "acknowledged", "responded", "closed"]);

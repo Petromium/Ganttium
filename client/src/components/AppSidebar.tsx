@@ -40,7 +40,7 @@ const projectTabs = [
   { title: "AI Assistant", icon: Bot, path: "/ai-assistant" },
   { title: "Reports", icon: FileDown, path: "/reports" },
   { title: "Email Templates", icon: Mail, path: "/email-templates" },
-  { title: "SOP", icon: FileText, path: "/sop" },
+  { title: "Documents", icon: FileText, path: "/documents" },
   { title: "Analytics", icon: BarChart3, path: "/analytics" },
   { title: "Settings", icon: Settings, path: "/settings" },
 ];

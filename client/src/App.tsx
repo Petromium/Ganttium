@@ -57,7 +57,7 @@ function Router() {
         </div>
       </Route>
       <Route path="/cost" component={CostPage} />
-      <Route path="/sop" component={DocumentsPage} />
+      <Route path="/documents" component={DocumentsPage} />
       <Route path="/analytics" component={AnalyticsPage} />
       <Route path="/reports" component={ReportsPage} />
       <Route path="/email-templates" component={EmailTemplatesPage} />

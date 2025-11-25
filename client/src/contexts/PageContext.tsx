@@ -14,7 +14,7 @@ export type PageModule =
   | "change-requests"
   | "cost"
   | "analytics"
-  | "sop"
+  | "documents"
   | "reports"
   | "email-templates"
   | "ai-assistant"
@@ -62,7 +62,7 @@ const PAGE_CONFIG: Record<PageModule, {
   "change-requests": { title: "Change Requests" },
   "cost": { title: "Cost Management", cost: true },
   "analytics": { title: "Analytics", cost: true, schedule: true },
-  "sop": { title: "Documents", document: true },
+  "documents": { title: "Documents", document: true },
   "reports": { title: "Reports" },
   "email-templates": { title: "Email Templates" },
   "ai-assistant": { title: "AI Assistant" },
@@ -80,7 +80,7 @@ function getPageModuleFromPath(path: string): PageModule {
   const validPages: PageModule[] = [
     "dashboard", "wbs", "gantt", "kanban", "calendar", "stakeholders",
     "resources", "risks", "issues", "change-requests", "cost", "analytics",
-    "sop", "reports", "email-templates", "ai-assistant", "settings", "admin"
+    "documents", "reports", "email-templates", "ai-assistant", "settings", "admin"
   ];
   
   return validPages.includes(segment as PageModule) ? (segment as PageModule) : "dashboard";
