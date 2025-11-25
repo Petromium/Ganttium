@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { 
   Plus, AlertTriangle, Loader2, FileText, Search, 
   MoreHorizontal, Pencil, Trash2, Download, Filter,
-  FolderOpen, File, Clock, User, ArrowUpDown
+  FolderOpen, File, Clock, User, ArrowUpDown, Upload, X
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -120,6 +120,9 @@ interface DocumentFormData {
   revision: string;
   status: string;
   description: string;
+  file: File | null;
+  filePath: string | null;
+  fileSize: number | null;
 }
 
 export default function DocumentsPage() {
@@ -139,7 +142,12 @@ export default function DocumentsPage() {
     revision: "A",
     status: "draft",
     description: "",
+    file: null,
+    filePath: null,
+    fileSize: null,
   });
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: documents = [], isLoading } = useQuery<Document[]>({
     queryKey: [`/api/projects/${selectedProjectId}/documents`],
@@ -245,6 +253,9 @@ export default function DocumentsPage() {
         revision: doc.revision || "A",
         status: doc.status || "draft",
         description: doc.description || "",
+        file: null,
+        filePath: doc.filePath || null,
+        fileSize: doc.fileSize || null,
       });
     } else {
       setEditingDoc(null);
@@ -256,6 +267,9 @@ export default function DocumentsPage() {
         revision: "A",
         status: "draft",
         description: "",
+        file: null,
+        filePath: null,
+        fileSize: null,
       });
     }
     setModalOpen(true);
@@ -264,9 +278,72 @@ export default function DocumentsPage() {
   const handleCloseModal = () => {
     setModalOpen(false);
     setEditingDoc(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
   };
 
-  const handleSave = () => {
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setFormData(prev => ({
+        ...prev,
+        file,
+        fileSize: file.size,
+      }));
+    }
+  };
+
+  const removeSelectedFile = () => {
+    setFormData(prev => ({
+      ...prev,
+      file: null,
+      fileSize: null,
+    }));
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  const uploadFile = async (file: File): Promise<{ filePath: string; fileSize: number } | null> => {
+    try {
+      const uploadUrlRes = await apiRequest("POST", `/api/projects/${selectedProjectId}/files/upload-url`, {
+        fileSize: file.size
+      });
+      const { uploadURL, objectId } = await uploadUrlRes.json();
+
+      await fetch(uploadURL, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type },
+        body: file,
+      });
+
+      await apiRequest("POST", `/api/projects/${selectedProjectId}/files`, {
+        name: objectId,
+        originalName: file.name,
+        mimeType: file.type,
+        size: file.size,
+        objectPath: objectId,
+        category: 'document',
+        description: `Attachment for ${formData.documentNumber}`,
+      });
+
+      return { filePath: objectId, fileSize: file.size };
+    } catch (error) {
+      console.error("File upload error:", error);
+      throw error;
+    }
+  };
+
+  const handleSave = async () => {
     if (!formData.documentNumber.trim() || !formData.title.trim()) {
       toast({
         title: "Validation Error",
@@ -274,6 +351,29 @@ export default function DocumentsPage() {
         variant: "destructive",
       });
       return;
+    }
+
+    let filePath = formData.filePath;
+    let fileSize = formData.fileSize;
+
+    if (formData.file) {
+      setIsUploading(true);
+      try {
+        const uploadResult = await uploadFile(formData.file);
+        if (uploadResult) {
+          filePath = uploadResult.filePath;
+          fileSize = uploadResult.fileSize;
+        }
+      } catch (error) {
+        toast({
+          title: "Upload Error",
+          description: "Failed to upload file. Please try again.",
+          variant: "destructive",
+        });
+        setIsUploading(false);
+        return;
+      }
+      setIsUploading(false);
     }
 
     const data = {
@@ -284,6 +384,8 @@ export default function DocumentsPage() {
       revision: formData.revision,
       status: formData.status,
       description: formData.description || null,
+      filePath: filePath || null,
+      fileSize: fileSize || null,
     };
 
     if (editingDoc) {
@@ -315,7 +417,7 @@ export default function DocumentsPage() {
     );
   };
 
-  const isLoading2 = createMutation.isPending || updateMutation.isPending;
+  const isLoading2 = createMutation.isPending || updateMutation.isPending || isUploading;
 
   if (!selectedProjectId) {
     return (
@@ -665,6 +767,64 @@ export default function DocumentsPage() {
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                 data-testid="textarea-doc-description"
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label>File Attachment</Label>
+              <input
+                ref={fileInputRef}
+                type="file"
+                onChange={handleFileSelect}
+                className="hidden"
+                data-testid="input-file-upload"
+              />
+              {formData.file ? (
+                <div className="flex items-center gap-3 p-3 rounded-md border bg-muted/30">
+                  <File className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm truncate">{formData.file.name}</p>
+                    <p className="text-xs text-muted-foreground">{formatFileSize(formData.file.size)}</p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={removeSelectedFile}
+                    data-testid="button-remove-file"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ) : formData.filePath ? (
+                <div className="flex items-center gap-3 p-3 rounded-md border bg-muted/30">
+                  <File className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm truncate">Existing file attached</p>
+                    {formData.fileSize && (
+                      <p className="text-xs text-muted-foreground">{formatFileSize(formData.fileSize)}</p>
+                    )}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => fileInputRef.current?.click()}
+                    data-testid="button-replace-file"
+                  >
+                    Replace
+                  </Button>
+                </div>
+              ) : (
+                <div 
+                  className="flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-md cursor-pointer hover:border-primary/50 transition-colors"
+                  onClick={() => fileInputRef.current?.click()}
+                  data-testid="dropzone-file"
+                >
+                  <Upload className="h-8 w-8 text-muted-foreground mb-2" />
+                  <p className="text-sm text-muted-foreground">Click to upload a file</p>
+                  <p className="text-xs text-muted-foreground mt-1">PDF, DOC, XLS, DWG up to 50MB</p>
+                </div>
+              )}
             </div>
           </div>
 
