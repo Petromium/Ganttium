@@ -14,6 +14,7 @@ import {
   Bot,
   FileDown,
   Mail,
+  Settings,
 } from "lucide-react";
 import {
   Sidebar,
@@ -41,6 +42,7 @@ const projectTabs = [
   { title: "Email Templates", icon: Mail, path: "/email-templates" },
   { title: "SOP", icon: FileText, path: "/sop" },
   { title: "Analytics", icon: BarChart3, path: "/analytics" },
+  { title: "Settings", icon: Settings, path: "/settings" },
 ];
 
 const pmoTabs = [

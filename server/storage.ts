@@ -47,6 +47,10 @@ import type {
   InsertProjectFile,
   ProjectFile,
   StorageQuota,
+  InsertCloudStorageConnection,
+  CloudStorageConnection,
+  InsertCloudSyncedFile,
+  CloudSyncedFile,
 } from "@shared/schema";
 
 const sql = neon(process.env.DATABASE_URL!);
@@ -866,6 +870,126 @@ export class DatabaseStorage implements IStorage {
     const currentUsed = existing?.usedBytes || 0;
     const newUsed = Math.max(0, currentUsed - bytes);
     return this.updateStorageQuota(organizationId, newUsed);
+  }
+
+  // Cloud Storage Connections
+  async getCloudStorageConnectionsByOrganization(organizationId: number): Promise<CloudStorageConnection[]> {
+    return db.select().from(schema.cloudStorageConnections)
+      .where(eq(schema.cloudStorageConnections.organizationId, organizationId))
+      .orderBy(asc(schema.cloudStorageConnections.provider));
+  }
+
+  async getCloudStorageConnection(id: number): Promise<CloudStorageConnection | undefined> {
+    const [connection] = await db.select().from(schema.cloudStorageConnections)
+      .where(eq(schema.cloudStorageConnections.id, id));
+    return connection;
+  }
+
+  async getCloudStorageConnectionByProvider(organizationId: number, provider: string): Promise<CloudStorageConnection | undefined> {
+    const [connection] = await db.select().from(schema.cloudStorageConnections)
+      .where(and(
+        eq(schema.cloudStorageConnections.organizationId, organizationId),
+        eq(schema.cloudStorageConnections.provider, provider)
+      ));
+    return connection;
+  }
+
+  async createCloudStorageConnection(connection: InsertCloudStorageConnection & { connectedBy: string }): Promise<CloudStorageConnection> {
+    const [created] = await db.insert(schema.cloudStorageConnections).values(connection).returning();
+    return created;
+  }
+
+  async updateCloudStorageConnection(id: number, connection: Partial<InsertCloudStorageConnection>): Promise<CloudStorageConnection | undefined> {
+    const [updated] = await db.update(schema.cloudStorageConnections)
+      .set({ ...connection, updatedAt: new Date() })
+      .where(eq(schema.cloudStorageConnections.id, id))
+      .returning();
+    return updated;
+  }
+
+  async updateCloudStorageConnectionTokens(
+    id: number, 
+    tokens: { accessToken: string; refreshToken?: string; tokenExpiresAt?: Date }
+  ): Promise<CloudStorageConnection | undefined> {
+    const [updated] = await db.update(schema.cloudStorageConnections)
+      .set({ 
+        accessToken: tokens.accessToken,
+        ...(tokens.refreshToken && { refreshToken: tokens.refreshToken }),
+        ...(tokens.tokenExpiresAt && { tokenExpiresAt: tokens.tokenExpiresAt }),
+        updatedAt: new Date()
+      })
+      .where(eq(schema.cloudStorageConnections.id, id))
+      .returning();
+    return updated;
+  }
+
+  async updateCloudStorageConnectionSyncStatus(
+    id: number, 
+    status: { syncStatus: string; lastSyncAt?: Date; syncError?: string | null }
+  ): Promise<CloudStorageConnection | undefined> {
+    const [updated] = await db.update(schema.cloudStorageConnections)
+      .set({ 
+        syncStatus: status.syncStatus,
+        ...(status.lastSyncAt && { lastSyncAt: status.lastSyncAt }),
+        syncError: status.syncError ?? null,
+        updatedAt: new Date()
+      })
+      .where(eq(schema.cloudStorageConnections.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteCloudStorageConnection(id: number): Promise<void> {
+    await db.delete(schema.cloudStorageConnections).where(eq(schema.cloudStorageConnections.id, id));
+  }
+
+  // Cloud Synced Files
+  async getCloudSyncedFilesByProject(projectId: number): Promise<CloudSyncedFile[]> {
+    return db.select().from(schema.cloudSyncedFiles)
+      .where(eq(schema.cloudSyncedFiles.projectId, projectId))
+      .orderBy(asc(schema.cloudSyncedFiles.name));
+  }
+
+  async getCloudSyncedFilesByConnection(connectionId: number): Promise<CloudSyncedFile[]> {
+    return db.select().from(schema.cloudSyncedFiles)
+      .where(eq(schema.cloudSyncedFiles.connectionId, connectionId))
+      .orderBy(asc(schema.cloudSyncedFiles.cloudFilePath));
+  }
+
+  async getCloudSyncedFile(id: number): Promise<CloudSyncedFile | undefined> {
+    const [file] = await db.select().from(schema.cloudSyncedFiles)
+      .where(eq(schema.cloudSyncedFiles.id, id));
+    return file;
+  }
+
+  async getCloudSyncedFileByCloudId(connectionId: number, cloudFileId: string): Promise<CloudSyncedFile | undefined> {
+    const [file] = await db.select().from(schema.cloudSyncedFiles)
+      .where(and(
+        eq(schema.cloudSyncedFiles.connectionId, connectionId),
+        eq(schema.cloudSyncedFiles.cloudFileId, cloudFileId)
+      ));
+    return file;
+  }
+
+  async createCloudSyncedFile(file: InsertCloudSyncedFile): Promise<CloudSyncedFile> {
+    const [created] = await db.insert(schema.cloudSyncedFiles).values(file).returning();
+    return created;
+  }
+
+  async updateCloudSyncedFile(id: number, file: Partial<InsertCloudSyncedFile>): Promise<CloudSyncedFile | undefined> {
+    const [updated] = await db.update(schema.cloudSyncedFiles)
+      .set({ ...file, updatedAt: new Date() })
+      .where(eq(schema.cloudSyncedFiles.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteCloudSyncedFile(id: number): Promise<void> {
+    await db.delete(schema.cloudSyncedFiles).where(eq(schema.cloudSyncedFiles.id, id));
+  }
+
+  async deleteCloudSyncedFilesByConnection(connectionId: number): Promise<void> {
+    await db.delete(schema.cloudSyncedFiles).where(eq(schema.cloudSyncedFiles.connectionId, connectionId));
   }
 }
 

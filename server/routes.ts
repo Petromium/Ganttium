@@ -1,5 +1,6 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
+import crypto from "crypto";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import {
@@ -1634,6 +1635,316 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error getting storage quota:", error);
       res.status(500).json({ message: "Failed to get storage quota" });
+    }
+  });
+
+  // ===== Cloud Storage Routes =====
+  
+  // Get available cloud storage providers
+  app.get('/api/cloud-storage/providers', isAuthenticated, async (req: any, res) => {
+    try {
+      const { CLOUD_PROVIDERS } = await import('./cloudStorage');
+      
+      const providers = Object.entries(CLOUD_PROVIDERS).map(([key, config]) => ({
+        id: key,
+        name: config.displayName,
+        icon: config.icon,
+        configured: !!(process.env[config.clientIdEnv] && process.env[config.clientSecretEnv])
+      }));
+      
+      res.json(providers);
+    } catch (error) {
+      console.error("Error getting providers:", error);
+      res.status(500).json({ message: "Failed to get cloud storage providers" });
+    }
+  });
+  
+  // Get cloud storage connections for organization
+  app.get('/api/organizations/:orgId/cloud-storage', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const connections = await storage.getCloudStorageConnectionsByOrganization(orgId);
+      
+      // Don't expose tokens to frontend
+      const safeConnections = connections.map(conn => ({
+        id: conn.id,
+        provider: conn.provider,
+        accountEmail: conn.accountEmail,
+        accountName: conn.accountName,
+        rootFolderName: conn.rootFolderName,
+        syncEnabled: conn.syncEnabled,
+        syncStatus: conn.syncStatus,
+        lastSyncAt: conn.lastSyncAt,
+        syncError: conn.syncError,
+        createdAt: conn.createdAt
+      }));
+      
+      res.json(safeConnections);
+    } catch (error) {
+      console.error("Error getting cloud storage connections:", error);
+      res.status(500).json({ message: "Failed to get cloud storage connections" });
+    }
+  });
+  
+  // Get OAuth authorization URL for cloud provider
+  app.post('/api/organizations/:orgId/cloud-storage/auth-url', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const { provider } = req.body;
+      if (!provider) {
+        return res.status(400).json({ message: "Provider is required" });
+      }
+      
+      // Check if already connected
+      const existing = await storage.getCloudStorageConnectionByProvider(orgId, provider);
+      if (existing) {
+        return res.status(400).json({ message: "Provider already connected. Disconnect first." });
+      }
+      
+      const { getAuthorizationUrl } = await import('./cloudStorage');
+      
+      // Create HMAC-signed state token for OAuth security
+      const statePayload = JSON.stringify({
+        organizationId: orgId,
+        userId,
+        provider,
+        timestamp: Date.now()
+      });
+      const statePayloadBase64 = Buffer.from(statePayload).toString('base64');
+      const stateSecret = process.env.SESSION_SECRET || 'oauth-state-secret';
+      const stateSignature = crypto
+        .createHmac('sha256', stateSecret)
+        .update(statePayloadBase64)
+        .digest('hex');
+      const state = `${statePayloadBase64}.${stateSignature}`;
+      
+      const redirectUri = `${req.protocol}://${req.get('host')}/api/cloud-storage/callback`;
+      const authUrl = getAuthorizationUrl(provider, state, redirectUri);
+      
+      res.json({ authUrl, state });
+    } catch (error) {
+      console.error("Error generating auth URL:", error);
+      res.status(500).json({ message: "Failed to generate authorization URL" });
+    }
+  });
+  
+  // OAuth callback handler
+  app.get('/api/cloud-storage/callback', async (req: any, res) => {
+    try {
+      const { code, state, error: oauthError } = req.query;
+      
+      if (oauthError) {
+        return res.redirect(`/settings?error=${encodeURIComponent(oauthError)}`);
+      }
+      
+      if (!code || !state) {
+        return res.redirect('/settings?error=invalid_callback');
+      }
+      
+      // Verify HMAC-signed state
+      const stateParts = (state as string).split('.');
+      if (stateParts.length !== 2) {
+        return res.redirect('/settings?error=invalid_state');
+      }
+      
+      const [statePayloadBase64, providedSignature] = stateParts;
+      const stateSecret = process.env.SESSION_SECRET || 'oauth-state-secret';
+      const expectedSignature = crypto
+        .createHmac('sha256', stateSecret)
+        .update(statePayloadBase64)
+        .digest('hex');
+      
+      // Reject if signature lengths don't match (SHA256 HMAC is always 64 hex chars)
+      if (providedSignature.length !== 64 || expectedSignature.length !== 64) {
+        console.error("OAuth state invalid signature length");
+        return res.redirect('/settings?error=invalid_state');
+      }
+      
+      // Use timing-safe comparison to prevent timing attacks
+      const providedBuffer = Buffer.from(providedSignature, 'hex');
+      const expectedBuffer = Buffer.from(expectedSignature, 'hex');
+      
+      if (providedBuffer.length !== expectedBuffer.length || 
+          !crypto.timingSafeEqual(providedBuffer, expectedBuffer)) {
+        console.error("OAuth state signature mismatch - potential tampering");
+        return res.redirect('/settings?error=invalid_state');
+      }
+      
+      // Decode state payload
+      let stateData;
+      try {
+        stateData = JSON.parse(Buffer.from(statePayloadBase64, 'base64').toString());
+      } catch {
+        return res.redirect('/settings?error=invalid_state');
+      }
+      
+      const { organizationId, userId, provider } = stateData;
+      
+      // Verify state timestamp (5 minute expiry)
+      if (Date.now() - stateData.timestamp > 5 * 60 * 1000) {
+        return res.redirect('/settings?error=state_expired');
+      }
+      
+      const { exchangeCodeForTokens, getCloudStorageProvider, CLOUD_PROVIDERS } = await import('./cloudStorage');
+      
+      const redirectUri = `${req.protocol}://${req.get('host')}/api/cloud-storage/callback`;
+      const tokens = await exchangeCodeForTokens(provider, code as string, redirectUri);
+      
+      // Create connection record
+      const connection = await storage.createCloudStorageConnection({
+        organizationId,
+        provider,
+        connectedBy: userId,
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+        tokenExpiresAt: tokens.expiresAt,
+        syncEnabled: true
+      });
+      
+      // Get user info from provider
+      try {
+        const providerInstance = getCloudStorageProvider(connection);
+        const userInfo = await providerInstance.getUserInfo();
+        
+        await storage.updateCloudStorageConnection(connection.id, {
+          accountEmail: userInfo.email,
+          accountName: userInfo.name
+        });
+      } catch (e) {
+        console.error("Error getting user info:", e);
+      }
+      
+      res.redirect(`/settings?success=cloud_storage_connected&provider=${provider}`);
+    } catch (error) {
+      console.error("OAuth callback error:", error);
+      res.redirect('/settings?error=oauth_failed');
+    }
+  });
+  
+  // Disconnect cloud storage provider
+  app.delete('/api/organizations/:orgId/cloud-storage/:connectionId', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      const connectionId = parseInt(req.params.connectionId);
+      
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const connection = await storage.getCloudStorageConnection(connectionId);
+      if (!connection || connection.organizationId !== orgId) {
+        return res.status(404).json({ message: "Connection not found" });
+      }
+      
+      // Delete synced files first
+      await storage.deleteCloudSyncedFilesByConnection(connectionId);
+      
+      // Delete connection
+      await storage.deleteCloudStorageConnection(connectionId);
+      
+      res.json({ message: "Cloud storage disconnected" });
+    } catch (error) {
+      console.error("Error disconnecting cloud storage:", error);
+      res.status(500).json({ message: "Failed to disconnect cloud storage" });
+    }
+  });
+  
+  // Trigger sync for cloud storage connection
+  app.post('/api/organizations/:orgId/cloud-storage/:connectionId/sync', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      const connectionId = parseInt(req.params.connectionId);
+      const { projectId } = req.body;
+      
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      if (!projectId) {
+        return res.status(400).json({ message: "Project ID is required" });
+      }
+      
+      const connection = await storage.getCloudStorageConnection(connectionId);
+      if (!connection || connection.organizationId !== orgId) {
+        return res.status(404).json({ message: "Connection not found" });
+      }
+      
+      if (!connection.syncEnabled) {
+        return res.status(400).json({ message: "Sync is disabled for this connection" });
+      }
+      
+      const { syncCloudFiles } = await import('./cloudStorage');
+      const stats = await syncCloudFiles(connection, projectId);
+      
+      res.json({
+        message: "Sync completed",
+        added: stats.added,
+        updated: stats.updated,
+        errors: stats.errors
+      });
+    } catch (error) {
+      console.error("Error syncing cloud storage:", error);
+      res.status(500).json({ message: "Failed to sync cloud storage" });
+    }
+  });
+  
+  // List files from cloud storage
+  app.get('/api/organizations/:orgId/cloud-storage/:connectionId/files', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      const connectionId = parseInt(req.params.connectionId);
+      const { folderId } = req.query;
+      
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const connection = await storage.getCloudStorageConnection(connectionId);
+      if (!connection || connection.organizationId !== orgId) {
+        return res.status(404).json({ message: "Connection not found" });
+      }
+      
+      const { getCloudStorageProvider } = await import('./cloudStorage');
+      const provider = getCloudStorageProvider(connection);
+      const files = await provider.listFiles(folderId as string | undefined);
+      
+      res.json(files);
+    } catch (error) {
+      console.error("Error listing cloud files:", error);
+      res.status(500).json({ message: "Failed to list cloud files" });
+    }
+  });
+  
+  // Get synced files for a project
+  app.get('/api/projects/:projectId/cloud-files', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+      
+      if (!await verifyProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const files = await storage.getCloudSyncedFilesByProject(projectId);
+      res.json(files);
+    } catch (error) {
+      console.error("Error getting cloud synced files:", error);
+      res.status(500).json({ message: "Failed to get cloud synced files" });
     }
   });
 

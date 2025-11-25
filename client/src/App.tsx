@@ -23,6 +23,7 @@ import CostPage from "@/pages/CostPage";
 import AIAssistantPage from "@/pages/AIAssistantPage";
 import ReportsPage from "@/pages/ReportsPage";
 import EmailTemplatesPage from "@/pages/EmailTemplatesPage";
+import SettingsPage from "@/pages/SettingsPage";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -64,6 +65,7 @@ function Router() {
       <Route path="/reports" component={ReportsPage} />
       <Route path="/email-templates" component={EmailTemplatesPage} />
       <Route path="/ai-assistant" component={AIAssistantPage} />
+      <Route path="/settings" component={SettingsPage} />
       <Route path="/pmo/dashboard">
         <div className="p-6">
           <h1 className="text-3xl font-semibold">PMO Dashboard</h1>

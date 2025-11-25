@@ -501,3 +501,66 @@ export const insertStorageQuotaSchema = createInsertSchema(storageQuotas).omit({
 export const selectStorageQuotaSchema = createSelectSchema(storageQuotas);
 export type InsertStorageQuota = z.infer<typeof insertStorageQuotaSchema>;
 export type StorageQuota = typeof storageQuotas.$inferSelect;
+
+// Cloud Storage Connections (Google Drive, OneDrive, Dropbox per organization)
+export const cloudStorageConnections = pgTable("cloud_storage_connections", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  provider: varchar("provider", { length: 50 }).notNull(), // google_drive, onedrive, dropbox
+  connectedBy: varchar("connected_by", { length: 255 }).notNull().references(() => users.id),
+  accessToken: text("access_token"), // Encrypted OAuth access token
+  refreshToken: text("refresh_token"), // Encrypted OAuth refresh token
+  tokenExpiresAt: timestamp("token_expires_at"),
+  accountEmail: varchar("account_email", { length: 255 }), // Connected account email
+  accountName: varchar("account_name", { length: 255 }), // Connected account display name
+  rootFolderId: varchar("root_folder_id", { length: 255 }), // Root folder for sync
+  rootFolderName: varchar("root_folder_name", { length: 255 }),
+  syncEnabled: boolean("sync_enabled").notNull().default(true),
+  lastSyncAt: timestamp("last_sync_at"),
+  syncStatus: varchar("sync_status", { length: 50 }).default("idle"), // idle, syncing, error
+  syncError: text("sync_error"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  orgProviderIdx: index("cloud_storage_org_provider_idx").on(table.organizationId, table.provider),
+}));
+
+// Synced Cloud Files (one-way sync from cloud storage to local storage)
+export const cloudSyncedFiles = pgTable("cloud_synced_files", {
+  id: serial("id").primaryKey(),
+  connectionId: integer("connection_id").notNull().references(() => cloudStorageConnections.id, { onDelete: "cascade" }),
+  projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  cloudFileId: varchar("cloud_file_id", { length: 500 }).notNull(), // Provider's file ID
+  cloudFilePath: text("cloud_file_path").notNull(), // Full path in cloud storage
+  localFileId: integer("local_file_id").references(() => projectFiles.id, { onDelete: "set null" }), // Local copy
+  name: varchar("name", { length: 255 }).notNull(),
+  mimeType: varchar("mime_type", { length: 255 }),
+  size: integer("size"),
+  cloudModifiedAt: timestamp("cloud_modified_at"),
+  lastSyncedAt: timestamp("last_synced_at"),
+  syncStatus: varchar("sync_status", { length: 50 }).default("pending"), // pending, synced, error
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  connectionIdx: index("cloud_synced_files_connection_idx").on(table.connectionId),
+  projectIdx: index("cloud_synced_files_project_idx").on(table.projectId),
+  cloudFileIdx: index("cloud_synced_files_cloud_file_idx").on(table.connectionId, table.cloudFileId),
+}));
+
+// Zod Schemas for Cloud Storage Connections
+export const insertCloudStorageConnectionSchema = createInsertSchema(cloudStorageConnections).omit({ 
+  id: true, createdAt: true, updatedAt: true, connectedBy: true, lastSyncAt: true, syncStatus: true, syncError: true 
+});
+export const updateCloudStorageConnectionSchema = insertCloudStorageConnectionSchema.partial();
+export const selectCloudStorageConnectionSchema = createSelectSchema(cloudStorageConnections);
+export type InsertCloudStorageConnection = z.infer<typeof insertCloudStorageConnectionSchema>;
+export type UpdateCloudStorageConnection = z.infer<typeof updateCloudStorageConnectionSchema>;
+export type CloudStorageConnection = typeof cloudStorageConnections.$inferSelect;
+
+// Zod Schemas for Cloud Synced Files
+export const insertCloudSyncedFileSchema = createInsertSchema(cloudSyncedFiles).omit({ id: true, createdAt: true, updatedAt: true });
+export const updateCloudSyncedFileSchema = insertCloudSyncedFileSchema.partial();
+export const selectCloudSyncedFileSchema = createSelectSchema(cloudSyncedFiles);
+export type InsertCloudSyncedFile = z.infer<typeof insertCloudSyncedFileSchema>;
+export type UpdateCloudSyncedFile = z.infer<typeof updateCloudSyncedFileSchema>;
+export type CloudSyncedFile = typeof cloudSyncedFiles.$inferSelect;
