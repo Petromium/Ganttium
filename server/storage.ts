@@ -183,6 +183,24 @@ export interface IStorage {
   getResourceAssignment(id: number): Promise<ResourceAssignment | undefined>;
   getResourceAssignmentsByTask(taskId: number): Promise<ResourceAssignment[]>;
   getResourceAssignmentsByResource(resourceId: number): Promise<(ResourceAssignment & { task: Task | null })[]>;
+  getProjectResourceUtilization(projectId: number, startDate: Date, endDate: Date): Promise<{
+    resources: Array<{
+      resourceId: number;
+      resourceName: string;
+      resourceType: string;
+      periods: Array<{
+        periodStart: Date;
+        periodEnd: Date;
+        utilization: number;
+        isOverAllocated: boolean;
+        assignments: Array<{
+          taskId: number;
+          taskName: string;
+          allocation: number;
+        }>;
+      }>;
+    }>;
+  }>;
   createResourceAssignment(assignment: InsertResourceAssignment): Promise<ResourceAssignment>;
   deleteResourceAssignment(id: number): Promise<void>;
 
@@ -995,6 +1013,122 @@ export class DatabaseStorage implements IStorage {
       result.push({ ...assignment, task: task || null });
     }
     return result;
+  }
+
+  async getProjectResourceUtilization(projectId: number, startDate: Date, endDate: Date): Promise<{
+    resources: Array<{
+      resourceId: number;
+      resourceName: string;
+      resourceType: string;
+      periods: Array<{
+        periodStart: Date;
+        periodEnd: Date;
+        utilization: number;
+        isOverAllocated: boolean;
+        assignments: Array<{
+          taskId: number;
+          taskName: string;
+          allocation: number;
+        }>;
+      }>;
+    }>;
+  }> {
+    const resources = await this.getResourcesByProject(projectId);
+    const tasks = await this.getTasksByProject(projectId);
+    const tasksMap = new Map(tasks.map(t => [t.id, t]));
+    
+    const weekMs = 7 * 24 * 60 * 60 * 1000;
+    const periods: Array<{ start: Date; end: Date }> = [];
+    
+    let currentStart = new Date(startDate);
+    currentStart.setHours(0, 0, 0, 0);
+    while (currentStart < endDate) {
+      const periodEnd = new Date(Math.min(currentStart.getTime() + weekMs, endDate.getTime()));
+      periods.push({ start: new Date(currentStart), end: periodEnd });
+      currentStart = new Date(periodEnd);
+    }
+    
+    const result: Array<{
+      resourceId: number;
+      resourceName: string;
+      resourceType: string;
+      periods: Array<{
+        periodStart: Date;
+        periodEnd: Date;
+        utilization: number;
+        isOverAllocated: boolean;
+        assignments: Array<{
+          taskId: number;
+          taskName: string;
+          allocation: number;
+        }>;
+      }>;
+    }> = [];
+    
+    for (const resource of resources) {
+      const assignments = await db.select().from(schema.resourceAssignments)
+        .where(eq(schema.resourceAssignments.resourceId, resource.id));
+      
+      const resourcePeriods: Array<{
+        periodStart: Date;
+        periodEnd: Date;
+        utilization: number;
+        isOverAllocated: boolean;
+        assignments: Array<{
+          taskId: number;
+          taskName: string;
+          allocation: number;
+        }>;
+      }> = [];
+      
+      for (const period of periods) {
+        let totalWeightedAllocation = 0;
+        const periodAssignments: Array<{ taskId: number; taskName: string; allocation: number }> = [];
+        
+        const periodDays = Math.max(1, Math.ceil((period.end.getTime() - period.start.getTime()) / (24 * 60 * 60 * 1000)));
+        
+        for (const assignment of assignments) {
+          const task = tasksMap.get(assignment.taskId);
+          if (!task || !task.startDate || !task.endDate) continue;
+          
+          const taskStart = new Date(task.startDate);
+          const taskEnd = new Date(task.endDate);
+          
+          if (taskStart <= period.end && taskEnd >= period.start) {
+            const overlapStart = new Date(Math.max(taskStart.getTime(), period.start.getTime()));
+            const overlapEnd = new Date(Math.min(taskEnd.getTime(), period.end.getTime()));
+            const overlapDays = Math.max(1, Math.ceil((overlapEnd.getTime() - overlapStart.getTime()) / (24 * 60 * 60 * 1000)));
+            
+            const weightedAllocation = (assignment.allocation * overlapDays) / periodDays;
+            totalWeightedAllocation += weightedAllocation;
+            
+            periodAssignments.push({
+              taskId: task.id,
+              taskName: task.name,
+              allocation: Math.round(weightedAllocation),
+            });
+          }
+        }
+        
+        const finalUtilization = Math.round(totalWeightedAllocation);
+        resourcePeriods.push({
+          periodStart: period.start,
+          periodEnd: period.end,
+          utilization: finalUtilization,
+          isOverAllocated: finalUtilization > 100,
+          assignments: periodAssignments,
+        });
+      }
+      
+      result.push({
+        resourceId: resource.id,
+        resourceName: resource.name,
+        resourceType: resource.type,
+        periods: resourcePeriods,
+      });
+    }
+    
+    return { resources: result };
   }
 
   async createResourceAssignment(assignment: InsertResourceAssignment): Promise<ResourceAssignment> {

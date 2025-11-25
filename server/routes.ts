@@ -1180,6 +1180,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Resource Utilization
+  app.get('/api/projects/:projectId/resource-utilization', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+      
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const project = await storage.getProject(projectId);
+      if (!project) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      
+      const startDate = req.query.startDate 
+        ? new Date(req.query.startDate as string) 
+        : project.startDate || new Date();
+      const endDate = req.query.endDate 
+        ? new Date(req.query.endDate as string) 
+        : project.endDate || new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+      
+      const utilization = await storage.getProjectResourceUtilization(projectId, startDate, endDate);
+      res.json(utilization);
+    } catch (error) {
+      console.error("Error fetching resource utilization:", error);
+      res.status(500).json({ message: "Failed to fetch resource utilization" });
+    }
+  });
+
   // Resource Assignments
   app.get('/api/resources/:resourceId/assignments', isAuthenticated, async (req: any, res) => {
     try {

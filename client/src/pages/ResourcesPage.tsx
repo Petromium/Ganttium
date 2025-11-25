@@ -5,12 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useProject } from "@/contexts/ProjectContext";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { 
   Plus, AlertTriangle, Loader2, User, Wrench, Package, 
-  DollarSign, Percent, MoreHorizontal, Pencil, Trash2, Eye
+  DollarSign, Percent, MoreHorizontal, Pencil, Trash2, Eye,
+  BarChart3, List
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -21,6 +23,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ResourceDetailsModal } from "@/components/modals/ResourceDetailsModal";
 import { EditResourceModal } from "@/components/modals/EditResourceModal";
+import { ResourceUtilizationChart } from "@/components/ResourceUtilizationChart";
 import type { Resource } from "@shared/schema";
 
 const RESOURCE_TYPES = [
@@ -156,7 +159,20 @@ export default function ResourcesPage() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      <Tabs defaultValue="list" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="list" data-testid="tab-resources-list">
+            <List className="h-4 w-4 mr-2" />
+            List View
+          </TabsTrigger>
+          <TabsTrigger value="utilization" data-testid="tab-resources-utilization">
+            <BarChart3 className="h-4 w-4 mr-2" />
+            Utilization
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="list" className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
@@ -328,6 +344,12 @@ export default function ResourcesPage() {
           })}
         </div>
       )}
+        </TabsContent>
+
+        <TabsContent value="utilization">
+          <ResourceUtilizationChart />
+        </TabsContent>
+      </Tabs>
 
       <ResourceDetailsModal
         resource={selectedResource}
