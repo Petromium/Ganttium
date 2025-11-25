@@ -166,9 +166,11 @@ export const tasks = pgTable("tasks", {
   actualHours: decimal("actual_hours", { precision: 10, scale: 2 }),
   progress: integer("progress").notNull().default(0), // 0-100
   assignedTo: varchar("assigned_to", { length: 255 }).references(() => users.id),
+  assignedToName: varchar("assigned_to_name", { length: 100 }), // Flexible text for imports (e.g., "PM-01", "ENG-LEAD")
   createdBy: varchar("created_by", { length: 255 }).notNull().references(() => users.id),
   // EPC-Specific Fields
   discipline: disciplineEnum("discipline").default("general"),
+  disciplineLabel: varchar("discipline_label", { length: 100 }), // Flexible text for imports (e.g., "management", "engineering")
   areaCode: varchar("area_code", { length: 50 }), // Plant area/zone code
   weightFactor: decimal("weight_factor", { precision: 5, scale: 4 }).default("0.0000"), // Progress weight (0.0000-1.0000)
   physicalQuantity: decimal("physical_quantity", { precision: 15, scale: 2 }), // e.g., 500 meters

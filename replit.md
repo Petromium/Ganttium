@@ -22,6 +22,8 @@ A comprehensive, multi-tenant SaaS platform for EPC (Engineering, Procurement, C
 - Auto-generated sequential codes (RISK-001, ISS-001, etc.)
 - **Dependencies tab redesign** with two-column layout (Predecessors/Successors), inline editing, and full CRUD support
 - **Import/Export functionality** - JSON export (full project data), CSV export (tasks), PDF status reports via TopBar dropdown
+- **Flexible Import System** - Allows any text values for discipline and assignedTo fields from external AI tools (ChatGPT, Claude, Gemini)
+- **Label Management** - Settings page tab for normalizing discipline and assignee labels after import (bulk find-and-replace)
 - **EPC Analytics Dashboard** with S-Curve chart and EVA performance indicators (SPI/CPI gauges)
 
 ### 🚧 In Progress / Needs Completion

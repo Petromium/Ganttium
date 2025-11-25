@@ -1764,7 +1764,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     taskPriority: { "normal": "medium", "urgent": "critical", "none": "low" },
     riskStatus: { "active": "identified", "open": "identified", "monitoring": "assessed", "resolved": "closed" },
     issueStatus: { "pending": "open", "fixed": "resolved", "done": "closed" },
-    stakeholderRole: { "owner": "sponsor", "customer": "client", "subcontractor": "contractor", "regulator": "regulatory", "supplier": "vendor" }
+    stakeholderRole: { "owner": "sponsor", "customer": "client", "subcontractor": "contractor", "regulator": "regulatory", "supplier": "vendor" },
+    // Discipline mappings for common EPC terms
+    discipline: { 
+      "management": "general", "project-management": "general", "pm": "general",
+      "engineering": "general", "design": "general",
+      "procurement": "general", "purchasing": "general", "supply-chain": "general",
+      "construction": "civil", "site-works": "civil", "building": "civil",
+      "mep": "mechanical", "hvac-mechanical": "mechanical",
+      "e&i": "electrical", "power": "electrical",
+      "controls": "instrumentation", "automation": "instrumentation",
+      "pipeline": "piping", "plumbing": "piping"
+    }
   };
   
   // Get import schema with all valid enum values (for external AI consumption)
@@ -1807,10 +1818,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
               progress: { type: "integer", minimum: 0, maximum: 100, default: 0 },
               startDate: { type: "string", format: "date-time" },
               endDate: { type: "string", format: "date-time" },
-              assignedTo: { type: ["string", "null"], description: "Assignee identifier or name" },
+              assignedTo: { type: ["string", "null"], description: "Assignee identifier (e.g., 'PM-01', 'ENG-LEAD'). Stored as text - no user account required." },
               estimatedHours: { type: "string", description: "Estimated hours as string (e.g., '480.00')" },
               actualHours: { type: "string", description: "Actual hours as string" },
-              discipline: { type: "string", enum: importEnums.discipline, default: "general" }
+              discipline: { 
+                type: "string", 
+                description: "FLEXIBLE: Any discipline text is accepted (e.g., 'management', 'engineering', 'procurement'). Known values auto-map to standard categories. Original text preserved for reporting.",
+                examples: ["management", "engineering", "civil", "mechanical", "electrical", "procurement", "construction"]
+              }
             }
           }
         },
@@ -1923,10 +1938,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           progress: 0,
           startDate: new Date().toISOString(),
           endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
-          assignedTo: null,
+          assignedTo: "PM-01",  // Flexible: any text identifier works
           estimatedHours: "200.00",
           actualHours: "0.00",
-          discipline: "management"
+          discipline: "management"  // Flexible: any discipline text accepted
         },
         {
           wbsCode: "1.1",
@@ -1935,7 +1950,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           status: "not-started",
           priority: "critical",
           progress: 0,
-          discipline: "general"
+          assignedTo: "ENG-LEAD",  // Example: team role identifier
+          discipline: "engineering"  // Any EPC discipline term works
         },
         {
           wbsCode: "2",
@@ -1944,6 +1960,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           status: "not-started",
           priority: "critical",
           progress: 0,
+          assignedTo: "CONST-DIR",
           discipline: "construction"
         }
       ],
@@ -1995,13 +2012,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       _instructions: {
         usage: "Copy this template and modify for your project. You can also provide this template to AI tools (ChatGPT, Claude, Gemini) as a reference format.",
         wbsHierarchy: "WBS codes define parent-child relationships: '1' is parent of '1.1', which is parent of '1.1.1'. Maximum 5 levels.",
-        validEnums: importEnums,
+        flexibleFields: {
+          discipline: "Any text accepted (e.g., 'management', 'engineering', 'procurement'). Known values auto-map to standard categories.",
+          assignedTo: "Any text identifier (e.g., 'PM-01', 'ENG-LEAD'). Stored as label - no user account required."
+        },
+        validEnums: {
+          ...importEnums,
+          _note: "discipline is now FLEXIBLE - any text is accepted and preserved"
+        },
         tips: [
           "Priority must be: low, medium, high, or critical (not 'normal')",
           "Risk status must be: identified, assessed, mitigating, or closed (not 'active')",
           "Dates should be ISO 8601 format",
-          "Numbers should be strings (e.g., '1000.00')"
-        ]
+          "Numbers should be strings (e.g., '1000.00')",
+          "discipline: ANY text is now accepted - use your own terminology",
+          "assignedTo: Use any identifier (PM-01, ENG-LEAD) - no user account needed"
+        ],
+        labelManagement: "After import, use Label Management to normalize discipline/assignee values for consistency."
       }
     };
     
@@ -2086,6 +2113,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
   
+  // Input sanitization utilities for flexible text fields
+  const sanitizeText = (input: any, maxLength: number = 100): string | null => {
+    if (input === null || input === undefined) return null;
+    const str = String(input).trim();
+    if (str === '') return null;
+    // Remove potentially dangerous characters (XSS prevention)
+    const sanitized = str
+      .replace(/[<>]/g, '') // Remove angle brackets
+      .replace(/javascript:/gi, '') // Remove javascript: protocol
+      .replace(/on\w+=/gi, '') // Remove event handlers like onclick=
+      .slice(0, maxLength); // Enforce length limit
+    return sanitized || null;
+  };
+  
+  // Validate text contains only safe characters
+  const isValidLabel = (input: string): boolean => {
+    // Allow alphanumeric, spaces, hyphens, underscores, dots, parentheses
+    return /^[\w\s\-_.()\/&]+$/i.test(input);
+  };
+  
+  // Helper to try enum mapping, return null if not valid (for flexible import)
+  const tryMapEnum = (category: string, value: string, validValues: string[]): string | null => {
+    if (!value) return null;
+    if (validValues.includes(value)) return value;
+    const mapped = valueMappings[category]?.[value];
+    return mapped || null;
+  };
+
   // Import project data with validation and value mapping
   app.post('/api/projects/:projectId/import', isAuthenticated, async (req: any, res) => {
     try {
@@ -2108,7 +2163,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       
-      // Helper to map values with fallback
+      // Helper to map values with fallback - for strict enum fields
       const mapValue = (category: string, value: string, validValues: string[], defaultValue: string): string => {
         if (!value) return defaultValue;
         if (validValues.includes(value)) return value;
@@ -2117,7 +2172,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           warnings.push(`Mapped '${value}' to '${mapped}' for ${category}`);
           return mapped;
         }
-        errors.push(`Invalid ${category}: '${value}'. Valid values: ${validValues.join(", ")}`);
+        // Don't error - just use default and warn
+        warnings.push(`Unknown ${category}: '${value}', using '${defaultValue}'`);
         return defaultValue;
       };
       
@@ -2146,16 +2202,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return aDepth - bDepth;
       });
       
-      // Import tasks with hierarchy
+      // Import tasks with hierarchy and flexible text fields
       for (const task of sortedTasks) {
         try {
           const wbsCode = task.wbsCode || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
           const parentWbsCode = getParentWbsCode(wbsCode);
           const parentId = parentWbsCode ? wbsToTaskId[parentWbsCode] : null;
           
+          // Map strict enums with fallbacks
           const mappedPriority = mapValue('taskPriority', task.priority, importEnums.taskPriority, 'medium');
           const mappedStatus = task.status && importEnums.taskStatus.includes(task.status) ? task.status : 'not-started';
-          const mappedDiscipline = task.discipline && importEnums.discipline.includes(task.discipline) ? task.discipline : 'general';
+          
+          // Try to map discipline to valid enum, otherwise store as flexible label
+          const disciplineEnumValue = tryMapEnum('discipline', task.discipline, importEnums.discipline);
+          const disciplineLabelValue = sanitizeText(task.discipline, 100);
+          
+          // If discipline isn't a valid enum, store the original as disciplineLabel
+          if (task.discipline && !disciplineEnumValue && disciplineLabelValue) {
+            warnings.push(`Task '${task.name}': discipline '${task.discipline}' stored as label (not in standard list)`);
+          }
+          
+          // Sanitize assignedTo - store as text label, don't try to link to user FK
+          const assignedToName = sanitizeText(task.assignedTo || task.assignee, 100);
+          if (assignedToName && !isValidLabel(assignedToName)) {
+            warnings.push(`Task '${task.name}': assignedTo contains invalid characters, sanitized`);
+          }
           
           const createdTask = await storage.createTask({
             projectId,
@@ -2168,11 +2239,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             progress: Math.min(100, Math.max(0, parseInt(task.progress) || 0)),
             startDate: task.startDate ? new Date(task.startDate) : null,
             endDate: task.endDate ? new Date(task.endDate) : null,
-            assignedTo: task.assignedTo || task.assignee || null,
+            // Use assignedToName text field instead of FK
+            assignedTo: null, // Don't try to set FK from import
+            assignedToName: assignedToName,
             priority: mappedPriority as "low" | "medium" | "high" | "critical",
             estimatedHours: task.estimatedHours,
             actualHours: task.actualHours,
-            discipline: mappedDiscipline as any
+            // Use enum if valid, otherwise default to 'general'
+            discipline: (disciplineEnumValue || 'general') as any,
+            // Store original discipline text as label for flexibility
+            disciplineLabel: disciplineLabelValue
           });
           
           wbsToTaskId[wbsCode] = createdTask.id;
@@ -2292,6 +2368,190 @@ export async function registerRoutes(app: Express): Promise<Server> {
         error: error.message,
         hint: "Validate your JSON first using POST /api/import/validate"
       });
+    }
+  });
+
+  // ===== Label Management API Routes =====
+  
+  // Get unique discipline labels used in a project
+  app.get('/api/projects/:projectId/labels/disciplines', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+      
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const tasks = await storage.getTasksByProject(projectId);
+      
+      // Get unique discipline labels and counts
+      const disciplineStats: Record<string, { enum: string | null, label: string | null, count: number }> = {};
+      
+      for (const task of tasks) {
+        const key = (task as any).disciplineLabel || task.discipline || 'general';
+        if (!disciplineStats[key]) {
+          disciplineStats[key] = {
+            enum: task.discipline,
+            label: (task as any).disciplineLabel,
+            count: 0
+          };
+        }
+        disciplineStats[key].count++;
+      }
+      
+      res.json({
+        disciplines: Object.entries(disciplineStats).map(([value, stats]) => ({
+          value,
+          disciplineEnum: stats.enum,
+          disciplineLabel: stats.label,
+          taskCount: stats.count
+        })),
+        total: tasks.length
+      });
+    } catch (error: any) {
+      console.error("Error getting discipline labels:", error);
+      res.status(500).json({ message: "Failed to get discipline labels" });
+    }
+  });
+  
+  // Get unique assignee names used in a project
+  app.get('/api/projects/:projectId/labels/assignees', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+      
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const tasks = await storage.getTasksByProject(projectId);
+      
+      // Get unique assignee names and counts
+      const assigneeStats: Record<string, { userId: string | null, name: string | null, count: number }> = {};
+      
+      for (const task of tasks) {
+        const name = (task as any).assignedToName;
+        if (name) {
+          if (!assigneeStats[name]) {
+            assigneeStats[name] = {
+              userId: task.assignedTo,
+              name: name,
+              count: 0
+            };
+          }
+          assigneeStats[name].count++;
+        }
+      }
+      
+      res.json({
+        assignees: Object.entries(assigneeStats).map(([value, stats]) => ({
+          value,
+          linkedUserId: stats.userId,
+          taskCount: stats.count
+        })),
+        total: Object.keys(assigneeStats).length
+      });
+    } catch (error: any) {
+      console.error("Error getting assignee labels:", error);
+      res.status(500).json({ message: "Failed to get assignee labels" });
+    }
+  });
+  
+  // Bulk update discipline labels (find and replace)
+  app.post('/api/projects/:projectId/labels/disciplines/replace', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+      
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const { oldValue, newValue, updateEnum } = req.body;
+      
+      if (!oldValue || !newValue) {
+        return res.status(400).json({ message: "Both oldValue and newValue are required" });
+      }
+      
+      // Sanitize the new value
+      const sanitizedNew = sanitizeText(newValue, 100);
+      if (!sanitizedNew) {
+        return res.status(400).json({ message: "Invalid newValue after sanitization" });
+      }
+      
+      const tasks = await storage.getTasksByProject(projectId);
+      let updatedCount = 0;
+      
+      for (const task of tasks) {
+        const currentLabel = (task as any).disciplineLabel;
+        if (currentLabel === oldValue) {
+          // Determine if new value maps to a valid enum
+          const newEnumValue = tryMapEnum('discipline', sanitizedNew.toLowerCase(), importEnums.discipline);
+          
+          await storage.updateTask(task.id, {
+            disciplineLabel: sanitizedNew,
+            discipline: updateEnum && newEnumValue ? newEnumValue as any : task.discipline
+          });
+          updatedCount++;
+        }
+      }
+      
+      res.json({
+        success: true,
+        message: `Updated ${updatedCount} task(s)`,
+        updatedCount
+      });
+    } catch (error: any) {
+      console.error("Error replacing discipline labels:", error);
+      res.status(500).json({ message: "Failed to replace discipline labels" });
+    }
+  });
+  
+  // Bulk update assignee names (find and replace)
+  app.post('/api/projects/:projectId/labels/assignees/replace', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+      
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const { oldValue, newValue, linkToUserId } = req.body;
+      
+      if (!oldValue || !newValue) {
+        return res.status(400).json({ message: "Both oldValue and newValue are required" });
+      }
+      
+      // Sanitize the new value
+      const sanitizedNew = sanitizeText(newValue, 100);
+      if (!sanitizedNew) {
+        return res.status(400).json({ message: "Invalid newValue after sanitization" });
+      }
+      
+      const tasks = await storage.getTasksByProject(projectId);
+      let updatedCount = 0;
+      
+      for (const task of tasks) {
+        const currentName = (task as any).assignedToName;
+        if (currentName === oldValue) {
+          await storage.updateTask(task.id, {
+            assignedToName: sanitizedNew,
+            assignedTo: linkToUserId || task.assignedTo
+          });
+          updatedCount++;
+        }
+      }
+      
+      res.json({
+        success: true,
+        message: `Updated ${updatedCount} task(s)`,
+        updatedCount
+      });
+    } catch (error: any) {
+      console.error("Error replacing assignee labels:", error);
+      res.status(500).json({ message: "Failed to replace assignee labels" });
     }
   });
 
