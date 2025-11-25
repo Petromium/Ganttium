@@ -189,7 +189,13 @@ export const tasks = pgTable("tasks", {
   actualCost: decimal("actual_cost", { precision: 15, scale: 2 }), // Actual cost to date
   earnedValue: decimal("earned_value", { precision: 15, scale: 2 }), // Earned value
   responsibleContractor: text("responsible_contractor"), // Subcontractor name
-  float: integer("float"), // Float days (calculated)
+  float: integer("float"), // Total float days (calculated from CPM)
+  freeFloat: integer("free_float"), // Free float days (slack before affecting successors)
+  duration: integer("duration"), // Duration in days (calculated from effort/capacity)
+  earlyStart: timestamp("early_start"), // Earliest possible start (CPM Forward Pass)
+  earlyFinish: timestamp("early_finish"), // Earliest possible finish (CPM Forward Pass)
+  lateStart: timestamp("late_start"), // Latest possible start (CPM Backward Pass)
+  lateFinish: timestamp("late_finish"), // Latest possible finish (CPM Backward Pass)
   isMilestone: boolean("is_milestone").default(false),
   isCriticalPath: boolean("is_critical_path").default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),

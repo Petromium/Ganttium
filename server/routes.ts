@@ -4151,6 +4151,79 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== CPM Scheduling Routes =====
+  app.post('/api/projects/:projectId/schedule', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+      
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      
+      // Get project for start date
+      const project = await storage.getProject(projectId);
+      const startDate = project?.startDate ? new Date(project.startDate) : new Date();
+      
+      // Run scheduling
+      const { schedulingService } = await import('./scheduling');
+      const result = await schedulingService.runSchedule(projectId, startDate);
+      
+      if (result.success) {
+        wsManager.notifyProjectUpdate(projectId, "schedule-updated", result, userId);
+      }
+      
+      res.json(result);
+    } catch (error) {
+      console.error("Error running schedule:", error);
+      res.status(500).json({ message: "Failed to run schedule" });
+    }
+  });
+
+  app.get('/api/projects/:projectId/schedule', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+      
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      
+      const { schedulingService } = await import('./scheduling');
+      const scheduleData = await schedulingService.getScheduleData(projectId);
+      
+      res.json(scheduleData);
+    } catch (error) {
+      console.error("Error getting schedule data:", error);
+      res.status(500).json({ message: "Failed to get schedule data" });
+    }
+  });
+
+  app.get('/api/projects/:projectId/critical-path', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+      
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      
+      const { schedulingService } = await import('./scheduling');
+      const scheduleData = await schedulingService.getScheduleData(projectId);
+      
+      const criticalTasks = scheduleData.filter(t => t.isCriticalPath);
+      const criticalPathLength = criticalTasks.reduce((sum, t) => sum + t.duration, 0);
+      
+      res.json({
+        tasks: criticalTasks,
+        totalDuration: criticalPathLength
+      });
+    } catch (error) {
+      console.error("Error getting critical path:", error);
+      res.status(500).json({ message: "Failed to get critical path" });
+    }
+  });
+
   const httpServer = createServer(app);
   
   // Initialize WebSocket server
