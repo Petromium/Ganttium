@@ -25,6 +25,7 @@ A comprehensive, multi-tenant SaaS platform for EPC (Engineering, Procurement, C
 - **Flexible Import System** - Allows any text values for discipline and assignedTo fields from external AI tools (ChatGPT, Claude, Gemini)
 - **Label Management** - Settings page tab for normalizing discipline and assignee labels after import (bulk find-and-replace)
 - **EPC Analytics Dashboard** with S-Curve chart and EVA performance indicators (SPI/CPI gauges)
+- **RACI Matrix with Inheritance** - Redesigned with 4 RACI columns (R/A/C/I), collapsible WBS tree, multi-select dropdowns for stakeholders + resources, automatic inheritance propagation from parent to children, reset to parent capability, Accountable warning for multiple assignments
 
 ### 🚧 In Progress / Needs Completion
 - PWA offline capabilities (IndexedDB caching, 7-day support)
@@ -108,6 +109,14 @@ A comprehensive, multi-tenant SaaS platform for EPC (Engineering, Procurement, C
 - `PATCH /api/dependencies/:id` - Update dependency (type, lagDays)
 - `DELETE /api/dependencies/:id` - Remove dependency
 
+### RACI Matrix
+- `GET /api/projects/:projectId/raci` - Get all RACI assignments for project
+- `GET /api/tasks/:taskId/raci` - Get RACI assignments for specific task
+- `POST /api/raci` - Create RACI assignment (propagates to descendants)
+- `PATCH /api/raci/:id` - Update RACI assignment
+- `DELETE /api/raci/:id` - Delete RACI assignment (removes inherited from descendants)
+- `POST /api/raci/reset` - Reset task's RACI to inherit from parent
+
 ### Stakeholders, Risks, Issues, Costs
 - Similar RESTful patterns for each module
 - All protected with `isAuthenticated` middleware
@@ -138,7 +147,7 @@ A comprehensive, multi-tenant SaaS platform for EPC (Engineering, Procurement, C
 
 ## Frontend Pages
 
-### Implemented (with mock data)
+### Implemented
 1. **Dashboard** - Project metrics, KPIs, charts
 2. **WBS Page** - Task hierarchy table view
 3. **Gantt Page** - Timeline visualization
@@ -148,6 +157,7 @@ A comprehensive, multi-tenant SaaS platform for EPC (Engineering, Procurement, C
 7. **Risks Page** - Risk register
 8. **Issues Page** - Issue log
 9. **Cost Page** - Budget vs actual analytics
+10. **RACI Matrix** - Collapsible WBS tree, 4 RACI columns with multi-select dropdowns, inheritance from parent tasks
 
 ### Components
 - **AppSidebar** - Left navigation (shadcn sidebar)
