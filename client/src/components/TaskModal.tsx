@@ -16,7 +16,8 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { 
   Loader2, AlertTriangle, AlertCircle, User, Calendar, FileText, 
-  ArrowRight, ArrowLeft, Clock, Activity, Plus, X, Link2, GitBranch
+  ArrowRight, ArrowLeft, Clock, Activity, Plus, X, Link2, GitBranch,
+  Pencil, Check
 } from "lucide-react";
 import type { Task, Risk, Issue, ResourceAssignment, Resource, Document, TaskDependency } from "@shared/schema";
 
@@ -92,9 +93,13 @@ export function TaskModal({
   const { selectedProjectId } = useProject();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("details");
-  const [selectedDependencyType, setSelectedDependencyType] = useState<DependencyType>("FS");
   const [selectedPredecessor, setSelectedPredecessor] = useState<string>("");
-  const [lagDays, setLagDays] = useState<number>(0);
+  const [selectedSuccessor, setSelectedSuccessor] = useState<string>("");
+  const [predecessorLag, setPredecessorLag] = useState<number>(0);
+  const [successorLag, setSuccessorLag] = useState<number>(0);
+  const [predecessorType, setPredecessorType] = useState<DependencyType>("FS");
+  const [successorType, setSuccessorType] = useState<DependencyType>("FS");
+  const [editingDependency, setEditingDependency] = useState<number | null>(null);
   
   const getDefaultFormData = (): TaskFormData => ({
     name: "",
@@ -212,7 +217,10 @@ export function TaskModal({
       }
       setActiveTab("details");
       setSelectedPredecessor("");
-      setLagDays(0);
+      setSelectedSuccessor("");
+      setPredecessorLag(0);
+      setSuccessorLag(0);
+      setEditingDependency(null);
     }
   }, [open, task, defaultStatus]);
 
@@ -271,8 +279,6 @@ export function TaskModal({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/dependencies`] });
       toast({ title: "Success", description: "Dependency added" });
-      setSelectedPredecessor("");
-      setLagDays(0);
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -286,6 +292,20 @@ export function TaskModal({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/dependencies`] });
       toast({ title: "Success", description: "Dependency removed" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const updateDependencyMutation = useMutation({
+    mutationFn: async ({ id, type, lagDays }: { id: number; type: DependencyType; lagDays: number }) => {
+      return await apiRequest("PATCH", `/api/dependencies/${id}`, { type, lagDays });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/dependencies`] });
+      toast({ title: "Success", description: "Dependency updated" });
+      setEditingDependency(null);
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -485,16 +505,6 @@ export function TaskModal({
   const getTaskName = (taskId: number) => {
     const t = allTasks.find(task => task.id === taskId);
     return t ? `${t.wbsCode || '#' + t.id} - ${t.name}` : `Task #${taskId}`;
-  };
-
-  const handleAddPredecessor = () => {
-    if (!selectedPredecessor || !task) return;
-    addDependencyMutation.mutate({
-      predecessorId: parseInt(selectedPredecessor),
-      successorId: task.id,
-      type: selectedDependencyType,
-      lagDays,
-    });
   };
 
   const isLoading = createMutation.isPending || updateMutation.isPending;
@@ -771,131 +781,348 @@ export function TaskModal({
                     <GitBranch className="h-5 w-5 text-muted-foreground" />
                     <div>
                       <p className="text-sm font-medium">Task Dependencies</p>
-                      <p className="text-xs text-muted-foreground">Define predecessor and successor relationships for this task</p>
+                      <p className="text-xs text-muted-foreground">
+                        Define predecessor (tasks that must finish before this task) and successor (tasks that wait for this task) relationships
+                      </p>
                     </div>
                   </div>
 
-                  <div className="border rounded-lg p-4 space-y-4">
-                    <h4 className="text-sm font-semibold flex items-center gap-2">
-                      <ArrowLeft className="h-4 w-4" />
-                      Predecessors ({predecessors.length})
-                    </h4>
-                    
-                    <div className="flex gap-2 items-end flex-wrap">
-                      <div className="flex-1 min-w-[200px]">
-                        <Label className="text-xs">Select Predecessor</Label>
-                        <Select value={selectedPredecessor} onValueChange={setSelectedPredecessor}>
-                          <SelectTrigger data-testid="select-predecessor">
-                            <SelectValue placeholder="Choose a task..." />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {availableTasks
-                              .filter(t => !predecessors.some(p => p.predecessorId === t.id))
-                              .map((t) => (
-                                <SelectItem key={t.id} value={t.id.toString()}>
-                                  {t.wbsCode || `#${t.id}`} - {t.name}
-                                </SelectItem>
-                              ))}
-                          </SelectContent>
-                        </Select>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div className="border rounded-lg p-4 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-sm font-semibold flex items-center gap-2">
+                          <ArrowLeft className="h-4 w-4 text-blue-500" />
+                          Predecessors
+                          <Badge variant="secondary" className="ml-1">{predecessors.length}</Badge>
+                        </h4>
                       </div>
-                      <div className="w-[140px]">
-                        <Label className="text-xs">Type</Label>
-                        <Select value={selectedDependencyType} onValueChange={(v: DependencyType) => setSelectedDependencyType(v)}>
-                          <SelectTrigger data-testid="select-dependency-type">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {DEPENDENCY_TYPES.map((dt) => (
-                              <SelectItem key={dt.value} value={dt.value}>{dt.label}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                      
+                      <p className="text-xs text-muted-foreground">Tasks that must complete before this task can start</p>
+                      
+                      <div className="space-y-3 p-3 bg-muted/30 rounded-lg">
+                        <div className="space-y-2">
+                          <Label className="text-xs font-medium">Add Predecessor</Label>
+                          <Select value={selectedPredecessor} onValueChange={setSelectedPredecessor}>
+                            <SelectTrigger data-testid="select-predecessor" className="w-full">
+                              <SelectValue placeholder="Select a task..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {availableTasks
+                                .filter(t => !predecessors.some(p => p.predecessorId === t.id))
+                                .map((t) => (
+                                  <SelectItem key={t.id} value={t.id.toString()}>
+                                    <span className="font-mono text-xs">{t.wbsCode || `#${t.id}`}</span>
+                                    <span className="ml-2">{t.name}</span>
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex gap-2">
+                          <div className="flex-1">
+                            <Label className="text-xs">Type</Label>
+                            <Select value={predecessorType} onValueChange={(v: DependencyType) => setPredecessorType(v)}>
+                              <SelectTrigger data-testid="select-predecessor-type" className="w-full">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {DEPENDENCY_TYPES.map((dt) => (
+                                  <SelectItem key={dt.value} value={dt.value}>
+                                    <span className="font-mono">{dt.value}</span>
+                                    <span className="ml-2 text-muted-foreground text-xs">({dt.label})</span>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="w-20">
+                            <Label className="text-xs">Lag</Label>
+                            <Input
+                              type="number"
+                              value={predecessorLag}
+                              onChange={(e) => setPredecessorLag(parseInt(e.target.value) || 0)}
+                              placeholder="0"
+                              data-testid="input-predecessor-lag"
+                            />
+                          </div>
+                        </div>
+                        <Button 
+                          className="w-full" 
+                          size="sm"
+                          onClick={() => {
+                            if (!selectedPredecessor || !task) return;
+                            addDependencyMutation.mutate({
+                              predecessorId: parseInt(selectedPredecessor),
+                              successorId: task.id,
+                              type: predecessorType,
+                              lagDays: predecessorLag,
+                            });
+                            setSelectedPredecessor("");
+                            setPredecessorLag(0);
+                          }}
+                          disabled={!selectedPredecessor || addDependencyMutation.isPending}
+                          data-testid="button-add-predecessor"
+                        >
+                          <Plus className="h-4 w-4 mr-1" />
+                          Add Predecessor
+                        </Button>
                       </div>
-                      <div className="w-[80px]">
-                        <Label className="text-xs">Lag (days)</Label>
-                        <Input
-                          type="number"
-                          value={lagDays}
-                          onChange={(e) => setLagDays(parseInt(e.target.value) || 0)}
-                          data-testid="input-lag-days"
-                        />
+
+                      <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                        {predecessors.length === 0 ? (
+                          <p className="text-sm text-muted-foreground py-6 text-center border border-dashed rounded-lg">
+                            No predecessors defined
+                          </p>
+                        ) : (
+                          predecessors.map((dep) => (
+                            <div key={dep.id} className="group flex items-center gap-2 p-3 bg-card border rounded-lg hover-elevate">
+                              {editingDependency === dep.id ? (
+                                <div className="flex-1 flex items-center gap-2 flex-wrap">
+                                  <Select
+                                    value={dep.type}
+                                    onValueChange={(v: DependencyType) => {
+                                      updateDependencyMutation.mutate({ id: dep.id, type: v, lagDays: dep.lagDays || 0 });
+                                    }}
+                                  >
+                                    <SelectTrigger className="w-20">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {DEPENDENCY_TYPES.map((dt) => (
+                                        <SelectItem key={dt.value} value={dt.value}>{dt.value}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <span className="text-sm flex-1 truncate">{getTaskName(dep.predecessorId)}</span>
+                                  <div className="flex items-center gap-1">
+                                    <Input
+                                      type="number"
+                                      className="w-16 h-8"
+                                      defaultValue={dep.lagDays || 0}
+                                      onBlur={(e) => {
+                                        const newLag = parseInt(e.target.value) || 0;
+                                        if (newLag !== dep.lagDays) {
+                                          updateDependencyMutation.mutate({ id: dep.id, type: dep.type as DependencyType, lagDays: newLag });
+                                        }
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          const newLag = parseInt((e.target as HTMLInputElement).value) || 0;
+                                          updateDependencyMutation.mutate({ id: dep.id, type: dep.type as DependencyType, lagDays: newLag });
+                                        }
+                                      }}
+                                    />
+                                    <span className="text-xs text-muted-foreground">days</span>
+                                  </div>
+                                  <Button size="icon" variant="ghost" onClick={() => setEditingDependency(null)}>
+                                    <Check className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              ) : (
+                                <>
+                                  <Badge variant="outline" className="font-mono text-xs shrink-0">{dep.type}</Badge>
+                                  <span className="text-sm flex-1 truncate">{getTaskName(dep.predecessorId)}</span>
+                                  {dep.lagDays !== 0 && (
+                                    <Badge variant="secondary" className="text-xs shrink-0">
+                                      {dep.lagDays > 0 ? "+" : ""}{dep.lagDays}d
+                                    </Badge>
+                                  )}
+                                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7"
+                                      onClick={() => setEditingDependency(dep.id)}
+                                      data-testid={`button-edit-predecessor-${dep.id}`}
+                                    >
+                                      <Pencil className="h-3 w-3" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7 text-destructive hover:text-destructive"
+                                      onClick={() => removeDependencyMutation.mutate(dep.id)}
+                                      disabled={removeDependencyMutation.isPending}
+                                      data-testid={`button-remove-predecessor-${dep.id}`}
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          ))
+                        )}
                       </div>
-                      <Button 
-                        size="sm" 
-                        onClick={handleAddPredecessor}
-                        disabled={!selectedPredecessor || addDependencyMutation.isPending}
-                        data-testid="button-add-predecessor"
-                      >
-                        <Plus className="h-4 w-4 mr-1" />
-                        Add
-                      </Button>
                     </div>
 
-                    {predecessors.length === 0 ? (
-                      <p className="text-sm text-muted-foreground py-4 text-center">No predecessors defined</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {predecessors.map((dep) => (
-                          <div key={dep.id} className="flex items-center justify-between p-3 bg-muted/30 rounded">
-                            <div className="flex items-center gap-3">
-                              <Badge variant="outline" className="font-mono text-xs">{dep.type}</Badge>
-                              <span className="text-sm">{getTaskName(dep.predecessorId)}</span>
-                              {dep.lagDays !== 0 && (
-                                <span className="text-xs text-muted-foreground">
-                                  ({dep.lagDays > 0 ? "+" : ""}{dep.lagDays} days)
-                                </span>
-                              )}
-                            </div>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => removeDependencyMutation.mutate(dep.id)}
-                              disabled={removeDependencyMutation.isPending}
-                              data-testid={`button-remove-predecessor-${dep.id}`}
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ))}
+                    <div className="border rounded-lg p-4 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-sm font-semibold flex items-center gap-2">
+                          <ArrowRight className="h-4 w-4 text-green-500" />
+                          Successors
+                          <Badge variant="secondary" className="ml-1">{successors.length}</Badge>
+                        </h4>
                       </div>
-                    )}
-                  </div>
 
-                  <div className="border rounded-lg p-4 space-y-4">
-                    <h4 className="text-sm font-semibold flex items-center gap-2">
-                      <ArrowRight className="h-4 w-4" />
-                      Successors ({successors.length})
-                    </h4>
+                      <p className="text-xs text-muted-foreground">Tasks that wait for this task to complete</p>
+                      
+                      <div className="space-y-3 p-3 bg-muted/30 rounded-lg">
+                        <div className="space-y-2">
+                          <Label className="text-xs font-medium">Add Successor</Label>
+                          <Select value={selectedSuccessor} onValueChange={setSelectedSuccessor}>
+                            <SelectTrigger data-testid="select-successor" className="w-full">
+                              <SelectValue placeholder="Select a task..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {availableTasks
+                                .filter(t => !successors.some(s => s.successorId === t.id))
+                                .map((t) => (
+                                  <SelectItem key={t.id} value={t.id.toString()}>
+                                    <span className="font-mono text-xs">{t.wbsCode || `#${t.id}`}</span>
+                                    <span className="ml-2">{t.name}</span>
+                                  </SelectItem>
+                                ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="flex gap-2">
+                          <div className="flex-1">
+                            <Label className="text-xs">Type</Label>
+                            <Select value={successorType} onValueChange={(v: DependencyType) => setSuccessorType(v)}>
+                              <SelectTrigger data-testid="select-successor-type" className="w-full">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {DEPENDENCY_TYPES.map((dt) => (
+                                  <SelectItem key={dt.value} value={dt.value}>
+                                    <span className="font-mono">{dt.value}</span>
+                                    <span className="ml-2 text-muted-foreground text-xs">({dt.label})</span>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="w-20">
+                            <Label className="text-xs">Lag</Label>
+                            <Input
+                              type="number"
+                              value={successorLag}
+                              onChange={(e) => setSuccessorLag(parseInt(e.target.value) || 0)}
+                              placeholder="0"
+                              data-testid="input-successor-lag"
+                            />
+                          </div>
+                        </div>
+                        <Button 
+                          className="w-full" 
+                          size="sm"
+                          onClick={() => {
+                            if (!selectedSuccessor || !task) return;
+                            addDependencyMutation.mutate({
+                              predecessorId: task.id,
+                              successorId: parseInt(selectedSuccessor),
+                              type: successorType,
+                              lagDays: successorLag,
+                            });
+                            setSelectedSuccessor("");
+                            setSuccessorLag(0);
+                          }}
+                          disabled={!selectedSuccessor || addDependencyMutation.isPending}
+                          data-testid="button-add-successor"
+                        >
+                          <Plus className="h-4 w-4 mr-1" />
+                          Add Successor
+                        </Button>
+                      </div>
                     
-                    {successors.length === 0 ? (
-                      <p className="text-sm text-muted-foreground py-4 text-center">No successors defined</p>
-                    ) : (
-                      <div className="space-y-2">
-                        {successors.map((dep) => (
-                          <div key={dep.id} className="flex items-center justify-between p-3 bg-muted/30 rounded">
-                            <div className="flex items-center gap-3">
-                              <Badge variant="outline" className="font-mono text-xs">{dep.type}</Badge>
-                              <span className="text-sm">{getTaskName(dep.successorId)}</span>
-                              {dep.lagDays !== 0 && (
-                                <span className="text-xs text-muted-foreground">
-                                  ({dep.lagDays > 0 ? "+" : ""}{dep.lagDays} days)
-                                </span>
+                      <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                        {successors.length === 0 ? (
+                          <p className="text-sm text-muted-foreground py-6 text-center border border-dashed rounded-lg">
+                            No successors defined
+                          </p>
+                        ) : (
+                          successors.map((dep) => (
+                            <div key={dep.id} className="group flex items-center gap-2 p-3 bg-card border rounded-lg hover-elevate">
+                              {editingDependency === dep.id ? (
+                                <div className="flex-1 flex items-center gap-2 flex-wrap">
+                                  <Select
+                                    value={dep.type}
+                                    onValueChange={(v: DependencyType) => {
+                                      updateDependencyMutation.mutate({ id: dep.id, type: v, lagDays: dep.lagDays || 0 });
+                                    }}
+                                  >
+                                    <SelectTrigger className="w-20">
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {DEPENDENCY_TYPES.map((dt) => (
+                                        <SelectItem key={dt.value} value={dt.value}>{dt.value}</SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                  <span className="text-sm flex-1 truncate">{getTaskName(dep.successorId)}</span>
+                                  <div className="flex items-center gap-1">
+                                    <Input
+                                      type="number"
+                                      className="w-16 h-8"
+                                      defaultValue={dep.lagDays || 0}
+                                      onBlur={(e) => {
+                                        const newLag = parseInt(e.target.value) || 0;
+                                        if (newLag !== dep.lagDays) {
+                                          updateDependencyMutation.mutate({ id: dep.id, type: dep.type as DependencyType, lagDays: newLag });
+                                        }
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if (e.key === 'Enter') {
+                                          const newLag = parseInt((e.target as HTMLInputElement).value) || 0;
+                                          updateDependencyMutation.mutate({ id: dep.id, type: dep.type as DependencyType, lagDays: newLag });
+                                        }
+                                      }}
+                                    />
+                                    <span className="text-xs text-muted-foreground">days</span>
+                                  </div>
+                                  <Button size="icon" variant="ghost" onClick={() => setEditingDependency(null)}>
+                                    <Check className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              ) : (
+                                <>
+                                  <Badge variant="outline" className="font-mono text-xs shrink-0">{dep.type}</Badge>
+                                  <span className="text-sm flex-1 truncate">{getTaskName(dep.successorId)}</span>
+                                  {dep.lagDays !== 0 && (
+                                    <Badge variant="secondary" className="text-xs shrink-0">
+                                      {dep.lagDays > 0 ? "+" : ""}{dep.lagDays}d
+                                    </Badge>
+                                  )}
+                                  <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7"
+                                      onClick={() => setEditingDependency(dep.id)}
+                                      data-testid={`button-edit-successor-${dep.id}`}
+                                    >
+                                      <Pencil className="h-3 w-3" />
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="h-7 w-7 text-destructive hover:text-destructive"
+                                      onClick={() => removeDependencyMutation.mutate(dep.id)}
+                                      disabled={removeDependencyMutation.isPending}
+                                      data-testid={`button-remove-successor-${dep.id}`}
+                                    >
+                                      <X className="h-3 w-3" />
+                                    </Button>
+                                  </div>
+                                </>
                               )}
                             </div>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => removeDependencyMutation.mutate(dep.id)}
-                              disabled={removeDependencyMutation.isPending}
-                              data-testid={`button-remove-successor-${dep.id}`}
-                            >
-                              <X className="h-4 w-4" />
-                            </Button>
-                          </div>
-                        ))}
+                          ))
+                        )}
                       </div>
-                    )}
+                    </div>
                   </div>
                 </div>
               </TabsContent>

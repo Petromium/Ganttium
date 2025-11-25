@@ -20,6 +20,7 @@ A comprehensive, multi-tenant SaaS platform for EPC (Engineering, Procurement, C
 - Email Template system with SendGrid integration and placeholder replacement
 - WebSocket real-time collaboration infrastructure
 - Auto-generated sequential codes (RISK-001, ISS-001, etc.)
+- **Dependencies tab redesign** with two-column layout (Predecessors/Successors), inline editing, and full CRUD support
 
 ### 🚧 In Progress / Needs Completion
 - PWA offline capabilities (IndexedDB caching, 7-day support)
@@ -97,7 +98,12 @@ A comprehensive, multi-tenant SaaS platform for EPC (Engineering, Procurement, C
 - `POST /api/tasks` - Create task
 - `PATCH /api/tasks/:id` - Update task
 - `DELETE /api/tasks/:id` - Delete task
-- `GET /api/projects/:projectId/dependencies` - Get dependencies
+
+### Task Dependencies
+- `GET /api/projects/:projectId/dependencies` - Get all dependencies for project
+- `POST /api/dependencies` - Create new dependency
+- `PATCH /api/dependencies/:id` - Update dependency (type, lagDays)
+- `DELETE /api/dependencies/:id` - Remove dependency
 
 ### Stakeholders, Risks, Issues, Costs
 - Similar RESTful patterns for each module

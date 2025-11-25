@@ -7,6 +7,7 @@ import {
   insertOrganizationSchema,
   insertProjectSchema,
   insertTaskSchema,
+  insertTaskDependencySchema,
   insertStakeholderSchema,
   insertRiskSchema,
   insertIssueSchema,
@@ -334,6 +335,83 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching dependencies:", error);
       res.status(500).json({ message: "Failed to fetch dependencies" });
+    }
+  });
+
+  app.post('/api/dependencies', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const data = insertTaskDependencySchema.parse(req.body);
+      
+      // Check access to project
+      if (!await checkProjectAccess(userId, data.projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const dependency = await storage.createTaskDependency(data);
+      
+      // Notify connected clients
+      wsManager.notifyProjectUpdate(dependency.projectId, "dependency-created", dependency, userId);
+      
+      res.json(dependency);
+    } catch (error) {
+      console.error("Error creating dependency:", error);
+      res.status(400).json({ message: "Failed to create dependency" });
+    }
+  });
+
+  app.patch('/api/dependencies/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+      
+      const dependency = await storage.getTaskDependency(id);
+      if (!dependency) {
+        return res.status(404).json({ message: "Dependency not found" });
+      }
+      
+      // Check access
+      if (!await checkProjectAccess(userId, dependency.projectId)) {
+        return res.status(404).json({ message: "Dependency not found" });
+      }
+      
+      const { type, lagDays } = req.body;
+      const updated = await storage.updateTaskDependency(id, { type, lagDays });
+      
+      // Notify connected clients
+      wsManager.notifyProjectUpdate(dependency.projectId, "dependency-updated", updated, userId);
+      
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating dependency:", error);
+      res.status(400).json({ message: "Failed to update dependency" });
+    }
+  });
+
+  app.delete('/api/dependencies/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+      
+      const dependency = await storage.getTaskDependency(id);
+      if (!dependency) {
+        return res.status(404).json({ message: "Dependency not found" });
+      }
+      
+      // Check access
+      if (!await checkProjectAccess(userId, dependency.projectId)) {
+        return res.status(404).json({ message: "Dependency not found" });
+      }
+      
+      await storage.deleteTaskDependency(id);
+      
+      // Notify connected clients
+      wsManager.notifyProjectUpdate(dependency.projectId, "dependency-deleted", { id, projectId: dependency.projectId }, userId);
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting dependency:", error);
+      res.status(500).json({ message: "Failed to delete dependency" });
     }
   });
 

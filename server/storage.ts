@@ -117,6 +117,7 @@ export interface IStorage {
   getTaskDependencies(taskId: number): Promise<TaskDependency[]>;
   getDependenciesByProject(projectId: number): Promise<TaskDependency[]>;
   createTaskDependency(dependency: InsertTaskDependency): Promise<TaskDependency>;
+  updateTaskDependency(id: number, dependency: Partial<InsertTaskDependency>): Promise<TaskDependency | undefined>;
   deleteTaskDependency(id: number): Promise<void>;
 
   // Stakeholders
@@ -521,6 +522,14 @@ export class DatabaseStorage implements IStorage {
   async createTaskDependency(dependency: InsertTaskDependency): Promise<TaskDependency> {
     const [created] = await db.insert(schema.taskDependencies).values(dependency).returning();
     return created;
+  }
+
+  async updateTaskDependency(id: number, dependency: Partial<InsertTaskDependency>): Promise<TaskDependency | undefined> {
+    const [updated] = await db.update(schema.taskDependencies)
+      .set(dependency)
+      .where(eq(schema.taskDependencies.id, id))
+      .returning();
+    return updated;
   }
 
   async deleteTaskDependency(id: number): Promise<void> {
