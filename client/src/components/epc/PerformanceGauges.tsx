@@ -153,9 +153,9 @@ function GaugeIndicator({ value, label, description }: { value: number; label: s
   const normalizedValue = (clampedValue - 0.5) / 1.0;
   const angle = -90 + (normalizedValue * 180);
   
-  const size = 160;
-  const strokeWidth = 12;
-  const radius = (size - strokeWidth) / 2;
+  const size = 140;
+  const strokeWidth = 14;
+  const radius = (size - strokeWidth) / 2 - 4;
   const center = size / 2;
   
   const createArc = (startAngle: number, endAngle: number) => {
@@ -169,15 +169,15 @@ function GaugeIndicator({ value, label, description }: { value: number; label: s
     return `M ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2}`;
   };
 
-  const needleLength = radius - 8;
+  const needleLength = radius - 10;
   const needleAngle = (angle) * (Math.PI / 180);
   const needleX = center + needleLength * Math.cos(needleAngle);
   const needleY = center + needleLength * Math.sin(needleAngle);
 
   return (
     <div className="flex flex-col items-center">
-      <div className="relative" style={{ width: size, height: size / 2 + 20 }}>
-        <svg width={size} height={size / 2 + 20} className="overflow-visible">
+      <div className="relative" style={{ width: size, height: size / 2 + 8 }}>
+        <svg width={size} height={size / 2 + 8} viewBox={`0 0 ${size} ${size / 2 + 8}`}>
           <path
             d={createArc(-90, -27)}
             fill="none"
@@ -200,28 +200,6 @@ function GaugeIndicator({ value, label, description }: { value: number; label: s
             strokeLinecap="round"
           />
           
-          {[0.5, 0.85, 0.95, 1.0, 1.5].map((tick, i) => {
-            const tickNorm = (tick - 0.5) / 1.0;
-            const tickAngle = (-90 + tickNorm * 180) * (Math.PI / 180);
-            const innerR = radius - strokeWidth / 2 - 6;
-            const outerR = radius + strokeWidth / 2 + 4;
-            const x1 = center + innerR * Math.cos(tickAngle);
-            const y1 = center + innerR * Math.sin(tickAngle);
-            const x2 = center + outerR * Math.cos(tickAngle);
-            const y2 = center + outerR * Math.sin(tickAngle);
-            const labelR = radius + strokeWidth / 2 + 16;
-            const lx = center + labelR * Math.cos(tickAngle);
-            const ly = center + labelR * Math.sin(tickAngle);
-            return (
-              <g key={i}>
-                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="currentColor" strokeWidth={2} className="text-muted-foreground/50" />
-                <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" className="fill-muted-foreground text-[10px]">
-                  {tick}
-                </text>
-              </g>
-            );
-          })}
-          
           <line
             x1={center}
             y1={center}
@@ -237,7 +215,7 @@ function GaugeIndicator({ value, label, description }: { value: number; label: s
         </svg>
       </div>
       
-      <div className="text-center -mt-2">
+      <div className="text-center mt-1">
         <div className={cn("text-3xl font-bold tabular-nums", color.text)}>{value.toFixed(2)}</div>
         <div className="text-base font-semibold mt-1">{label}</div>
         <div className="text-sm text-muted-foreground">{description}</div>
@@ -284,12 +262,12 @@ export function PerformanceGauges({ tasks, costItems, className }: PerformanceGa
 
   return (
     <Card className={className}>
-      <CardHeader className="pb-2">
+      <CardHeader className="pb-4">
         <CardTitle className="text-lg">Earned Value Analysis (EVA)</CardTitle>
         <p className="text-sm text-muted-foreground">Schedule & Cost Performance Indicators</p>
       </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-2 gap-8 mb-6">
+      <CardContent className="pt-2">
+        <div className="grid grid-cols-2 gap-8 mb-6 mt-2">
           <GaugeIndicator 
             value={metrics.spi} 
             label="SPI" 
