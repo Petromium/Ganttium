@@ -12,6 +12,7 @@ import {
   Calendar,
   Package,
   Bot,
+  FileDown,
 } from "lucide-react";
 import {
   Sidebar,
@@ -35,6 +36,7 @@ const projectTabs = [
   { title: "Change Requests", icon: FileEdit, path: "/change-requests" },
   { title: "Cost Management", icon: DollarSign, path: "/cost" },
   { title: "AI Assistant", icon: Bot, path: "/ai-assistant" },
+  { title: "Reports", icon: FileDown, path: "/reports" },
   { title: "SOP", icon: FileText, path: "/sop" },
   { title: "Analytics", icon: BarChart3, path: "/analytics" },
 ];

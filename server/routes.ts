@@ -1,4 +1,4 @@
-import type { Express, Request } from "express";
+import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./replitAuth";
@@ -20,6 +20,12 @@ import {
 } from "@shared/schema";
 import { chatWithAssistant, type ChatMessage } from "./aiAssistant";
 import { z } from "zod";
+import {
+  generateRiskRegisterReport,
+  generateProjectStatusReport,
+  generateEVAReport,
+  generateIssueLogReport
+} from "./pdfReports";
 
 // Helper to get user ID from request
 function getUserId(req: any): string {
@@ -851,6 +857,166 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting conversation:", error);
       res.status(500).json({ message: "Failed to delete conversation" });
+    }
+  });
+
+  // ===== PDF Report Generation Routes =====
+  
+  // Helper to send PDF response
+  const sendPdfResponse = (res: Response, pdfDoc: PDFKit.PDFDocument, filename: string) => {
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    pdfDoc.pipe(res);
+    pdfDoc.end();
+  };
+
+  // Risk Register Report
+  app.get('/api/projects/:projectId/reports/risk-register', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+      
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const project = await storage.getProject(projectId);
+      if (!project) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      
+      const risks = await storage.getRisksByProject(projectId);
+      const user = await storage.getUser(userId);
+      
+      const pdfDoc = generateRiskRegisterReport({
+        project,
+        risks,
+        generatedBy: user?.firstName && user?.lastName 
+          ? `${user.firstName} ${user.lastName}` 
+          : user?.email || 'System'
+      });
+      
+      const filename = `${project.code}_Risk_Register_${new Date().toISOString().split('T')[0]}.pdf`;
+      sendPdfResponse(res, pdfDoc, filename);
+    } catch (error) {
+      console.error("Error generating risk register report:", error);
+      res.status(500).json({ message: "Failed to generate report" });
+    }
+  });
+
+  // Project Status Report
+  app.get('/api/projects/:projectId/reports/status', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+      
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const project = await storage.getProject(projectId);
+      if (!project) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      
+      const [tasks, risks, issues, costItems] = await Promise.all([
+        storage.getTasksByProject(projectId),
+        storage.getRisksByProject(projectId),
+        storage.getIssuesByProject(projectId),
+        storage.getCostItemsByProject(projectId)
+      ]);
+      
+      const user = await storage.getUser(userId);
+      
+      const pdfDoc = generateProjectStatusReport({
+        project,
+        tasks,
+        risks,
+        issues,
+        costItems,
+        generatedBy: user?.firstName && user?.lastName 
+          ? `${user.firstName} ${user.lastName}` 
+          : user?.email || 'System'
+      });
+      
+      const filename = `${project.code}_Status_Report_${new Date().toISOString().split('T')[0]}.pdf`;
+      sendPdfResponse(res, pdfDoc, filename);
+    } catch (error) {
+      console.error("Error generating project status report:", error);
+      res.status(500).json({ message: "Failed to generate report" });
+    }
+  });
+
+  // Earned Value Analysis Report
+  app.get('/api/projects/:projectId/reports/eva', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+      
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const project = await storage.getProject(projectId);
+      if (!project) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      
+      const [tasks, costItems] = await Promise.all([
+        storage.getTasksByProject(projectId),
+        storage.getCostItemsByProject(projectId)
+      ]);
+      
+      const user = await storage.getUser(userId);
+      
+      const pdfDoc = generateEVAReport({
+        project,
+        tasks,
+        costItems,
+        generatedBy: user?.firstName && user?.lastName 
+          ? `${user.firstName} ${user.lastName}` 
+          : user?.email || 'System'
+      });
+      
+      const filename = `${project.code}_EVA_Report_${new Date().toISOString().split('T')[0]}.pdf`;
+      sendPdfResponse(res, pdfDoc, filename);
+    } catch (error) {
+      console.error("Error generating EVA report:", error);
+      res.status(500).json({ message: "Failed to generate report" });
+    }
+  });
+
+  // Issue Log Report
+  app.get('/api/projects/:projectId/reports/issues', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+      
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const project = await storage.getProject(projectId);
+      if (!project) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      
+      const issues = await storage.getIssuesByProject(projectId);
+      const user = await storage.getUser(userId);
+      
+      const pdfDoc = generateIssueLogReport({
+        project,
+        issues,
+        generatedBy: user?.firstName && user?.lastName 
+          ? `${user.firstName} ${user.lastName}` 
+          : user?.email || 'System'
+      });
+      
+      const filename = `${project.code}_Issue_Log_${new Date().toISOString().split('T')[0]}.pdf`;
+      sendPdfResponse(res, pdfDoc, filename);
+    } catch (error) {
+      console.error("Error generating issue log report:", error);
+      res.status(500).json({ message: "Failed to generate report" });
     }
   });
 
