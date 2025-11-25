@@ -9,10 +9,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   User, Wrench, Package, DollarSign, Calendar, Clock, 
   Award, Briefcase, FileText, AlertCircle, CheckCircle2,
-  Building, Phone, Mail, ExternalLink, Star
+  Building, Phone, Mail, ExternalLink, Star, Loader2
 } from "lucide-react";
-import { format } from "date-fns";
+import { format, differenceInDays } from "date-fns";
 import type { Resource, ResourceAssignment, Task } from "@shared/schema";
+
+interface AssignmentWithTask extends ResourceAssignment {
+  task: Task | null;
+}
 
 interface ResourceDetailsModalProps {
   resource: Resource | null;
@@ -72,7 +76,7 @@ const AVAILABILITY_STATUS_LABELS: Record<string, string> = {
 const DAYS_OF_WEEK = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
 
 export function ResourceDetailsModal({ resource, open, onOpenChange }: ResourceDetailsModalProps) {
-  const { data: assignments = [] } = useQuery<ResourceAssignment[]>({
+  const { data: assignments = [], isLoading: assignmentsLoading } = useQuery<AssignmentWithTask[]>({
     queryKey: ["/api/resources", resource?.id, "assignments"],
     enabled: !!resource?.id && open,
   });
@@ -493,26 +497,99 @@ export function ResourceDetailsModal({ resource, open, onOpenChange }: ResourceD
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  {assignments.length === 0 ? (
+                  {assignmentsLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : assignments.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-4">
                       No active assignments
                     </p>
                   ) : (
-                    <div className="space-y-2">
-                      {assignments.map((assignment) => (
-                        <div 
-                          key={assignment.id}
-                          className="flex items-center justify-between p-3 rounded-lg border"
-                          data-testid={`assignment-${assignment.id}`}
-                        >
-                          <div>
-                            <p className="font-medium">Task #{assignment.taskId}</p>
+                    <div className="space-y-3">
+                      {assignments.map((assignment) => {
+                        const task = assignment.task;
+                        const taskDuration = task?.startDate && task?.endDate 
+                          ? differenceInDays(new Date(task.endDate), new Date(task.startDate)) + 1
+                          : null;
+                        
+                        return (
+                          <div 
+                            key={assignment.id}
+                            className="p-4 rounded-lg border space-y-3"
+                            data-testid={`assignment-${assignment.id}`}
+                          >
+                            <div className="flex items-start justify-between gap-4">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {task?.wbsCode && (
+                                    <Badge variant="outline" className="font-mono text-xs">
+                                      {task.wbsCode}
+                                    </Badge>
+                                  )}
+                                  <p className="font-medium truncate" data-testid={`task-name-${assignment.id}`}>
+                                    {task?.name || `Task #${assignment.taskId}`}
+                                  </p>
+                                </div>
+                                {task?.status && (
+                                  <Badge 
+                                    variant="secondary" 
+                                    className="mt-1 capitalize text-xs"
+                                    data-testid={`task-status-${assignment.id}`}
+                                  >
+                                    {task.status.replace(/_/g, " ")}
+                                  </Badge>
+                                )}
+                              </div>
+                              <div className="flex flex-col items-end gap-1">
+                                <Badge data-testid={`allocation-${assignment.id}`}>
+                                  {assignment.allocation}% allocated
+                                </Badge>
+                                {assignment.plannedHours && (
+                                  <span className="text-xs text-muted-foreground font-mono" data-testid={`planned-hours-${assignment.id}`}>
+                                    {assignment.plannedHours}h planned
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            
+                            {(task?.startDate || task?.endDate) && (
+                              <div className="flex items-center gap-4 text-xs text-muted-foreground border-t pt-2">
+                                <div className="flex items-center gap-1.5">
+                                  <Calendar className="h-3.5 w-3.5" />
+                                  <span>
+                                    {task.startDate 
+                                      ? format(new Date(task.startDate), "MMM d, yyyy")
+                                      : "No start"
+                                    }
+                                    {" — "}
+                                    {task.endDate 
+                                      ? format(new Date(task.endDate), "MMM d, yyyy")
+                                      : "No end"
+                                    }
+                                  </span>
+                                </div>
+                                {taskDuration && (
+                                  <div className="flex items-center gap-1.5">
+                                    <Clock className="h-3.5 w-3.5" />
+                                    <span>{taskDuration} days</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            
+                            {task?.progress !== undefined && task.progress !== null && (
+                              <div className="space-y-1">
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-muted-foreground">Progress</span>
+                                  <span className="font-mono">{task.progress}%</span>
+                                </div>
+                                <Progress value={task.progress} className="h-1.5" />
+                              </div>
+                            )}
                           </div>
-                          <div className="text-right">
-                            <Badge variant="secondary">{assignment.allocation}% allocated</Badge>
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </CardContent>

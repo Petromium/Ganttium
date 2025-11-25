@@ -1181,6 +1181,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Resource Assignments
+  app.get('/api/resources/:resourceId/assignments', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const resourceId = parseInt(req.params.resourceId);
+      
+      const resource = await storage.getResource(resourceId);
+      if (!resource) {
+        return res.status(404).json({ message: "Resource not found" });
+      }
+      
+      if (!await checkProjectAccess(userId, resource.projectId)) {
+        return res.status(404).json({ message: "Resource not found" });
+      }
+      
+      const assignments = await storage.getResourceAssignmentsByResource(resourceId);
+      res.json(assignments);
+    } catch (error) {
+      console.error("Error fetching resource assignments:", error);
+      res.status(500).json({ message: "Failed to fetch resource assignments" });
+    }
+  });
+
   app.get('/api/tasks/:taskId/assignments', isAuthenticated, async (req: any, res) => {
     try {
       const taskId = parseInt(req.params.taskId);

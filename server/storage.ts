@@ -182,6 +182,7 @@ export interface IStorage {
   // Resource Assignments
   getResourceAssignment(id: number): Promise<ResourceAssignment | undefined>;
   getResourceAssignmentsByTask(taskId: number): Promise<ResourceAssignment[]>;
+  getResourceAssignmentsByResource(resourceId: number): Promise<(ResourceAssignment & { task: Task | null })[]>;
   createResourceAssignment(assignment: InsertResourceAssignment): Promise<ResourceAssignment>;
   deleteResourceAssignment(id: number): Promise<void>;
 
@@ -982,6 +983,18 @@ export class DatabaseStorage implements IStorage {
   async getResourceAssignmentsByTask(taskId: number): Promise<ResourceAssignment[]> {
     return await db.select().from(schema.resourceAssignments)
       .where(eq(schema.resourceAssignments.taskId, taskId));
+  }
+
+  async getResourceAssignmentsByResource(resourceId: number): Promise<(ResourceAssignment & { task: Task | null })[]> {
+    const assignments = await db.select().from(schema.resourceAssignments)
+      .where(eq(schema.resourceAssignments.resourceId, resourceId));
+    
+    const result: (ResourceAssignment & { task: Task | null })[] = [];
+    for (const assignment of assignments) {
+      const task = await this.getTask(assignment.taskId);
+      result.push({ ...assignment, task: task || null });
+    }
+    return result;
   }
 
   async createResourceAssignment(assignment: InsertResourceAssignment): Promise<ResourceAssignment> {
