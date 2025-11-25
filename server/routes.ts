@@ -1743,7 +1743,350 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
-  // Import project data
+  // ===== Import Schema & Template Endpoints =====
+  
+  // Valid enum values for import validation
+  const importEnums = {
+    taskStatus: ["not-started", "in-progress", "review", "completed", "on-hold"],
+    taskPriority: ["low", "medium", "high", "critical"],
+    riskStatus: ["identified", "assessed", "mitigating", "closed"],
+    riskImpact: ["low", "medium", "high", "critical"],
+    issueStatus: ["open", "in-progress", "resolved", "closed"],
+    issuePriority: ["low", "medium", "high", "critical"],
+    stakeholderRole: ["sponsor", "client", "team-member", "contractor", "consultant", "regulatory", "vendor", "other"],
+    costCategory: ["labor", "materials", "equipment", "subcontractor", "overhead", "permits", "contingency", "construction", "administrative", "other"],
+    discipline: ["general", "civil", "structural", "mechanical", "electrical", "instrumentation", "piping", "process", "hse", "qa-qc", "procurement", "construction", "commissioning", "management", "engineering"],
+    currency: ["USD", "EUR", "GBP", "CAD", "AUD", "JPY", "CNY", "INR", "BRL", "MXN", "SAR", "AED", "SGD", "HKD", "KRW"]
+  };
+  
+  // Value mapping for common alternatives
+  const valueMappings: Record<string, Record<string, string>> = {
+    taskPriority: { "normal": "medium", "urgent": "critical", "none": "low" },
+    riskStatus: { "active": "identified", "open": "identified", "monitoring": "assessed", "resolved": "closed" },
+    issueStatus: { "pending": "open", "fixed": "resolved", "done": "closed" },
+    stakeholderRole: { "owner": "sponsor", "customer": "client", "subcontractor": "contractor", "regulator": "regulatory", "supplier": "vendor" }
+  };
+  
+  // Get import schema with all valid enum values (for external AI consumption)
+  app.get('/api/import/schema', (req, res) => {
+    const schema = {
+      $schema: "http://json-schema.org/draft-07/schema#",
+      title: "EPC PMIS Project Import Schema",
+      description: "JSON Schema for importing project data into EPC PMIS. Use this schema when generating project JSON with AI tools like ChatGPT, Claude, or Gemini.",
+      version: "1.0",
+      type: "object",
+      required: ["version", "project"],
+      properties: {
+        version: { type: "string", const: "1.0", description: "Schema version, must be '1.0'" },
+        project: {
+          type: "object",
+          required: ["name"],
+          properties: {
+            name: { type: "string", description: "Project name", maxLength: 255 },
+            code: { type: "string", description: "Project code (e.g., SOLAR-2024-001)", maxLength: 50 },
+            description: { type: "string", description: "Project description" },
+            status: { type: "string", enum: ["planning", "active", "on-hold", "completed", "cancelled"], default: "active" },
+            startDate: { type: "string", format: "date-time", description: "ISO 8601 date (e.g., 2025-01-15T00:00:00.000Z)" },
+            endDate: { type: "string", format: "date-time" },
+            budget: { type: "string", description: "Budget amount as string (e.g., '75000000.00')" },
+            currency: { type: "string", enum: importEnums.currency, default: "USD" }
+          }
+        },
+        tasks: {
+          type: "array",
+          description: "WBS task hierarchy. Use wbsCode to define hierarchy (e.g., '1', '1.1', '1.1.1' for parent-child relationships)",
+          items: {
+            type: "object",
+            required: ["wbsCode", "name"],
+            properties: {
+              wbsCode: { type: "string", description: "WBS code defines hierarchy. Examples: '1' (level 1), '1.1' (child of 1), '1.1.2' (child of 1.1). Max 5 levels.", pattern: "^[0-9]+(\\.[0-9]+){0,4}$" },
+              name: { type: "string", description: "Task name", maxLength: 255 },
+              description: { type: "string" },
+              status: { type: "string", enum: importEnums.taskStatus, default: "not-started" },
+              priority: { type: "string", enum: importEnums.taskPriority, default: "medium", description: "IMPORTANT: Use 'medium' not 'normal'" },
+              progress: { type: "integer", minimum: 0, maximum: 100, default: 0 },
+              startDate: { type: "string", format: "date-time" },
+              endDate: { type: "string", format: "date-time" },
+              assignedTo: { type: ["string", "null"], description: "Assignee identifier or name" },
+              estimatedHours: { type: "string", description: "Estimated hours as string (e.g., '480.00')" },
+              actualHours: { type: "string", description: "Actual hours as string" },
+              discipline: { type: "string", enum: importEnums.discipline, default: "general" }
+            }
+          }
+        },
+        risks: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["title"],
+            properties: {
+              code: { type: "string", description: "Risk code (e.g., RISK-001). Auto-generated if not provided." },
+              title: { type: "string", maxLength: 255 },
+              description: { type: "string" },
+              category: { type: "string", description: "Risk category (freeform text)" },
+              probability: { type: "integer", minimum: 1, maximum: 5, description: "1-5 scale (1=Very Low, 5=Very High)" },
+              impact: { type: "string", enum: importEnums.riskImpact, default: "medium" },
+              status: { type: "string", enum: importEnums.riskStatus, default: "identified", description: "IMPORTANT: Use 'identified' not 'active'" },
+              owner: { type: ["string", "null"], description: "Risk owner identifier" },
+              mitigationPlan: { type: "string" }
+            }
+          }
+        },
+        issues: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["title"],
+            properties: {
+              code: { type: "string", description: "Issue code (e.g., ISS-001). Auto-generated if not provided." },
+              title: { type: "string", maxLength: 255 },
+              description: { type: "string" },
+              priority: { type: "string", enum: importEnums.issuePriority, default: "medium" },
+              status: { type: "string", enum: importEnums.issueStatus, default: "open" },
+              assignedTo: { type: ["string", "null"] },
+              reportedBy: { type: ["string", "null"] },
+              resolution: { type: ["string", "null"] }
+            }
+          }
+        },
+        stakeholders: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["name"],
+            properties: {
+              name: { type: "string", maxLength: 255 },
+              role: { type: "string", enum: importEnums.stakeholderRole, default: "other" },
+              organization: { type: "string" },
+              email: { type: "string", format: "email" },
+              phone: { type: "string" },
+              influence: { type: "integer", minimum: 1, maximum: 5, description: "1-5 scale" },
+              interest: { type: "integer", minimum: 1, maximum: 5, description: "1-5 scale" }
+            }
+          }
+        },
+        costItems: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["description"],
+            properties: {
+              description: { type: "string" },
+              category: { type: "string", enum: importEnums.costCategory, default: "other" },
+              budgeted: { type: "string", description: "Budgeted amount as string" },
+              actual: { type: "string", description: "Actual amount as string" },
+              currency: { type: "string", enum: importEnums.currency, default: "USD" }
+            }
+          }
+        }
+      },
+      examples: [{
+        version: "1.0",
+        project: { name: "Example Solar Project", code: "SOLAR-2025-001", status: "active", budget: "50000000.00", currency: "USD" },
+        tasks: [
+          { wbsCode: "1", name: "Engineering", status: "in-progress", priority: "high", progress: 50 },
+          { wbsCode: "1.1", name: "Civil Design", status: "completed", priority: "critical", progress: 100 }
+        ]
+      }],
+      valueMappings: {
+        description: "The import system will automatically map these common alternative values:",
+        taskPriority: { "'normal' → 'medium'": true, "'urgent' → 'critical'": true },
+        riskStatus: { "'active' → 'identified'": true, "'open' → 'identified'": true, "'monitoring' → 'assessed'": true },
+        stakeholderRole: { "'owner' → 'sponsor'": true, "'customer' → 'client'": true, "'regulator' → 'regulatory'": true }
+      }
+    };
+    
+    res.json(schema);
+  });
+  
+  // Get example template for import
+  app.get('/api/import/template', (req, res) => {
+    const template = {
+      version: "1.0",
+      project: {
+        name: "Your Project Name",
+        code: "PROJECT-2025-001",
+        description: "Brief project description",
+        status: "active",
+        startDate: new Date().toISOString(),
+        endDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+        budget: "10000000.00",
+        currency: "USD"
+      },
+      tasks: [
+        {
+          wbsCode: "1",
+          name: "Phase 1 - Planning",
+          description: "Initial planning phase",
+          status: "not-started",
+          priority: "high",
+          progress: 0,
+          startDate: new Date().toISOString(),
+          endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          assignedTo: null,
+          estimatedHours: "200.00",
+          actualHours: "0.00",
+          discipline: "management"
+        },
+        {
+          wbsCode: "1.1",
+          name: "Requirements Gathering",
+          description: "Collect and document requirements",
+          status: "not-started",
+          priority: "critical",
+          progress: 0,
+          discipline: "general"
+        },
+        {
+          wbsCode: "2",
+          name: "Phase 2 - Execution",
+          description: "Main execution phase",
+          status: "not-started",
+          priority: "critical",
+          progress: 0,
+          discipline: "construction"
+        }
+      ],
+      risks: [
+        {
+          code: "RISK-001",
+          title: "Example Risk",
+          description: "Description of the risk",
+          category: "technical",
+          probability: 3,
+          impact: "medium",
+          status: "identified",
+          owner: null,
+          mitigationPlan: "Mitigation strategy"
+        }
+      ],
+      issues: [
+        {
+          code: "ISS-001",
+          title: "Example Issue",
+          description: "Description of the issue",
+          priority: "medium",
+          status: "open",
+          assignedTo: null,
+          reportedBy: null,
+          resolution: null
+        }
+      ],
+      stakeholders: [
+        {
+          name: "Project Sponsor",
+          role: "sponsor",
+          organization: "Client Organization",
+          email: "sponsor@example.com",
+          phone: "+1-555-0100",
+          influence: 5,
+          interest: 5
+        }
+      ],
+      costItems: [
+        {
+          description: "Equipment Purchase",
+          category: "equipment",
+          budgeted: "500000.00",
+          actual: "0.00",
+          currency: "USD"
+        }
+      ],
+      _instructions: {
+        usage: "Copy this template and modify for your project. You can also provide this template to AI tools (ChatGPT, Claude, Gemini) as a reference format.",
+        wbsHierarchy: "WBS codes define parent-child relationships: '1' is parent of '1.1', which is parent of '1.1.1'. Maximum 5 levels.",
+        validEnums: importEnums,
+        tips: [
+          "Priority must be: low, medium, high, or critical (not 'normal')",
+          "Risk status must be: identified, assessed, mitigating, or closed (not 'active')",
+          "Dates should be ISO 8601 format",
+          "Numbers should be strings (e.g., '1000.00')"
+        ]
+      }
+    };
+    
+    res.json(template);
+  });
+  
+  // Validate import data without importing
+  app.post('/api/import/validate', (req, res) => {
+    const importData = req.body;
+    const errors: string[] = [];
+    const warnings: string[] = [];
+    
+    if (!importData?.version) {
+      errors.push("Missing required field: version");
+    }
+    
+    if (!importData?.project?.name) {
+      errors.push("Missing required field: project.name");
+    }
+    
+    // Validate tasks
+    if (importData?.tasks) {
+      importData.tasks.forEach((task: any, index: number) => {
+        if (!task.wbsCode) errors.push(`Task ${index + 1}: Missing wbsCode`);
+        if (!task.name) errors.push(`Task ${index + 1}: Missing name`);
+        if (task.priority && !importEnums.taskPriority.includes(task.priority)) {
+          const mapped = valueMappings.taskPriority?.[task.priority];
+          if (mapped) {
+            warnings.push(`Task ${index + 1}: priority '${task.priority}' will be mapped to '${mapped}'`);
+          } else {
+            errors.push(`Task ${index + 1}: Invalid priority '${task.priority}'. Valid values: ${importEnums.taskPriority.join(", ")}`);
+          }
+        }
+        if (task.status && !importEnums.taskStatus.includes(task.status)) {
+          errors.push(`Task ${index + 1}: Invalid status '${task.status}'. Valid values: ${importEnums.taskStatus.join(", ")}`);
+        }
+      });
+    }
+    
+    // Validate risks
+    if (importData?.risks) {
+      importData.risks.forEach((risk: any, index: number) => {
+        if (!risk.title) errors.push(`Risk ${index + 1}: Missing title`);
+        if (risk.status && !importEnums.riskStatus.includes(risk.status)) {
+          const mapped = valueMappings.riskStatus?.[risk.status];
+          if (mapped) {
+            warnings.push(`Risk ${index + 1}: status '${risk.status}' will be mapped to '${mapped}'`);
+          } else {
+            errors.push(`Risk ${index + 1}: Invalid status '${risk.status}'. Valid values: ${importEnums.riskStatus.join(", ")}`);
+          }
+        }
+        if (risk.impact && !importEnums.riskImpact.includes(risk.impact)) {
+          errors.push(`Risk ${index + 1}: Invalid impact '${risk.impact}'. Valid values: ${importEnums.riskImpact.join(", ")}`);
+        }
+      });
+    }
+    
+    // Validate issues
+    if (importData?.issues) {
+      importData.issues.forEach((issue: any, index: number) => {
+        if (!issue.title) errors.push(`Issue ${index + 1}: Missing title`);
+        if (issue.status && !importEnums.issueStatus.includes(issue.status)) {
+          errors.push(`Issue ${index + 1}: Invalid status '${issue.status}'. Valid values: ${importEnums.issueStatus.join(", ")}`);
+        }
+        if (issue.priority && !importEnums.issuePriority.includes(issue.priority)) {
+          errors.push(`Issue ${index + 1}: Invalid priority '${issue.priority}'. Valid values: ${importEnums.issuePriority.join(", ")}`);
+        }
+      });
+    }
+    
+    res.json({
+      valid: errors.length === 0,
+      errors,
+      warnings,
+      summary: {
+        tasks: importData?.tasks?.length || 0,
+        risks: importData?.risks?.length || 0,
+        issues: importData?.issues?.length || 0,
+        stakeholders: importData?.stakeholders?.length || 0,
+        costItems: importData?.costItems?.length || 0
+      }
+    });
+  });
+  
+  // Import project data with validation and value mapping
   app.post('/api/projects/:projectId/import', isAuthenticated, async (req: any, res) => {
     try {
       const userId = getUserId(req);
@@ -1754,10 +2097,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const importData = req.body;
+      const errors: string[] = [];
+      const warnings: string[] = [];
       
       if (!importData || !importData.version) {
-        return res.status(400).json({ message: "Invalid import format" });
+        return res.status(400).json({ 
+          success: false,
+          message: "Invalid import format. Missing 'version' field.",
+          hint: "Get the correct format from GET /api/import/schema or GET /api/import/template"
+        });
       }
+      
+      // Helper to map values with fallback
+      const mapValue = (category: string, value: string, validValues: string[], defaultValue: string): string => {
+        if (!value) return defaultValue;
+        if (validValues.includes(value)) return value;
+        const mapped = valueMappings[category]?.[value];
+        if (mapped) {
+          warnings.push(`Mapped '${value}' to '${mapped}' for ${category}`);
+          return mapped;
+        }
+        errors.push(`Invalid ${category}: '${value}'. Valid values: ${validValues.join(", ")}`);
+        return defaultValue;
+      };
+      
+      // Helper to get parent WBS code
+      const getParentWbsCode = (wbsCode: string): string | null => {
+        const parts = wbsCode.split('.');
+        if (parts.length <= 1) return null;
+        return parts.slice(0, -1).join('.');
+      };
       
       let importedCounts = {
         tasks: 0,
@@ -1767,99 +2136,162 @@ export async function registerRoutes(app: Express): Promise<Server> {
         costItems: 0
       };
       
-      if (importData.tasks && Array.isArray(importData.tasks)) {
-        for (const task of importData.tasks) {
-          await storage.createTask({
+      // Build WBS code to task ID map for hierarchy
+      const wbsToTaskId: Record<string, number> = {};
+      
+      // Sort tasks by WBS code depth to ensure parents are created first
+      const sortedTasks = [...(importData.tasks || [])].sort((a: any, b: any) => {
+        const aDepth = (a.wbsCode || '').split('.').length;
+        const bDepth = (b.wbsCode || '').split('.').length;
+        return aDepth - bDepth;
+      });
+      
+      // Import tasks with hierarchy
+      for (const task of sortedTasks) {
+        try {
+          const wbsCode = task.wbsCode || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+          const parentWbsCode = getParentWbsCode(wbsCode);
+          const parentId = parentWbsCode ? wbsToTaskId[parentWbsCode] : null;
+          
+          const mappedPriority = mapValue('taskPriority', task.priority, importEnums.taskPriority, 'medium');
+          const mappedStatus = task.status && importEnums.taskStatus.includes(task.status) ? task.status : 'not-started';
+          const mappedDiscipline = task.discipline && importEnums.discipline.includes(task.discipline) ? task.discipline : 'general';
+          
+          const createdTask = await storage.createTask({
             projectId,
-            name: task.name || task.title,
-            wbsCode: task.wbsCode || `${Date.now()}`,
+            parentId,
+            name: task.name || task.title || 'Untitled Task',
+            wbsCode,
             createdBy: userId,
             description: task.description,
-            status: task.status || 'not-started',
-            progress: task.progress || 0,
+            status: mappedStatus as "not-started" | "in-progress" | "review" | "completed" | "on-hold",
+            progress: Math.min(100, Math.max(0, parseInt(task.progress) || 0)),
             startDate: task.startDate ? new Date(task.startDate) : null,
             endDate: task.endDate ? new Date(task.endDate) : null,
-            assignedTo: task.assignedTo || task.assignee,
-            priority: task.priority || 'medium',
+            assignedTo: task.assignedTo || task.assignee || null,
+            priority: mappedPriority as "low" | "medium" | "high" | "critical",
             estimatedHours: task.estimatedHours,
             actualHours: task.actualHours,
-            discipline: task.discipline
+            discipline: mappedDiscipline as any
           });
+          
+          wbsToTaskId[wbsCode] = createdTask.id;
           importedCounts.tasks++;
+        } catch (taskError: any) {
+          errors.push(`Failed to import task '${task.name || task.wbsCode}': ${taskError.message}`);
         }
       }
       
+      // Import risks
       if (importData.risks && Array.isArray(importData.risks)) {
         for (const risk of importData.risks) {
-          await storage.createRisk({
-            projectId,
-            title: risk.title,
-            description: risk.description,
-            category: risk.category || 'other',
-            probability: risk.probability || 'medium',
-            impact: risk.impact || 'medium',
-            status: risk.status || 'identified',
-            owner: risk.owner,
-            mitigationStrategy: risk.mitigationStrategy || risk.mitigation,
-            contingencyPlan: risk.contingencyPlan || risk.contingency
-          });
-          importedCounts.risks++;
+          try {
+            const mappedStatus = mapValue('riskStatus', risk.status, importEnums.riskStatus, 'identified');
+            const mappedImpact = mapValue('riskImpact', risk.impact, importEnums.riskImpact, 'medium');
+            
+            await storage.createRisk({
+              projectId,
+              title: risk.title || 'Untitled Risk',
+              description: risk.description,
+              category: risk.category || 'other',
+              probability: Math.min(5, Math.max(1, parseInt(risk.probability) || 3)),
+              impact: mappedImpact as "low" | "medium" | "high" | "critical",
+              status: mappedStatus as "identified" | "assessed" | "mitigating" | "closed",
+              owner: risk.owner || null,
+              mitigationPlan: risk.mitigationPlan || risk.mitigationStrategy || risk.mitigation
+            });
+            importedCounts.risks++;
+          } catch (riskError: any) {
+            errors.push(`Failed to import risk '${risk.title}': ${riskError.message}`);
+          }
         }
       }
       
+      // Import issues
       if (importData.issues && Array.isArray(importData.issues)) {
         for (const issue of importData.issues) {
-          await storage.createIssue({
-            projectId,
-            title: issue.title,
-            description: issue.description,
-            priority: issue.priority || 'medium',
-            status: issue.status || 'open',
-            assignedTo: issue.assignedTo,
-            reportedBy: issue.reportedBy,
-            resolution: issue.resolution
-          });
-          importedCounts.issues++;
+          try {
+            const mappedStatus = issue.status && importEnums.issueStatus.includes(issue.status) ? issue.status : 'open';
+            const mappedPriority = mapValue('issuePriority', issue.priority, importEnums.issuePriority, 'medium');
+            
+            await storage.createIssue({
+              projectId,
+              title: issue.title || 'Untitled Issue',
+              description: issue.description,
+              priority: mappedPriority as "low" | "medium" | "high" | "critical",
+              status: mappedStatus as "open" | "in-progress" | "resolved" | "closed",
+              assignedTo: issue.assignedTo || null,
+              reportedBy: issue.reportedBy || null,
+              resolution: issue.resolution || null
+            });
+            importedCounts.issues++;
+          } catch (issueError: any) {
+            errors.push(`Failed to import issue '${issue.title}': ${issueError.message}`);
+          }
         }
       }
       
+      // Import stakeholders
       if (importData.stakeholders && Array.isArray(importData.stakeholders)) {
         for (const stakeholder of importData.stakeholders) {
-          await storage.createStakeholder({
-            projectId,
-            name: stakeholder.name,
-            role: stakeholder.role,
-            organization: stakeholder.organization,
-            email: stakeholder.email,
-            phone: stakeholder.phone,
-            influence: stakeholder.influence,
-            interest: stakeholder.interest
-          });
-          importedCounts.stakeholders++;
+          try {
+            const mappedRole = mapValue('stakeholderRole', stakeholder.role, importEnums.stakeholderRole, 'other');
+            
+            await storage.createStakeholder({
+              projectId,
+              name: stakeholder.name || 'Unknown Stakeholder',
+              role: mappedRole as "sponsor" | "client" | "team-member" | "contractor" | "consultant" | "other",
+              organization: stakeholder.organization,
+              email: stakeholder.email,
+              phone: stakeholder.phone,
+              influence: Math.min(5, Math.max(1, parseInt(stakeholder.influence) || 3)),
+              interest: Math.min(5, Math.max(1, parseInt(stakeholder.interest) || 3))
+            });
+            importedCounts.stakeholders++;
+          } catch (stakeholderError: any) {
+            errors.push(`Failed to import stakeholder '${stakeholder.name}': ${stakeholderError.message}`);
+          }
         }
       }
       
+      // Import cost items
       if (importData.costItems && Array.isArray(importData.costItems)) {
         for (const costItem of importData.costItems) {
-          await storage.createCostItem({
-            projectId,
-            description: costItem.description || costItem.name,
-            category: costItem.category || 'other',
-            budgeted: costItem.budgeted,
-            actual: costItem.actual,
-            currency: costItem.currency || 'USD'
-          });
-          importedCounts.costItems++;
+          try {
+            const mappedCategory = costItem.category && importEnums.costCategory.includes(costItem.category) ? costItem.category : 'other';
+            
+            await storage.createCostItem({
+              projectId,
+              description: costItem.description || costItem.name || 'Unnamed Cost',
+              category: mappedCategory,
+              budgeted: costItem.budgeted,
+              actual: costItem.actual,
+              currency: costItem.currency || 'USD'
+            });
+            importedCounts.costItems++;
+          } catch (costError: any) {
+            errors.push(`Failed to import cost item '${costItem.description}': ${costError.message}`);
+          }
         }
       }
       
       res.json({
-        success: true,
-        imported: importedCounts
+        success: errors.length === 0,
+        imported: importedCounts,
+        errors: errors.length > 0 ? errors : undefined,
+        warnings: warnings.length > 0 ? warnings : undefined,
+        message: errors.length === 0 
+          ? `Successfully imported ${importedCounts.tasks} tasks, ${importedCounts.risks} risks, ${importedCounts.issues} issues, ${importedCounts.stakeholders} stakeholders, ${importedCounts.costItems} cost items`
+          : `Import completed with ${errors.length} error(s)`
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error importing project:", error);
-      res.status(500).json({ message: "Failed to import project" });
+      res.status(500).json({ 
+        success: false,
+        message: "Failed to import project",
+        error: error.message,
+        hint: "Validate your JSON first using POST /api/import/validate"
+      });
     }
   });
 

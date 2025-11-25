@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { useLocation } from "wouter";
-import { Search, Plus, Download, Upload, Bell, Moon, Sun, User, X, Building2, FolderKanban, Settings, LogOut, Mail, Shield, CheckCheck } from "lucide-react";
+import { Search, Plus, Download, Upload, Bell, Moon, Sun, User, X, Building2, FolderKanban, Settings, LogOut, Mail, Shield, CheckCheck, FileJson, FileText, AlertCircle, Info } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -65,6 +65,8 @@ export function TopBar() {
   const [isExporting, setIsExporting] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importResult, setImportResult] = useState<{ success: boolean; message: string; errors?: string[]; warnings?: string[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [notifications, setNotifications] = useState<Notification[]>([
@@ -182,7 +184,48 @@ export function TopBar() {
       toast({ title: "Error", description: "Please select a project first", variant: "destructive" });
       return;
     }
+    setImportResult(null);
+    setImportDialogOpen(true);
+  };
+
+  const handleSelectFile = () => {
     fileInputRef.current?.click();
+  };
+
+  const handleDownloadTemplate = async () => {
+    try {
+      const response = await fetch('/api/import/template', { credentials: 'include' });
+      if (!response.ok) throw new Error("Failed to fetch template");
+      const data = await response.json();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `import_template.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast({ title: "Success", description: "Template downloaded" });
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to download template", variant: "destructive" });
+    }
+  };
+
+  const handleDownloadSchema = async () => {
+    try {
+      const response = await fetch('/api/import/schema', { credentials: 'include' });
+      if (!response.ok) throw new Error("Failed to fetch schema");
+      const data = await response.json();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `import_schema.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast({ title: "Success", description: "Schema downloaded - use this with AI tools to generate valid project JSON" });
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to download schema", variant: "destructive" });
+    }
   };
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -193,14 +236,37 @@ export function TopBar() {
       const text = await file.text();
       const data = JSON.parse(text);
       
-      const response = await apiRequest("POST", `/api/projects/${selectedProjectId}/import`, data);
-      if (response.ok) {
-        toast({ title: "Success", description: "Project data imported successfully" });
-        window.location.reload();
+      const response = await fetch(`/api/projects/${selectedProjectId}/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(data)
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        setImportResult({
+          success: true,
+          message: result.message || "Project data imported successfully",
+          warnings: result.warnings
+        });
+        toast({ title: "Success", description: result.message || "Project data imported successfully" });
       } else {
-        throw new Error("Import failed");
+        setImportResult({
+          success: false,
+          message: result.message || "Import failed",
+          errors: result.errors,
+          warnings: result.warnings
+        });
+        toast({ title: "Import Issues", description: `Import completed with ${result.errors?.length || 0} error(s)`, variant: "destructive" });
       }
-    } catch (error) {
+    } catch (error: any) {
+      setImportResult({
+        success: false,
+        message: error.message || "Failed to import project data",
+        errors: ["Invalid JSON format or network error"]
+      });
       toast({ title: "Error", description: "Failed to import project data", variant: "destructive" });
     }
     
@@ -415,25 +481,33 @@ export function TopBar() {
               <Download className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuLabel>Import / Export</DropdownMenuLabel>
-            <DropdownMenuSeparator />
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel>Import</DropdownMenuLabel>
             <DropdownMenuItem onClick={handleImportJSON} data-testid="menu-item-import-json">
               <Upload className="h-4 w-4 mr-2" />
-              Import JSON
+              Import Project Data
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleDownloadTemplate} data-testid="menu-item-download-template">
+              <FileJson className="h-4 w-4 mr-2" />
+              Download Template
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleDownloadSchema} data-testid="menu-item-download-schema">
+              <FileText className="h-4 w-4 mr-2" />
+              Download AI Schema
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            <DropdownMenuLabel>Export</DropdownMenuLabel>
             <DropdownMenuItem onClick={handleExportPDF} data-testid="menu-item-export-pdf">
               <Download className="h-4 w-4 mr-2" />
-              Export as PDF
+              PDF Report
             </DropdownMenuItem>
             <DropdownMenuItem onClick={handleExportJSON} data-testid="menu-item-export-json">
               <Download className="h-4 w-4 mr-2" />
-              Export as JSON
+              JSON Data
             </DropdownMenuItem>
             <DropdownMenuItem onClick={handleExportCSV} data-testid="menu-item-export-csv">
               <Download className="h-4 w-4 mr-2" />
-              Export as CSV
+              CSV Tasks
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -581,6 +655,109 @@ export function TopBar() {
                 <Button variant="outline" onClick={() => setProfileOpen(false)} data-testid="button-close-profile">
                   Close
                 </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Import Dialog */}
+        <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+          <DialogContent className="sm:max-w-lg">
+            <DialogHeader>
+              <DialogTitle>Import Project Data</DialogTitle>
+              <DialogDescription>
+                Import tasks, risks, issues, stakeholders, and costs from a JSON file
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              {/* AI Generation Tip */}
+              <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                <div className="flex items-start gap-2">
+                  <Info className="h-4 w-4 text-blue-600 dark:text-blue-400 mt-0.5 shrink-0" />
+                  <div className="text-sm text-blue-800 dark:text-blue-200">
+                    <strong>Use AI to generate project data:</strong>
+                    <ol className="list-decimal list-inside mt-1 space-y-1 text-xs">
+                      <li>Download the "AI Schema" from the dropdown menu</li>
+                      <li>Give the schema to ChatGPT, Claude, or Gemini</li>
+                      <li>Ask it to generate project data following the schema</li>
+                      <li>Import the generated JSON file here</li>
+                    </ol>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Actions */}
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" onClick={handleDownloadTemplate} className="flex-1" data-testid="button-download-template">
+                  <FileJson className="h-4 w-4 mr-2" />
+                  Download Template
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleDownloadSchema} className="flex-1" data-testid="button-download-schema">
+                  <FileText className="h-4 w-4 mr-2" />
+                  Download AI Schema
+                </Button>
+              </div>
+
+              {/* Import Result */}
+              {importResult && (
+                <div className={`rounded-lg p-3 ${importResult.success ? 'bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800' : 'bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800'}`}>
+                  <div className="flex items-start gap-2">
+                    {importResult.success ? (
+                      <CheckCheck className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5 shrink-0" />
+                    ) : (
+                      <AlertCircle className="h-4 w-4 text-red-600 dark:text-red-400 mt-0.5 shrink-0" />
+                    )}
+                    <div className="flex-1">
+                      <p className={`text-sm font-medium ${importResult.success ? 'text-green-800 dark:text-green-200' : 'text-red-800 dark:text-red-200'}`}>
+                        {importResult.message}
+                      </p>
+                      {importResult.warnings && importResult.warnings.length > 0 && (
+                        <div className="mt-2">
+                          <p className="text-xs font-medium text-amber-700 dark:text-amber-300">Warnings:</p>
+                          <ul className="text-xs text-amber-600 dark:text-amber-400 list-disc list-inside">
+                            {importResult.warnings.slice(0, 5).map((w, i) => (
+                              <li key={i}>{w}</li>
+                            ))}
+                            {importResult.warnings.length > 5 && (
+                              <li>...and {importResult.warnings.length - 5} more</li>
+                            )}
+                          </ul>
+                        </div>
+                      )}
+                      {importResult.errors && importResult.errors.length > 0 && (
+                        <div className="mt-2">
+                          <p className="text-xs font-medium text-red-700 dark:text-red-300">Errors:</p>
+                          <ul className="text-xs text-red-600 dark:text-red-400 list-disc list-inside">
+                            {importResult.errors.slice(0, 5).map((e, i) => (
+                              <li key={i}>{e}</li>
+                            ))}
+                            {importResult.errors.length > 5 && (
+                              <li>...and {importResult.errors.length - 5} more</li>
+                            )}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex justify-between pt-2">
+                <Button variant="outline" onClick={() => setImportDialogOpen(false)} data-testid="button-cancel-import">
+                  {importResult?.success ? 'Close' : 'Cancel'}
+                </Button>
+                <div className="flex gap-2">
+                  {importResult?.success && (
+                    <Button onClick={() => window.location.reload()} data-testid="button-reload-page">
+                      Reload Page
+                    </Button>
+                  )}
+                  <Button onClick={handleSelectFile} data-testid="button-select-import-file">
+                    <Upload className="h-4 w-4 mr-2" />
+                    {importResult ? 'Import Another' : 'Select JSON File'}
+                  </Button>
+                </div>
               </div>
             </div>
           </DialogContent>
