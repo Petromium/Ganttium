@@ -13,6 +13,7 @@ import {
   Package,
   Bot,
   FileDown,
+  Mail,
 } from "lucide-react";
 import {
   Sidebar,
@@ -37,6 +38,7 @@ const projectTabs = [
   { title: "Cost Management", icon: DollarSign, path: "/cost" },
   { title: "AI Assistant", icon: Bot, path: "/ai-assistant" },
   { title: "Reports", icon: FileDown, path: "/reports" },
+  { title: "Email Templates", icon: Mail, path: "/email-templates" },
   { title: "SOP", icon: FileText, path: "/sop" },
   { title: "Analytics", icon: BarChart3, path: "/analytics" },
 ];

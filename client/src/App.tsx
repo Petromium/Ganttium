@@ -22,6 +22,7 @@ import IssuesPage from "@/pages/IssuesPage";
 import CostPage from "@/pages/CostPage";
 import AIAssistantPage from "@/pages/AIAssistantPage";
 import ReportsPage from "@/pages/ReportsPage";
+import EmailTemplatesPage from "@/pages/EmailTemplatesPage";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -61,6 +62,7 @@ function Router() {
         </div>
       </Route>
       <Route path="/reports" component={ReportsPage} />
+      <Route path="/email-templates" component={EmailTemplatesPage} />
       <Route path="/ai-assistant" component={AIAssistantPage} />
       <Route path="/pmo/dashboard">
         <div className="p-6">

@@ -38,6 +38,12 @@ import type {
   AiMessage,
   InsertAiUsage,
   AiUsage,
+  InsertEmailTemplate,
+  EmailTemplate,
+  InsertSentEmail,
+  SentEmail,
+  InsertEmailUsage,
+  EmailUsage,
 } from "@shared/schema";
 
 const sql = neon(process.env.DATABASE_URL!);
@@ -156,6 +162,23 @@ export interface IStorage {
   // AI Usage
   createAiUsage(usage: InsertAiUsage): Promise<AiUsage>;
   getAiUsageByUser(userId: string, startDate?: Date): Promise<AiUsage[]>;
+
+  // Email Templates
+  getEmailTemplate(id: number): Promise<EmailTemplate | undefined>;
+  getEmailTemplatesByOrganization(organizationId: number): Promise<EmailTemplate[]>;
+  getEmailTemplateByType(organizationId: number, type: string): Promise<EmailTemplate | undefined>;
+  createEmailTemplate(template: InsertEmailTemplate & { createdBy: string }): Promise<EmailTemplate>;
+  updateEmailTemplate(id: number, template: Partial<InsertEmailTemplate>): Promise<EmailTemplate | undefined>;
+  deleteEmailTemplate(id: number): Promise<void>;
+
+  // Sent Emails
+  createSentEmail(email: InsertSentEmail): Promise<SentEmail>;
+  getSentEmailsByOrganization(organizationId: number, limit?: number): Promise<SentEmail[]>;
+  updateSentEmailStatus(id: number, status: string, errorMessage?: string): Promise<SentEmail | undefined>;
+
+  // Email Usage
+  getEmailUsage(organizationId: number, month: string): Promise<EmailUsage | undefined>;
+  incrementEmailUsage(organizationId: number): Promise<EmailUsage>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -655,6 +678,104 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(schema.aiUsage)
       .where(eq(schema.aiUsage.userId, userId))
       .orderBy(desc(schema.aiUsage.createdAt));
+  }
+
+  // Email Templates
+  async getEmailTemplate(id: number): Promise<EmailTemplate | undefined> {
+    const [template] = await db.select().from(schema.emailTemplates)
+      .where(eq(schema.emailTemplates.id, id));
+    return template;
+  }
+
+  async getEmailTemplatesByOrganization(organizationId: number): Promise<EmailTemplate[]> {
+    return await db.select().from(schema.emailTemplates)
+      .where(eq(schema.emailTemplates.organizationId, organizationId))
+      .orderBy(asc(schema.emailTemplates.type));
+  }
+
+  async getEmailTemplateByType(organizationId: number, type: string): Promise<EmailTemplate | undefined> {
+    const [template] = await db.select().from(schema.emailTemplates)
+      .where(and(
+        eq(schema.emailTemplates.organizationId, organizationId),
+        eq(schema.emailTemplates.type, type as any)
+      ));
+    return template;
+  }
+
+  async createEmailTemplate(template: InsertEmailTemplate & { createdBy: string }): Promise<EmailTemplate> {
+    const [created] = await db.insert(schema.emailTemplates).values(template).returning();
+    return created;
+  }
+
+  async updateEmailTemplate(id: number, template: Partial<InsertEmailTemplate>): Promise<EmailTemplate | undefined> {
+    const [updated] = await db.update(schema.emailTemplates)
+      .set({ ...template, updatedAt: new Date() })
+      .where(eq(schema.emailTemplates.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteEmailTemplate(id: number): Promise<void> {
+    await db.delete(schema.emailTemplates).where(eq(schema.emailTemplates.id, id));
+  }
+
+  // Sent Emails
+  async createSentEmail(email: InsertSentEmail): Promise<SentEmail> {
+    const [created] = await db.insert(schema.sentEmails).values(email).returning();
+    return created;
+  }
+
+  async getSentEmailsByOrganization(organizationId: number, limit: number = 100): Promise<SentEmail[]> {
+    return await db.select().from(schema.sentEmails)
+      .where(eq(schema.sentEmails.organizationId, organizationId))
+      .orderBy(desc(schema.sentEmails.createdAt))
+      .limit(limit);
+  }
+
+  async updateSentEmailStatus(id: number, status: string, errorMessage?: string): Promise<SentEmail | undefined> {
+    const updates: any = { status };
+    if (status === 'sent') {
+      updates.sentAt = new Date();
+    }
+    if (errorMessage) {
+      updates.errorMessage = errorMessage;
+    }
+    const [updated] = await db.update(schema.sentEmails)
+      .set(updates)
+      .where(eq(schema.sentEmails.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Email Usage
+  async getEmailUsage(organizationId: number, month: string): Promise<EmailUsage | undefined> {
+    const [usage] = await db.select().from(schema.emailUsage)
+      .where(and(
+        eq(schema.emailUsage.organizationId, organizationId),
+        eq(schema.emailUsage.month, month)
+      ));
+    return usage;
+  }
+
+  async incrementEmailUsage(organizationId: number): Promise<EmailUsage> {
+    const month = new Date().toISOString().slice(0, 7); // YYYY-MM format
+    const existing = await this.getEmailUsage(organizationId, month);
+    
+    if (existing) {
+      const [updated] = await db.update(schema.emailUsage)
+        .set({ 
+          emailsSent: existing.emailsSent + 1,
+          updatedAt: new Date() 
+        })
+        .where(eq(schema.emailUsage.id, existing.id))
+        .returning();
+      return updated;
+    } else {
+      const [created] = await db.insert(schema.emailUsage)
+        .values({ organizationId, month, emailsSent: 1 })
+        .returning();
+      return created;
+    }
   }
 }
 

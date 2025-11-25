@@ -16,7 +16,9 @@ import {
   updateRiskSchema,
   updateIssueSchema,
   updateCostItemSchema,
-  insertAiConversationSchema
+  insertAiConversationSchema,
+  insertEmailTemplateSchema,
+  updateEmailTemplateSchema
 } from "@shared/schema";
 import { chatWithAssistant, type ChatMessage } from "./aiAssistant";
 import { z } from "zod";
@@ -26,6 +28,13 @@ import {
   generateEVAReport,
   generateIssueLogReport
 } from "./pdfReports";
+import {
+  sendEmail,
+  replacePlaceholders,
+  getDefaultTemplate,
+  getAllDefaultTemplates,
+  getAvailablePlaceholders
+} from "./emailService";
 
 // Helper to get user ID from request
 function getUserId(req: any): string {
@@ -1017,6 +1026,290 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error generating issue log report:", error);
       res.status(500).json({ message: "Failed to generate report" });
+    }
+  });
+
+  // =============== EMAIL TEMPLATES ROUTES ===============
+  
+  // Get all default email templates (for reference)
+  app.get('/api/email-templates/defaults', isAuthenticated, async (req: any, res) => {
+    try {
+      const templates = getAllDefaultTemplates();
+      res.json(templates);
+    } catch (error) {
+      console.error("Error getting default templates:", error);
+      res.status(500).json({ message: "Failed to get default templates" });
+    }
+  });
+
+  // Get available placeholders for a template type
+  app.get('/api/email-templates/placeholders/:type', isAuthenticated, async (req: any, res) => {
+    try {
+      const { type } = req.params;
+      const placeholders = getAvailablePlaceholders(type);
+      res.json({ type, placeholders });
+    } catch (error) {
+      console.error("Error getting placeholders:", error);
+      res.status(500).json({ message: "Failed to get placeholders" });
+    }
+  });
+
+  // Get organization email templates
+  app.get('/api/organizations/:orgId/email-templates', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const templates = await storage.getEmailTemplatesByOrganization(orgId);
+      res.json(templates);
+    } catch (error) {
+      console.error("Error getting email templates:", error);
+      res.status(500).json({ message: "Failed to get email templates" });
+    }
+  });
+
+  // Get single email template
+  app.get('/api/organizations/:orgId/email-templates/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      const templateId = parseInt(req.params.id);
+      
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const template = await storage.getEmailTemplate(templateId);
+      if (!template || template.organizationId !== orgId) {
+        return res.status(404).json({ message: "Template not found" });
+      }
+      
+      res.json(template);
+    } catch (error) {
+      console.error("Error getting email template:", error);
+      res.status(500).json({ message: "Failed to get email template" });
+    }
+  });
+
+  // Create email template
+  app.post('/api/organizations/:orgId/email-templates', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const parsed = insertEmailTemplateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
+      }
+      
+      const template = await storage.createEmailTemplate({
+        ...parsed.data,
+        organizationId: orgId,
+        createdBy: userId
+      });
+      
+      res.status(201).json(template);
+    } catch (error) {
+      console.error("Error creating email template:", error);
+      res.status(500).json({ message: "Failed to create email template" });
+    }
+  });
+
+  // Update email template
+  app.patch('/api/organizations/:orgId/email-templates/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      const templateId = parseInt(req.params.id);
+      
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const existing = await storage.getEmailTemplate(templateId);
+      if (!existing || existing.organizationId !== orgId) {
+        return res.status(404).json({ message: "Template not found" });
+      }
+      
+      const parsed = updateEmailTemplateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid data", errors: parsed.error.issues });
+      }
+      
+      const updated = await storage.updateEmailTemplate(templateId, parsed.data);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating email template:", error);
+      res.status(500).json({ message: "Failed to update email template" });
+    }
+  });
+
+  // Delete email template
+  app.delete('/api/organizations/:orgId/email-templates/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      const templateId = parseInt(req.params.id);
+      
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const existing = await storage.getEmailTemplate(templateId);
+      if (!existing || existing.organizationId !== orgId) {
+        return res.status(404).json({ message: "Template not found" });
+      }
+      
+      await storage.deleteEmailTemplate(templateId);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting email template:", error);
+      res.status(500).json({ message: "Failed to delete email template" });
+    }
+  });
+
+  // Preview email template with placeholders
+  app.post('/api/organizations/:orgId/email-templates/:id/preview', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      const templateId = parseInt(req.params.id);
+      
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const template = await storage.getEmailTemplate(templateId);
+      if (!template || template.organizationId !== orgId) {
+        return res.status(404).json({ message: "Template not found" });
+      }
+      
+      const placeholders = req.body.placeholders || {};
+      const previewSubject = replacePlaceholders(template.subject, placeholders);
+      const previewBody = replacePlaceholders(template.body, placeholders);
+      
+      res.json({
+        subject: previewSubject,
+        body: previewBody
+      });
+    } catch (error) {
+      console.error("Error previewing template:", error);
+      res.status(500).json({ message: "Failed to preview template" });
+    }
+  });
+
+  // Send test email
+  app.post('/api/organizations/:orgId/email-templates/:id/send-test', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      const templateId = parseInt(req.params.id);
+      
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const template = await storage.getEmailTemplate(templateId);
+      if (!template || template.organizationId !== orgId) {
+        return res.status(404).json({ message: "Template not found" });
+      }
+      
+      const { toEmail, placeholders = {} } = req.body;
+      if (!toEmail) {
+        return res.status(400).json({ message: "Email address required" });
+      }
+      
+      const subject = replacePlaceholders(template.subject, placeholders);
+      const body = replacePlaceholders(template.body, placeholders);
+      
+      // Log the email to the database
+      const sentEmail = await storage.createSentEmail({
+        organizationId: orgId,
+        templateId,
+        toEmail,
+        subject,
+        status: 'pending'
+      });
+      
+      // Send via SendGrid
+      const result = await sendEmail({
+        to: toEmail,
+        subject,
+        htmlContent: body,
+        templateId,
+        organizationId: orgId
+      });
+      
+      // Update status
+      await storage.updateSentEmailStatus(
+        sentEmail.id, 
+        result.success ? 'sent' : 'failed',
+        result.error
+      );
+      
+      // Increment usage counter
+      if (result.success) {
+        await storage.incrementEmailUsage(orgId);
+      }
+      
+      res.json({ 
+        success: result.success, 
+        message: result.success ? 'Test email sent' : result.error 
+      });
+    } catch (error) {
+      console.error("Error sending test email:", error);
+      res.status(500).json({ message: "Failed to send test email" });
+    }
+  });
+
+  // Get sent emails log
+  app.get('/api/organizations/:orgId/sent-emails', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const limit = parseInt(req.query.limit as string) || 100;
+      const sentEmails = await storage.getSentEmailsByOrganization(orgId, limit);
+      res.json(sentEmails);
+    } catch (error) {
+      console.error("Error getting sent emails:", error);
+      res.status(500).json({ message: "Failed to get sent emails" });
+    }
+  });
+
+  // Get email usage for current month
+  app.get('/api/organizations/:orgId/email-usage', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const month = new Date().toISOString().slice(0, 7);
+      const usage = await storage.getEmailUsage(orgId, month);
+      
+      res.json({
+        month,
+        emailsSent: usage?.emailsSent || 0,
+        emailLimit: usage?.emailLimit || 1000
+      });
+    } catch (error) {
+      console.error("Error getting email usage:", error);
+      res.status(500).json({ message: "Failed to get email usage" });
     }
   });
 

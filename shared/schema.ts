@@ -382,3 +382,78 @@ export const insertAiUsageSchema = createInsertSchema(aiUsage).omit({ id: true, 
 export const selectAiUsageSchema = createSelectSchema(aiUsage);
 export type InsertAiUsage = z.infer<typeof insertAiUsageSchema>;
 export type AiUsage = typeof aiUsage.$inferSelect;
+
+// Email Template Type Enum
+export const emailTemplateTypeEnum = pgEnum("email_template_type", [
+  "task-assigned",
+  "task-due-reminder",
+  "risk-identified",
+  "issue-reported",
+  "change-request-submitted",
+  "change-request-approved",
+  "change-request-rejected",
+  "project-update",
+  "milestone-reached",
+  "custom"
+]);
+
+// Email Templates (Organization-level)
+export const emailTemplates = pgTable("email_templates", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  type: emailTemplateTypeEnum("type").notNull(),
+  name: text("name").notNull(),
+  subject: text("subject").notNull(),
+  body: text("body").notNull(), // HTML content with {{placeholders}}
+  isActive: boolean("is_active").notNull().default(true),
+  createdBy: varchar("created_by", { length: 255 }).notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Sent Email Log (for tracking and analytics)
+export const sentEmails = pgTable("sent_emails", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  projectId: integer("project_id").references(() => projects.id, { onDelete: "set null" }),
+  templateId: integer("template_id").references(() => emailTemplates.id, { onDelete: "set null" }),
+  toEmail: text("to_email").notNull(),
+  subject: text("subject").notNull(),
+  status: text("status").notNull().default("pending"), // pending, sent, failed, bounced
+  errorMessage: text("error_message"),
+  sentAt: timestamp("sent_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Email Usage Tracking (for billing)
+export const emailUsage = pgTable("email_usage", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  month: varchar("month", { length: 7 }).notNull(), // Format: YYYY-MM
+  emailsSent: integer("emails_sent").notNull().default(0),
+  emailLimit: integer("email_limit").notNull().default(1000), // Based on subscription tier
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqueOrgMonth: unique("email_usage_org_month_unique").on(table.organizationId, table.month),
+}));
+
+// Zod Schemas for Email Templates
+export const insertEmailTemplateSchema = createInsertSchema(emailTemplates).omit({ id: true, createdAt: true, updatedAt: true, createdBy: true });
+export const updateEmailTemplateSchema = insertEmailTemplateSchema.partial();
+export const selectEmailTemplateSchema = createSelectSchema(emailTemplates);
+export type InsertEmailTemplate = z.infer<typeof insertEmailTemplateSchema>;
+export type UpdateEmailTemplate = z.infer<typeof updateEmailTemplateSchema>;
+export type EmailTemplate = typeof emailTemplates.$inferSelect;
+
+// Zod Schemas for Sent Emails
+export const insertSentEmailSchema = createInsertSchema(sentEmails).omit({ id: true, createdAt: true });
+export const selectSentEmailSchema = createSelectSchema(sentEmails);
+export type InsertSentEmail = z.infer<typeof insertSentEmailSchema>;
+export type SentEmail = typeof sentEmails.$inferSelect;
+
+// Zod Schemas for Email Usage
+export const insertEmailUsageSchema = createInsertSchema(emailUsage).omit({ id: true, createdAt: true, updatedAt: true });
+export const selectEmailUsageSchema = createSelectSchema(emailUsage);
+export type InsertEmailUsage = z.infer<typeof insertEmailUsageSchema>;
+export type EmailUsage = typeof emailUsage.$inferSelect;
