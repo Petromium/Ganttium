@@ -22,6 +22,7 @@ import GanttPage from "@/pages/GanttPage";
 import KanbanPage from "@/pages/KanbanPage";
 import CalendarPage from "@/pages/CalendarPage";
 import StakeholdersPage from "@/pages/StakeholdersPage";
+import RACIMatrixPage from "@/pages/RACIMatrixPage";
 import RisksPage from "@/pages/RisksPage";
 import IssuesPage from "@/pages/IssuesPage";
 import CostPage from "@/pages/CostPage";
@@ -50,6 +51,7 @@ function Router() {
       <Route path="/kanban" component={KanbanPage} />
       <Route path="/calendar" component={CalendarPage} />
       <Route path="/stakeholders" component={StakeholdersPage} />
+      <Route path="/raci-matrix" component={RACIMatrixPage} />
       <Route path="/resources" component={ResourcesPage} />
       <Route path="/risks" component={RisksPage} />
       <Route path="/issues" component={IssuesPage} />

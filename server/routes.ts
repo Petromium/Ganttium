@@ -9,6 +9,8 @@ import {
   insertTaskSchema,
   insertTaskDependencySchema,
   insertStakeholderSchema,
+  insertStakeholderRaciSchema,
+  updateStakeholderRaciSchema,
   insertRiskSchema,
   insertIssueSchema,
   insertCostItemSchema,
@@ -598,6 +600,147 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting stakeholder:", error);
       res.status(500).json({ message: "Failed to delete stakeholder" });
+    }
+  });
+
+  // ===== RACI Matrix Routes =====
+  app.get('/api/projects/:projectId/raci', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+      
+      // Check access
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      
+      const raciAssignments = await storage.getStakeholderRaciByProject(projectId);
+      res.json(raciAssignments);
+    } catch (error) {
+      console.error("Error fetching RACI assignments:", error);
+      res.status(500).json({ message: "Failed to fetch RACI assignments" });
+    }
+  });
+
+  app.get('/api/tasks/:taskId/raci', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const taskId = parseInt(req.params.taskId);
+      
+      const task = await storage.getTask(taskId);
+      if (!task) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      
+      // Check access
+      if (!await checkProjectAccess(userId, task.projectId)) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+      
+      const raciAssignments = await storage.getStakeholderRaciByTask(taskId);
+      res.json(raciAssignments);
+    } catch (error) {
+      console.error("Error fetching task RACI assignments:", error);
+      res.status(500).json({ message: "Failed to fetch RACI assignments" });
+    }
+  });
+
+  app.post('/api/raci', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const data = insertStakeholderRaciSchema.parse(req.body);
+      
+      // Check access to project
+      if (!await checkProjectAccess(userId, data.projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const raci = await storage.createStakeholderRaci(data);
+      
+      // Notify connected clients
+      wsManager.notifyProjectUpdate(raci.projectId, "raci-created", raci, userId);
+      
+      res.json(raci);
+    } catch (error) {
+      console.error("Error creating RACI assignment:", error);
+      res.status(400).json({ message: "Failed to create RACI assignment" });
+    }
+  });
+
+  app.put('/api/raci/upsert', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const data = insertStakeholderRaciSchema.parse(req.body);
+      
+      // Check access to project
+      if (!await checkProjectAccess(userId, data.projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const raci = await storage.upsertStakeholderRaci(data);
+      
+      // Notify connected clients
+      wsManager.notifyProjectUpdate(raci.projectId, "raci-upserted", raci, userId);
+      
+      res.json(raci);
+    } catch (error) {
+      console.error("Error upserting RACI assignment:", error);
+      res.status(400).json({ message: "Failed to upsert RACI assignment" });
+    }
+  });
+
+  app.patch('/api/raci/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+      
+      const raci = await storage.getStakeholderRaci(id);
+      if (!raci) {
+        return res.status(404).json({ message: "RACI assignment not found" });
+      }
+      
+      // Check access
+      if (!await checkProjectAccess(userId, raci.projectId)) {
+        return res.status(404).json({ message: "RACI assignment not found" });
+      }
+      
+      const data = updateStakeholderRaciSchema.parse(req.body);
+      const updated = await storage.updateStakeholderRaci(id, data);
+      
+      // Notify connected clients
+      wsManager.notifyProjectUpdate(raci.projectId, "raci-updated", updated, userId);
+      
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating RACI assignment:", error);
+      res.status(400).json({ message: "Failed to update RACI assignment" });
+    }
+  });
+
+  app.delete('/api/raci/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+      
+      const raci = await storage.getStakeholderRaci(id);
+      if (!raci) {
+        return res.status(404).json({ message: "RACI assignment not found" });
+      }
+      
+      // Check access
+      if (!await checkProjectAccess(userId, raci.projectId)) {
+        return res.status(404).json({ message: "RACI assignment not found" });
+      }
+      
+      await storage.deleteStakeholderRaci(id);
+      
+      // Notify connected clients
+      wsManager.notifyProjectUpdate(raci.projectId, "raci-deleted", { id, projectId: raci.projectId }, userId);
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting RACI assignment:", error);
+      res.status(500).json({ message: "Failed to delete RACI assignment" });
     }
   });
 

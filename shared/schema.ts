@@ -45,6 +45,9 @@ export const stakeholderRoleEpcEnum = pgEnum("stakeholder_role_epc", [
 export const communicationPreferenceEnum = pgEnum("communication_preference", ["email", "phone", "meeting", "portal"]);
 export const authorityLevelEnum = pgEnum("authority_level", ["decision-maker", "influencer", "advisor", "informed"]);
 
+// RACI Matrix Enum (Responsible, Accountable, Consulted, Informed)
+export const raciTypeEnum = pgEnum("raci_type", ["R", "A", "C", "I"]);
+
 // Document Control Enums
 export const documentTypeEnum = pgEnum("document_type", [
   // Technical
@@ -225,6 +228,20 @@ export const stakeholders = pgTable("stakeholders", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+// RACI Matrix (Stakeholder-Task responsibility assignments)
+export const stakeholderRaci = pgTable("stakeholder_raci", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  stakeholderId: integer("stakeholder_id").notNull().references(() => stakeholders.id, { onDelete: "cascade" }),
+  taskId: integer("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  raciType: raciTypeEnum("raci_type").notNull(), // R, A, C, or I
+  notes: text("notes"), // Optional notes for this assignment
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqueStakeholderTask: unique("stakeholder_raci_unique").on(table.stakeholderId, table.taskId),
+}));
 
 // Risks (EPC Enhanced)
 export const risks = pgTable("risks", {
@@ -735,6 +752,14 @@ export const selectStakeholderSchema = createSelectSchema(stakeholders);
 export type InsertStakeholder = z.infer<typeof insertStakeholderSchema>;
 export type UpdateStakeholder = z.infer<typeof updateStakeholderSchema>;
 export type Stakeholder = typeof stakeholders.$inferSelect;
+
+// Zod Schemas for Stakeholder RACI Matrix
+export const insertStakeholderRaciSchema = createInsertSchema(stakeholderRaci).omit({ id: true, createdAt: true, updatedAt: true });
+export const updateStakeholderRaciSchema = insertStakeholderRaciSchema.partial();
+export const selectStakeholderRaciSchema = createSelectSchema(stakeholderRaci);
+export type InsertStakeholderRaci = z.infer<typeof insertStakeholderRaciSchema>;
+export type UpdateStakeholderRaci = z.infer<typeof updateStakeholderRaciSchema>;
+export type StakeholderRaci = typeof stakeholderRaci.$inferSelect;
 
 // Zod Schemas for Risks
 export const insertRiskSchema = createInsertSchema(risks).omit({ id: true, createdAt: true, updatedAt: true, code: true }).extend({

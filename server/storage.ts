@@ -18,6 +18,8 @@ import type {
   TaskDependency,
   InsertStakeholder,
   Stakeholder,
+  InsertStakeholderRaci,
+  StakeholderRaci,
   InsertRisk,
   Risk,
   InsertIssue,
@@ -126,6 +128,16 @@ export interface IStorage {
   createStakeholder(stakeholder: InsertStakeholder): Promise<Stakeholder>;
   updateStakeholder(id: number, stakeholder: Partial<InsertStakeholder>): Promise<Stakeholder | undefined>;
   deleteStakeholder(id: number): Promise<void>;
+
+  // Stakeholder RACI Matrix
+  getStakeholderRaci(id: number): Promise<StakeholderRaci | undefined>;
+  getStakeholderRaciByProject(projectId: number): Promise<StakeholderRaci[]>;
+  getStakeholderRaciByTask(taskId: number): Promise<StakeholderRaci[]>;
+  getStakeholderRaciByStakeholder(stakeholderId: number): Promise<StakeholderRaci[]>;
+  createStakeholderRaci(raci: InsertStakeholderRaci): Promise<StakeholderRaci>;
+  updateStakeholderRaci(id: number, raci: Partial<InsertStakeholderRaci>): Promise<StakeholderRaci | undefined>;
+  deleteStakeholderRaci(id: number): Promise<void>;
+  upsertStakeholderRaci(raci: InsertStakeholderRaci): Promise<StakeholderRaci>;
 
   // Risks
   getRisk(id: number): Promise<Risk | undefined>;
@@ -571,6 +583,68 @@ export class DatabaseStorage implements IStorage {
 
   async deleteStakeholder(id: number): Promise<void> {
     await db.delete(schema.stakeholders).where(eq(schema.stakeholders.id, id));
+  }
+
+  // Stakeholder RACI Matrix
+  async getStakeholderRaci(id: number): Promise<StakeholderRaci | undefined> {
+    const [raci] = await db.select().from(schema.stakeholderRaci)
+      .where(eq(schema.stakeholderRaci.id, id));
+    return raci;
+  }
+
+  async getStakeholderRaciByProject(projectId: number): Promise<StakeholderRaci[]> {
+    return await db.select().from(schema.stakeholderRaci)
+      .where(eq(schema.stakeholderRaci.projectId, projectId))
+      .orderBy(desc(schema.stakeholderRaci.createdAt));
+  }
+
+  async getStakeholderRaciByTask(taskId: number): Promise<StakeholderRaci[]> {
+    return await db.select().from(schema.stakeholderRaci)
+      .where(eq(schema.stakeholderRaci.taskId, taskId));
+  }
+
+  async getStakeholderRaciByStakeholder(stakeholderId: number): Promise<StakeholderRaci[]> {
+    return await db.select().from(schema.stakeholderRaci)
+      .where(eq(schema.stakeholderRaci.stakeholderId, stakeholderId));
+  }
+
+  async createStakeholderRaci(raci: InsertStakeholderRaci): Promise<StakeholderRaci> {
+    const [created] = await db.insert(schema.stakeholderRaci).values(raci).returning();
+    return created;
+  }
+
+  async updateStakeholderRaci(id: number, raci: Partial<InsertStakeholderRaci>): Promise<StakeholderRaci | undefined> {
+    const [updated] = await db.update(schema.stakeholderRaci)
+      .set({ ...raci, updatedAt: new Date() })
+      .where(eq(schema.stakeholderRaci.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteStakeholderRaci(id: number): Promise<void> {
+    await db.delete(schema.stakeholderRaci).where(eq(schema.stakeholderRaci.id, id));
+  }
+
+  async upsertStakeholderRaci(raci: InsertStakeholderRaci): Promise<StakeholderRaci> {
+    // Try to find existing record
+    const [existing] = await db.select().from(schema.stakeholderRaci)
+      .where(and(
+        eq(schema.stakeholderRaci.stakeholderId, raci.stakeholderId),
+        eq(schema.stakeholderRaci.taskId, raci.taskId)
+      ));
+    
+    if (existing) {
+      // Update existing record
+      const [updated] = await db.update(schema.stakeholderRaci)
+        .set({ ...raci, updatedAt: new Date() })
+        .where(eq(schema.stakeholderRaci.id, existing.id))
+        .returning();
+      return updated;
+    } else {
+      // Create new record
+      const [created] = await db.insert(schema.stakeholderRaci).values(raci).returning();
+      return created;
+    }
   }
 
   // Risks
