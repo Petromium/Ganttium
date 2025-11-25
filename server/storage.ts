@@ -1,6 +1,6 @@
 import { drizzle } from "drizzle-orm/neon-http";
 import { neon } from "@neondatabase/serverless";
-import { eq, and, desc, asc, isNull } from "drizzle-orm";
+import { eq, and, desc, asc, isNull, inArray } from "drizzle-orm";
 import * as schema from "@shared/schema";
 import type {
   InsertOrganization,
@@ -178,7 +178,7 @@ export class DatabaseStorage implements IStorage {
     if (orgIds.length === 0) return [];
 
     return await db.select().from(schema.organizations)
-      .where(eq(schema.organizations.id, orgIds[0])); // Simplified for now
+      .where(inArray(schema.organizations.id, orgIds));
   }
 
   async createOrganization(org: InsertOrganization): Promise<Organization> {
