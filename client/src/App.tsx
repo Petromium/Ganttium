@@ -33,6 +33,9 @@ import AdminDashboard from "@/pages/AdminDashboard";
 import ResourcesPage from "@/pages/ResourcesPage";
 import AnalyticsPage from "@/pages/AnalyticsPage";
 import DocumentsPage from "@/pages/DocumentsPage";
+import PMODashboardPage from "@/pages/PMODashboardPage";
+import PMOCalendarPage from "@/pages/PMOCalendarPage";
+import PMOInventoryPage from "@/pages/PMOInventoryPage";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -63,24 +66,9 @@ function Router() {
       <Route path="/email-templates" component={EmailTemplatesPage} />
       <Route path="/ai-assistant" component={AIAssistantPage} />
       <Route path="/settings" component={SettingsPage} />
-      <Route path="/pmo/dashboard">
-        <div className="p-6">
-          <h1 className="text-3xl font-semibold">PMO Dashboard</h1>
-          <p className="text-muted-foreground">PMO-level dashboard coming soon</p>
-        </div>
-      </Route>
-      <Route path="/pmo/calendar">
-        <div className="p-6">
-          <h1 className="text-3xl font-semibold">PMO Calendar</h1>
-          <p className="text-muted-foreground">Multi-project calendar coming soon</p>
-        </div>
-      </Route>
-      <Route path="/pmo/inventory">
-        <div className="p-6">
-          <h1 className="text-3xl font-semibold">Inventory Management</h1>
-          <p className="text-muted-foreground">Inventory tracking coming soon</p>
-        </div>
-      </Route>
+      <Route path="/pmo/dashboard" component={PMODashboardPage} />
+      <Route path="/pmo/calendar" component={PMOCalendarPage} />
+      <Route path="/pmo/inventory" component={PMOInventoryPage} />
       <Route path="/admin" component={AdminDashboard} />
       <Route component={NotFound} />
     </Switch>

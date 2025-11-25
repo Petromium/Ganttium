@@ -9,12 +9,10 @@ import {
   Users, 
   Package, 
   AlertTriangle, 
-  Loader2, 
   HardHat,
   Wrench,
   Truck,
-  DollarSign,
-  Clock
+  DollarSign
 } from "lucide-react";
 import { useProject } from "@/contexts/ProjectContext";
 import { cn } from "@/lib/utils";
@@ -96,14 +94,14 @@ export default function PMOInventoryPage() {
   });
 
   const stats = useMemo(() => {
-    const laborResources = resources.filter(r => r.type === 'labor');
+    const laborResources = resources.filter(r => r.type === 'labor' || r.type === 'human');
     const equipmentResources = resources.filter(r => r.type === 'equipment');
     const materialResources = resources.filter(r => r.type === 'material');
     
-    const totalCost = resources.reduce((sum, r) => sum + (Number(r.rate) || 0) * (Number(r.quantity) || 1), 0);
-    const laborCost = laborResources.reduce((sum, r) => sum + (Number(r.rate) || 0) * (Number(r.quantity) || 1), 0);
-    const equipmentCost = equipmentResources.reduce((sum, r) => sum + (Number(r.rate) || 0) * (Number(r.quantity) || 1), 0);
-    const materialCost = materialResources.reduce((sum, r) => sum + (Number(r.rate) || 0) * (Number(r.quantity) || 1), 0);
+    const totalCost = resources.reduce((sum, r) => sum + (Number(r.rate) || 0), 0);
+    const laborCost = laborResources.reduce((sum, r) => sum + (Number(r.rate) || 0), 0);
+    const equipmentCost = equipmentResources.reduce((sum, r) => sum + (Number(r.rate) || 0), 0);
+    const materialCost = materialResources.reduce((sum, r) => sum + (Number(r.rate) || 0), 0);
 
     return {
       total: resources.length,
@@ -137,10 +135,10 @@ export default function PMOInventoryPage() {
         });
       }
       const stats = breakdown.get(resource.projectName)!;
-      const cost = (Number(resource.rate) || 0) * (Number(resource.quantity) || 1);
+      const cost = Number(resource.rate) || 0;
       stats.totalCost += cost;
       
-      if (resource.type === 'labor') stats.labor++;
+      if (resource.type === 'labor' || resource.type === 'human') stats.labor++;
       else if (resource.type === 'equipment') stats.equipment++;
       else if (resource.type === 'material') stats.material++;
     });
@@ -362,15 +360,14 @@ export default function PMOInventoryPage() {
                     <th className="py-3 px-4 text-left text-sm font-medium text-muted-foreground">Resource</th>
                     <th className="py-3 px-4 text-left text-sm font-medium text-muted-foreground">Type</th>
                     <th className="py-3 px-4 text-left text-sm font-medium text-muted-foreground">Project</th>
+                    <th className="py-3 px-4 text-left text-sm font-medium text-muted-foreground">Discipline</th>
                     <th className="py-3 px-4 text-right text-sm font-medium text-muted-foreground">Rate</th>
-                    <th className="py-3 px-4 text-right text-sm font-medium text-muted-foreground">Quantity</th>
-                    <th className="py-3 px-4 text-right text-sm font-medium text-muted-foreground">Total</th>
+                    <th className="py-3 px-4 text-center text-sm font-medium text-muted-foreground">Availability</th>
                   </tr>
                 </thead>
                 <tbody>
                   {resources.map((resource) => {
                     const TypeIcon = getResourceTypeIcon(resource.type);
-                    const total = (Number(resource.rate) || 0) * (Number(resource.quantity) || 1);
                     return (
                       <tr 
                         key={resource.id} 
@@ -385,15 +382,15 @@ export default function PMOInventoryPage() {
                             )}>
                               <TypeIcon className={cn(
                                 "h-4 w-4",
-                                resource.type === 'labor' && "text-blue-500",
+                                (resource.type === 'labor' || resource.type === 'human') && "text-blue-500",
                                 resource.type === 'equipment' && "text-purple-500",
                                 resource.type === 'material' && "text-amber-500",
                               )} />
                             </div>
                             <div>
                               <p className="font-medium">{resource.name}</p>
-                              {resource.role && (
-                                <p className="text-xs text-muted-foreground">{resource.role}</p>
+                              {resource.discipline && resource.discipline !== 'general' && (
+                                <p className="text-xs text-muted-foreground capitalize">{resource.discipline}</p>
                               )}
                             </div>
                           </div>
@@ -409,15 +406,17 @@ export default function PMOInventoryPage() {
                             <span className="text-sm truncate max-w-[150px]">{resource.projectName}</span>
                           </div>
                         </td>
+                        <td className="py-3 px-4">
+                          <span className="text-sm capitalize">{resource.discipline || 'General'}</span>
+                        </td>
                         <td className="py-3 px-4 text-right font-mono text-sm">
                           {formatCurrency(Number(resource.rate) || 0)}
-                          {resource.unit && <span className="text-muted-foreground">/{resource.unit}</span>}
+                          {resource.unitType && <span className="text-muted-foreground">/{resource.unitType}</span>}
                         </td>
-                        <td className="py-3 px-4 text-right font-mono text-sm">
-                          {resource.quantity || 1}
-                        </td>
-                        <td className="py-3 px-4 text-right font-mono text-sm font-medium">
-                          {formatCurrency(total)}
+                        <td className="py-3 px-4 text-center">
+                          <Badge variant={resource.availability === 100 ? "outline" : "secondary"}>
+                            {resource.availability || 100}%
+                          </Badge>
                         </td>
                       </tr>
                     );
