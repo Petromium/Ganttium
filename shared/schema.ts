@@ -229,18 +229,28 @@ export const stakeholders = pgTable("stakeholders", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-// RACI Matrix (Stakeholder-Task responsibility assignments)
+// RACI Matrix (Stakeholder/Resource-Task responsibility assignments)
+// Supports both stakeholders and human resources as assignable people
+// Supports inheritance from parent tasks in WBS hierarchy
 export const stakeholderRaci = pgTable("stakeholder_raci", {
   id: serial("id").primaryKey(),
   projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
-  stakeholderId: integer("stakeholder_id").notNull().references(() => stakeholders.id, { onDelete: "cascade" }),
   taskId: integer("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
   raciType: raciTypeEnum("raci_type").notNull(), // R, A, C, or I
+  // Either stakeholderId OR resourceId must be set (one person per record)
+  stakeholderId: integer("stakeholder_id").references(() => stakeholders.id, { onDelete: "cascade" }),
+  resourceId: integer("resource_id").references(() => resources.id, { onDelete: "cascade" }),
+  // Inheritance tracking - for WBS parent-child RACI propagation
+  isInherited: boolean("is_inherited").notNull().default(false),
+  inheritedFromTaskId: integer("inherited_from_task_id").references(() => tasks.id, { onDelete: "set null" }),
   notes: text("notes"), // Optional notes for this assignment
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
-  uniqueStakeholderTask: unique("stakeholder_raci_unique").on(table.stakeholderId, table.taskId),
+  // Allow same person to have different RACI roles on same task
+  // Unique on (stakeholder/resource, task, raciType) combination
+  uniqueStakeholderTaskRaci: unique("stakeholder_raci_stakeholder_unique").on(table.stakeholderId, table.taskId, table.raciType),
+  uniqueResourceTaskRaci: unique("stakeholder_raci_resource_unique").on(table.resourceId, table.taskId, table.raciType),
 }));
 
 // Risks (EPC Enhanced)

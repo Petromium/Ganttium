@@ -657,6 +657,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const raci = await storage.createStakeholderRaci(data);
       
+      // Propagate to descendants if this is an explicit (not inherited) assignment
+      if (!data.isInherited) {
+        await storage.propagateRaciToDescendants(
+          raci.taskId,
+          raci.raciType,
+          raci.stakeholderId,
+          raci.resourceId,
+          raci.projectId
+        );
+      }
+      
       // Notify connected clients
       wsManager.notifyProjectUpdate(raci.projectId, "raci-created", raci, userId);
       
@@ -732,6 +743,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "RACI assignment not found" });
       }
       
+      // Remove inherited values from descendants if this is an explicit assignment
+      if (!raci.isInherited) {
+        await storage.removeInheritedRaciFromDescendants(
+          raci.taskId,
+          raci.raciType,
+          raci.stakeholderId,
+          raci.resourceId
+        );
+      }
+      
       await storage.deleteStakeholderRaci(id);
       
       // Notify connected clients
@@ -741,6 +762,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting RACI assignment:", error);
       res.status(500).json({ message: "Failed to delete RACI assignment" });
+    }
+  });
+
+  app.post('/api/raci/reset', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const { taskId, raciType, projectId } = req.body;
+      
+      if (!taskId || !raciType || !projectId) {
+        return res.status(400).json({ message: "taskId, raciType, and projectId are required" });
+      }
+      
+      // Check access to project
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      await storage.resetRaciToInherited(taskId, raciType);
+      
+      // Notify connected clients
+      wsManager.notifyProjectUpdate(projectId, "raci-reset", { taskId, raciType }, userId);
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error resetting RACI to inherited:", error);
+      res.status(500).json({ message: "Failed to reset RACI to inherited" });
     }
   });
 

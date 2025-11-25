@@ -134,9 +134,13 @@ export interface IStorage {
   getStakeholderRaciByProject(projectId: number): Promise<StakeholderRaci[]>;
   getStakeholderRaciByTask(taskId: number): Promise<StakeholderRaci[]>;
   getStakeholderRaciByStakeholder(stakeholderId: number): Promise<StakeholderRaci[]>;
+  getStakeholderRaciByResource(resourceId: number): Promise<StakeholderRaci[]>;
   createStakeholderRaci(raci: InsertStakeholderRaci): Promise<StakeholderRaci>;
   updateStakeholderRaci(id: number, raci: Partial<InsertStakeholderRaci>): Promise<StakeholderRaci | undefined>;
   deleteStakeholderRaci(id: number): Promise<void>;
+  deleteStakeholderRaciByTaskAndType(taskId: number, raciType: string, personId: number, isResource: boolean): Promise<void>;
+  deleteInheritedRaciByTask(taskId: number): Promise<void>;
+  getInheritedRaciBySourceTask(sourceTaskId: number): Promise<StakeholderRaci[]>;
   upsertStakeholderRaci(raci: InsertStakeholderRaci): Promise<StakeholderRaci>;
 
   // Risks
@@ -626,12 +630,27 @@ export class DatabaseStorage implements IStorage {
   }
 
   async upsertStakeholderRaci(raci: InsertStakeholderRaci): Promise<StakeholderRaci> {
-    // Try to find existing record
-    const [existing] = await db.select().from(schema.stakeholderRaci)
-      .where(and(
-        eq(schema.stakeholderRaci.stakeholderId, raci.stakeholderId),
-        eq(schema.stakeholderRaci.taskId, raci.taskId)
-      ));
+    // Build query based on whether it's a stakeholder or resource assignment
+    // New unique constraint is (stakeholder/resource, task, raciType)
+    let existing: StakeholderRaci | undefined;
+    
+    if (raci.stakeholderId) {
+      const [found] = await db.select().from(schema.stakeholderRaci)
+        .where(and(
+          eq(schema.stakeholderRaci.stakeholderId, raci.stakeholderId),
+          eq(schema.stakeholderRaci.taskId, raci.taskId),
+          eq(schema.stakeholderRaci.raciType, raci.raciType)
+        ));
+      existing = found;
+    } else if (raci.resourceId) {
+      const [found] = await db.select().from(schema.stakeholderRaci)
+        .where(and(
+          eq(schema.stakeholderRaci.resourceId, raci.resourceId),
+          eq(schema.stakeholderRaci.taskId, raci.taskId),
+          eq(schema.stakeholderRaci.raciType, raci.raciType)
+        ));
+      existing = found;
+    }
     
     if (existing) {
       // Update existing record
@@ -645,6 +664,160 @@ export class DatabaseStorage implements IStorage {
       const [created] = await db.insert(schema.stakeholderRaci).values(raci).returning();
       return created;
     }
+  }
+
+  async getStakeholderRaciByResource(resourceId: number): Promise<StakeholderRaci[]> {
+    return await db.select().from(schema.stakeholderRaci)
+      .where(eq(schema.stakeholderRaci.resourceId, resourceId));
+  }
+
+  async deleteStakeholderRaciByTaskAndType(taskId: number, raciType: string, personId: number, isResource: boolean): Promise<void> {
+    if (isResource) {
+      await db.delete(schema.stakeholderRaci)
+        .where(and(
+          eq(schema.stakeholderRaci.taskId, taskId),
+          eq(schema.stakeholderRaci.raciType, raciType as any),
+          eq(schema.stakeholderRaci.resourceId, personId)
+        ));
+    } else {
+      await db.delete(schema.stakeholderRaci)
+        .where(and(
+          eq(schema.stakeholderRaci.taskId, taskId),
+          eq(schema.stakeholderRaci.raciType, raciType as any),
+          eq(schema.stakeholderRaci.stakeholderId, personId)
+        ));
+    }
+  }
+
+  async deleteInheritedRaciByTask(taskId: number): Promise<void> {
+    await db.delete(schema.stakeholderRaci)
+      .where(and(
+        eq(schema.stakeholderRaci.taskId, taskId),
+        eq(schema.stakeholderRaci.isInherited, true)
+      ));
+  }
+
+  async getInheritedRaciBySourceTask(sourceTaskId: number): Promise<StakeholderRaci[]> {
+    return await db.select().from(schema.stakeholderRaci)
+      .where(eq(schema.stakeholderRaci.inheritedFromTaskId, sourceTaskId));
+  }
+
+  async getTaskDescendants(taskId: number): Promise<Task[]> {
+    const allTasks = await this.getTasksByProject((await this.getTask(taskId))?.projectId || 0);
+    const descendants: Task[] = [];
+    const collectDescendants = (parentId: number) => {
+      const children = allTasks.filter(t => t.parentId === parentId);
+      for (const child of children) {
+        descendants.push(child);
+        collectDescendants(child.id);
+      }
+    };
+    collectDescendants(taskId);
+    return descendants;
+  }
+
+  async propagateRaciToDescendants(
+    sourceTaskId: number, 
+    raciType: string,
+    stakeholderId: number | null,
+    resourceId: number | null,
+    projectId: number
+  ): Promise<void> {
+    const descendants = await this.getTaskDescendants(sourceTaskId);
+    
+    for (const descendant of descendants) {
+      const existingExplicit = await db.select().from(schema.stakeholderRaci)
+        .where(and(
+          eq(schema.stakeholderRaci.taskId, descendant.id),
+          eq(schema.stakeholderRaci.raciType, raciType as any),
+          eq(schema.stakeholderRaci.isInherited, false),
+          stakeholderId ? eq(schema.stakeholderRaci.stakeholderId, stakeholderId) : isNull(schema.stakeholderRaci.stakeholderId),
+          resourceId ? eq(schema.stakeholderRaci.resourceId, resourceId) : isNull(schema.stakeholderRaci.resourceId)
+        ));
+      
+      if (existingExplicit.length === 0) {
+        const existingInherited = await db.select().from(schema.stakeholderRaci)
+          .where(and(
+            eq(schema.stakeholderRaci.taskId, descendant.id),
+            eq(schema.stakeholderRaci.raciType, raciType as any),
+            eq(schema.stakeholderRaci.isInherited, true),
+            stakeholderId ? eq(schema.stakeholderRaci.stakeholderId, stakeholderId) : isNull(schema.stakeholderRaci.stakeholderId),
+            resourceId ? eq(schema.stakeholderRaci.resourceId, resourceId) : isNull(schema.stakeholderRaci.resourceId)
+          ));
+        
+        if (existingInherited.length === 0) {
+          await db.insert(schema.stakeholderRaci).values({
+            projectId,
+            taskId: descendant.id,
+            stakeholderId,
+            resourceId,
+            raciType: raciType as any,
+            isInherited: true,
+            inheritedFromTaskId: sourceTaskId,
+          });
+        }
+      }
+    }
+  }
+
+  async removeInheritedRaciFromDescendants(
+    sourceTaskId: number,
+    raciType: string,
+    stakeholderId: number | null,
+    resourceId: number | null
+  ): Promise<void> {
+    const descendants = await this.getTaskDescendants(sourceTaskId);
+    
+    for (const descendant of descendants) {
+      await db.delete(schema.stakeholderRaci)
+        .where(and(
+          eq(schema.stakeholderRaci.taskId, descendant.id),
+          eq(schema.stakeholderRaci.raciType, raciType as any),
+          eq(schema.stakeholderRaci.inheritedFromTaskId, sourceTaskId),
+          stakeholderId ? eq(schema.stakeholderRaci.stakeholderId, stakeholderId) : isNull(schema.stakeholderRaci.stakeholderId),
+          resourceId ? eq(schema.stakeholderRaci.resourceId, resourceId) : isNull(schema.stakeholderRaci.resourceId)
+        ));
+    }
+  }
+
+  async resetRaciToInherited(taskId: number, raciType: string): Promise<void> {
+    await db.delete(schema.stakeholderRaci)
+      .where(and(
+        eq(schema.stakeholderRaci.taskId, taskId),
+        eq(schema.stakeholderRaci.raciType, raciType as any),
+        eq(schema.stakeholderRaci.isInherited, false)
+      ));
+    
+    const task = await this.getTask(taskId);
+    if (!task || !task.parentId) return;
+    
+    const parentRaci = await db.select().from(schema.stakeholderRaci)
+      .where(and(
+        eq(schema.stakeholderRaci.taskId, task.parentId),
+        eq(schema.stakeholderRaci.raciType, raciType as any)
+      ));
+    
+    for (const parent of parentRaci) {
+      await db.insert(schema.stakeholderRaci).values({
+        projectId: task.projectId,
+        taskId,
+        stakeholderId: parent.stakeholderId,
+        resourceId: parent.resourceId,
+        raciType: raciType as any,
+        isInherited: true,
+        inheritedFromTaskId: task.parentId,
+      });
+    }
+  }
+
+  async hasExplicitRaciOverride(taskId: number, raciType: string): Promise<boolean> {
+    const explicit = await db.select().from(schema.stakeholderRaci)
+      .where(and(
+        eq(schema.stakeholderRaci.taskId, taskId),
+        eq(schema.stakeholderRaci.raciType, raciType as any),
+        eq(schema.stakeholderRaci.isInherited, false)
+      ));
+    return explicit.length > 0;
   }
 
   // Risks
