@@ -149,28 +149,105 @@ function getPerformanceColor(value: number): { bg: string; text: string; label: 
 
 function GaugeIndicator({ value, label, description }: { value: number; label: string; description: string }) {
   const color = getPerformanceColor(value);
-  const percentage = Math.min(100, Math.max(0, value * 100));
-  const rotation = (percentage / 100) * 180 - 90;
+  const clampedValue = Math.min(1.5, Math.max(0.5, value));
+  const normalizedValue = (clampedValue - 0.5) / 1.0;
+  const angle = -90 + (normalizedValue * 180);
+  
+  const size = 160;
+  const strokeWidth = 12;
+  const radius = (size - strokeWidth) / 2;
+  const center = size / 2;
+  
+  const createArc = (startAngle: number, endAngle: number) => {
+    const startRad = (startAngle - 90) * (Math.PI / 180);
+    const endRad = (endAngle - 90) * (Math.PI / 180);
+    const x1 = center + radius * Math.cos(startRad);
+    const y1 = center + radius * Math.sin(startRad);
+    const x2 = center + radius * Math.cos(endRad);
+    const y2 = center + radius * Math.sin(endRad);
+    const largeArc = endAngle - startAngle > 180 ? 1 : 0;
+    return `M ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2}`;
+  };
+
+  const needleLength = radius - 8;
+  const needleAngle = (angle) * (Math.PI / 180);
+  const needleX = center + needleLength * Math.cos(needleAngle);
+  const needleY = center + needleLength * Math.sin(needleAngle);
 
   return (
     <div className="flex flex-col items-center">
-      <div className="relative w-32 h-16 overflow-hidden">
-        <div className="absolute inset-0 rounded-t-full border-8 border-muted" />
-        <div 
-          className="absolute bottom-0 left-1/2 w-1 h-14 -ml-0.5 origin-bottom transition-transform duration-500"
-          style={{ transform: `rotate(${rotation}deg)` }}
-        >
-          <div className={cn("w-2 h-2 rounded-full -ml-0.5", color.bg)} />
-        </div>
-        <div className="absolute bottom-0 left-0 w-6 h-6 rounded-full border-4 border-red-500" style={{ marginLeft: '-4px' }} />
-        <div className="absolute bottom-0 left-1/2 w-6 h-6 rounded-full border-4 border-amber-500 -ml-3" />
-        <div className="absolute bottom-0 right-0 w-6 h-6 rounded-full border-4 border-emerald-500" style={{ marginRight: '-4px' }} />
+      <div className="relative" style={{ width: size, height: size / 2 + 20 }}>
+        <svg width={size} height={size / 2 + 20} className="overflow-visible">
+          <path
+            d={createArc(-90, -27)}
+            fill="none"
+            stroke="#ef4444"
+            strokeWidth={strokeWidth}
+            strokeLinecap="round"
+          />
+          <path
+            d={createArc(-27, 9)}
+            fill="none"
+            stroke="#f59e0b"
+            strokeWidth={strokeWidth}
+            strokeLinecap="butt"
+          />
+          <path
+            d={createArc(9, 90)}
+            fill="none"
+            stroke="#10b981"
+            strokeWidth={strokeWidth}
+            strokeLinecap="round"
+          />
+          
+          {[0.5, 0.85, 0.95, 1.0, 1.5].map((tick, i) => {
+            const tickNorm = (tick - 0.5) / 1.0;
+            const tickAngle = (-90 + tickNorm * 180) * (Math.PI / 180);
+            const innerR = radius - strokeWidth / 2 - 6;
+            const outerR = radius + strokeWidth / 2 + 4;
+            const x1 = center + innerR * Math.cos(tickAngle);
+            const y1 = center + innerR * Math.sin(tickAngle);
+            const x2 = center + outerR * Math.cos(tickAngle);
+            const y2 = center + outerR * Math.sin(tickAngle);
+            const labelR = radius + strokeWidth / 2 + 16;
+            const lx = center + labelR * Math.cos(tickAngle);
+            const ly = center + labelR * Math.sin(tickAngle);
+            return (
+              <g key={i}>
+                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="currentColor" strokeWidth={2} className="text-muted-foreground/50" />
+                <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" className="fill-muted-foreground text-[10px]">
+                  {tick}
+                </text>
+              </g>
+            );
+          })}
+          
+          <line
+            x1={center}
+            y1={center}
+            x2={needleX}
+            y2={needleY}
+            stroke="currentColor"
+            strokeWidth={3}
+            strokeLinecap="round"
+            className="text-foreground transition-all duration-500"
+          />
+          <circle cx={center} cy={center} r={8} className="fill-foreground" />
+          <circle cx={center} cy={center} r={4} className="fill-background" />
+        </svg>
       </div>
-      <div className="mt-2 text-center">
-        <div className={cn("text-2xl font-bold", color.text)}>{value.toFixed(2)}</div>
-        <div className="text-sm font-medium">{label}</div>
-        <div className="text-xs text-muted-foreground">{description}</div>
-        <div className={cn("text-xs font-medium mt-1", color.text)}>{color.label}</div>
+      
+      <div className="text-center -mt-2">
+        <div className={cn("text-3xl font-bold tabular-nums", color.text)}>{value.toFixed(2)}</div>
+        <div className="text-base font-semibold mt-1">{label}</div>
+        <div className="text-sm text-muted-foreground">{description}</div>
+        <div className={cn(
+          "inline-flex items-center gap-1.5 mt-2 px-3 py-1 rounded-full text-xs font-medium",
+          color.bg, "text-white"
+        )}>
+          <span className="w-1.5 h-1.5 rounded-full bg-white/80" />
+          {color.label}
+        </div>
       </div>
     </div>
   );
