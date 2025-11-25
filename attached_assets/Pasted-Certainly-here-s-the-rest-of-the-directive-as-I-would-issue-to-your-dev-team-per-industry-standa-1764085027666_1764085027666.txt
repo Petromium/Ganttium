@@ -1,0 +1,79 @@
+Certainly—here’s the rest of the **directive** as I would issue to your dev team per industry standards and with skeptical senior engineering process:
+
+***
+
+### **Deliverables for Developers (continued)**
+
+- **Component Blueprint:**  
+  For each widget visible in the screenshots, provide:
+  - Component file (with all props clearly typed and documented)
+  - Storybook/interactive demo with context switching tests
+  - Mock data fallback for UI testing purposes (never ship hardcoded/production code with mocks)
+
+- **Unified Right Rail Container:**  
+  - Container component controls rendering; listens to global app context (active page/section/project)
+  - Should provide one logical interface for sidebar content injection/extensibility (anticipate future widgets)
+
+- **Documentation:**  
+  - Update Storybook or design docs with widget behavior, context triggers, empty-state handling, and sample integration code
+  - Reference actual product screenshots in documentation, with rationale for context-aware behaviors
+
+***
+
+### **Direct, Industry-Standard Instructions for Implementation**
+
+**1. Context-Reactive Rendering**  
+Use React hooks (`useContext`, or Redux selectors) for all sidebar widgets to subscribe to currently-selected project/page state.  
+E.g., when the WBS page is active, render WBS linkage, upcoming events, and critical path modules. Hide resource/cost or stakeholder widgets unless context dictates.
+
+**2. Event/Signal Auto-Refresh**  
+Ensure any widget showing time-sensitive data (budget burn, resource signals) updates at the interval specified (every 15 min). Use SWR (stale-while-revalidate) or React Query for optimal data fetching, and display loading/empty states intelligently.
+
+**3. Permission/Role Awareness**  
+Sidebar content must adapt based on user role/permission. If the context (project/resource) is hidden due to access, show a polite, industry-standard empty state—never expose unauthorized data.
+
+**4. Widget Appearance & UX**  
+All widgets require consistent shadow, border and spacing—follow Tailwind or design system tokens, and check with Figma/figma tokens for pixel-perfect match.  
+Make right rail **collapsible** and provide a smooth transition/animation for expansion and hiding.  
+Test with keyboard navigation and screen reader (ARIA labels: category, status, types).
+
+**5. QA Acceptance**  
+Team to perform the following before promotion:
+- Route switching coverage
+- Data refresh scenarios
+- Mobile and tablet behavior (sidebar should collapse/reveal contextually)
+- Role/permission negative tests
+
+***
+
+### **Summary Table: Widgets to Implement**
+
+| Widget Name           | Appears on                  | Refresh Trigger    | Context Source            | UI State Fallback | Notes                                |
+|----------------------|----------------------------|--------------------|---------------------------|-------------------|--------------------------------------|
+| Portfolio Signals    | Dashboard, Project Overview | 15 min interval    | Portfolio/Project page    | Empty             | Budget burn, resource avail          |
+| Upcoming Events      | All project pages           | Page/project switch| Calendar, event logs      | “No upcoming events”    | Timezone display required            |
+| Legend               | Events, reviews, risk, WBS  | Page switch        | Config/constant           | n/a               | Visible for context in widget rail   |
+| Resource Snapshots   | Resource/cost pages         | Page switch        | Resource API/live state   | Zero-state        | Allocations, exposure, overcapacity  |
+| Review/Cadence       | Any workspace/project       | Page/project switch| Scheduling config         | “No approvals due”     | Shows routines, reviews              |
+| WBS Linkage          | WBS/task pages only         | WBS select/switch  | Task/event data           | “No linkages found”    | Shows if WBS tie exists              |
+
+***
+
+### **Final Senior Developer Review**
+
+**Skeptical Double-Check:**  
+- Confirm all context logic updates instantly (no latency/missed triggers)
+- Verify no widget leaks data on unauthorized/irrelevant context
+- Test with dirty state (rapid switches, simulated network loss)
+- Visual QA: must match screenshot layout, spacing, color, and text logic exactly where possible
+
+**Direct, Honest Advice:**  
+- Reject any implementation using hardcoded/if-else widget logic; must be config/context driven for maintainability
+- Prioritize code readability, documentation, and test coverage; future-proof against requirements growth
+
+**Educational Note:**  
+This side-rail pattern is an industry standard for complex PMIS or dashboard systems. Modular, context-driven design is key to speed, reliability, and maintainability.
+
+Let me know if you want example code or design tokens for one of these widgets.
+
+[1](https://2000beca-aaa7-4ccd-8ca0-284982416ac6-00-11raou33poc5t.spock.replit.dev/wbs)
