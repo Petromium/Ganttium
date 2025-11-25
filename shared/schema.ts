@@ -60,6 +60,22 @@ export const punchStatusEnum = pgEnum("punch_status", ["open", "in-progress", "c
 export const weatherConditionEnum = pgEnum("weather_condition", ["clear", "cloudy", "rain", "storm", "wind", "hot", "cold"]);
 export const resourceTypeEnum = pgEnum("resource_type", ["human", "equipment", "material", "subcontractor"]);
 
+// Resource Pricing Enums
+export const rateTypeEnum = pgEnum("rate_type", ["per-hour", "per-use", "per-unit"]);
+export const unitTypeEnum = pgEnum("unit_type", [
+  "ea", "lot", "hr", "day", "week", "month",
+  "m", "ft", "yd", "km", "mi",
+  "m2", "ft2", "m3", "ft3",
+  "kg", "lb", "ton", "mt",
+  "l", "gal", "scm", "scf"
+]);
+
+// Project Events Enums
+export const eventTypeEnum = pgEnum("event_type", [
+  "meeting", "audit", "inspection", "milestone", "deadline", 
+  "training", "workshop", "review", "handover", "other"
+]);
+
 // Organizations (Multi-tenant root)
 export const organizations = pgTable("organizations", {
   id: serial("id").primaryKey(),
@@ -298,7 +314,7 @@ export const costItems = pgTable("cost_items", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-// Resources
+// Resources (with pricing model)
 export const resources = pgTable("resources", {
   id: serial("id").primaryKey(),
   projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
@@ -306,8 +322,16 @@ export const resources = pgTable("resources", {
   type: text("type").notNull(), // human, equipment, material
   discipline: disciplineEnum("discipline").default("general"), // EPC discipline
   availability: integer("availability").notNull().default(100), // percentage
+  // Legacy field - keep for backward compat
   costPerHour: decimal("cost_per_hour", { precision: 10, scale: 2 }),
+  // New pricing model
+  rateType: rateTypeEnum("rate_type").default("per-hour"), // per-hour, per-use, per-unit
+  rate: decimal("rate", { precision: 15, scale: 2 }).default("0"), // The rate amount
+  unitType: unitTypeEnum("unit_type").default("hr"), // Unit type for per-unit pricing
   currency: varchar("currency", { length: 3 }).notNull().default("USD"),
+  // Additional details
+  description: text("description"),
+  skills: text("skills"), // Comma-separated skills/certifications
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -537,6 +561,62 @@ export const aiUsage = pgTable("ai_usage", {
   operation: text("operation").notNull(), // chat, analysis, report-generation, etc.
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// ==================== Project Events (Calendar) ====================
+
+// Project Events (for calendar meetings, audits, etc.)
+export const projectEvents = pgTable("project_events", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  description: text("description"),
+  eventType: eventTypeEnum("event_type").notNull().default("meeting"),
+  startDate: timestamp("start_date").notNull(),
+  endDate: timestamp("end_date"),
+  allDay: boolean("all_day").default(false),
+  location: text("location"),
+  attendees: text("attendees"), // Comma-separated user IDs or emails
+  color: varchar("color", { length: 20 }), // Custom color for calendar display
+  isRecurring: boolean("is_recurring").default(false),
+  recurrencePattern: text("recurrence_pattern"), // JSON for recurring rules
+  reminderMinutes: integer("reminder_minutes"), // Minutes before to send reminder
+  createdBy: varchar("created_by", { length: 255 }).notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// ==================== Junction Tables for Task Assignments ====================
+
+// Task-Document Assignments (for linking documents to tasks)
+export const taskDocuments = pgTable("task_documents", {
+  id: serial("id").primaryKey(),
+  taskId: integer("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  documentId: integer("document_id").notNull().references(() => documents.id, { onDelete: "cascade" }),
+  relationship: text("relationship").default("related"), // related, deliverable, reference, input
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqueTaskDoc: unique("task_documents_unique").on(table.taskId, table.documentId),
+}));
+
+// Task-Risk Assignments (for linking risks to tasks)
+export const taskRisks = pgTable("task_risks", {
+  id: serial("id").primaryKey(),
+  taskId: integer("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  riskId: integer("risk_id").notNull().references(() => risks.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqueTaskRisk: unique("task_risks_unique").on(table.taskId, table.riskId),
+}));
+
+// Task-Issue Assignments (for linking issues to tasks)
+export const taskIssues = pgTable("task_issues", {
+  id: serial("id").primaryKey(),
+  taskId: integer("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  issueId: integer("issue_id").notNull().references(() => issues.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqueTaskIssue: unique("task_issues_unique").on(table.taskId, table.issueId),
+}));
 
 // Zod Schemas for Organizations
 export const insertOrganizationSchema = createInsertSchema(organizations).omit({ id: true, createdAt: true, updatedAt: true });
@@ -987,3 +1067,33 @@ export const selectDailyEquipmentSchema = createSelectSchema(dailyEquipment);
 export type InsertDailyEquipment = z.infer<typeof insertDailyEquipmentSchema>;
 export type UpdateDailyEquipment = z.infer<typeof updateDailyEquipmentSchema>;
 export type DailyEquipment = typeof dailyEquipment.$inferSelect;
+
+// ==================== Project Events Zod Schemas ====================
+
+// Zod Schemas for Project Events
+export const insertProjectEventSchema = createInsertSchema(projectEvents).omit({ id: true, createdAt: true, updatedAt: true, createdBy: true });
+export const updateProjectEventSchema = insertProjectEventSchema.partial();
+export const selectProjectEventSchema = createSelectSchema(projectEvents);
+export type InsertProjectEvent = z.infer<typeof insertProjectEventSchema>;
+export type UpdateProjectEvent = z.infer<typeof updateProjectEventSchema>;
+export type ProjectEvent = typeof projectEvents.$inferSelect;
+
+// ==================== Task Junction Table Zod Schemas ====================
+
+// Zod Schemas for Task Documents
+export const insertTaskDocumentSchema = createInsertSchema(taskDocuments).omit({ id: true, createdAt: true });
+export const selectTaskDocumentSchema = createSelectSchema(taskDocuments);
+export type InsertTaskDocument = z.infer<typeof insertTaskDocumentSchema>;
+export type TaskDocument = typeof taskDocuments.$inferSelect;
+
+// Zod Schemas for Task Risks
+export const insertTaskRiskSchema = createInsertSchema(taskRisks).omit({ id: true, createdAt: true });
+export const selectTaskRiskSchema = createSelectSchema(taskRisks);
+export type InsertTaskRisk = z.infer<typeof insertTaskRiskSchema>;
+export type TaskRisk = typeof taskRisks.$inferSelect;
+
+// Zod Schemas for Task Issues
+export const insertTaskIssueSchema = createInsertSchema(taskIssues).omit({ id: true, createdAt: true });
+export const selectTaskIssueSchema = createSelectSchema(taskIssues);
+export type InsertTaskIssue = z.infer<typeof insertTaskIssueSchema>;
+export type TaskIssue = typeof taskIssues.$inferSelect;

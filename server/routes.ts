@@ -964,6 +964,271 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== Project Events Routes (Calendar) =====
+  
+  // Get project events
+  app.get('/api/projects/:projectId/events', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+      
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const events = await storage.getProjectEventsByProject(projectId);
+      res.json(events);
+    } catch (error) {
+      console.error("Error fetching project events:", error);
+      res.status(500).json({ message: "Failed to fetch project events" });
+    }
+  });
+
+  // Get single project event
+  app.get('/api/events/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+      
+      const event = await storage.getProjectEvent(id);
+      if (!event) {
+        return res.status(404).json({ message: "Event not found" });
+      }
+      
+      if (!await checkProjectAccess(userId, event.projectId)) {
+        return res.status(404).json({ message: "Event not found" });
+      }
+      
+      res.json(event);
+    } catch (error) {
+      console.error("Error fetching event:", error);
+      res.status(500).json({ message: "Failed to fetch event" });
+    }
+  });
+
+  // Create project event
+  app.post('/api/events', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const { projectId } = req.body;
+      
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const event = await storage.createProjectEvent({
+        ...req.body,
+        createdBy: userId,
+      });
+      res.json(event);
+    } catch (error) {
+      console.error("Error creating event:", error);
+      res.status(400).json({ message: "Failed to create event" });
+    }
+  });
+
+  // Update project event
+  app.patch('/api/events/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+      
+      const event = await storage.getProjectEvent(id);
+      if (!event) {
+        return res.status(404).json({ message: "Event not found" });
+      }
+      
+      if (!await checkProjectAccess(userId, event.projectId)) {
+        return res.status(404).json({ message: "Event not found" });
+      }
+      
+      const updated = await storage.updateProjectEvent(id, req.body);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating event:", error);
+      res.status(400).json({ message: "Failed to update event" });
+    }
+  });
+
+  // Delete project event
+  app.delete('/api/events/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+      
+      const event = await storage.getProjectEvent(id);
+      if (!event) {
+        return res.status(404).json({ message: "Event not found" });
+      }
+      
+      if (!await checkProjectAccess(userId, event.projectId)) {
+        return res.status(404).json({ message: "Event not found" });
+      }
+      
+      await storage.deleteProjectEvent(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting event:", error);
+      res.status(500).json({ message: "Failed to delete event" });
+    }
+  });
+
+  // ===== Task Junction Tables Routes =====
+  
+  // Task Documents
+  app.get('/api/tasks/:taskId/documents', isAuthenticated, async (req: any, res) => {
+    try {
+      const taskId = parseInt(req.params.taskId);
+      const taskDocs = await storage.getTaskDocuments(taskId);
+      res.json(taskDocs);
+    } catch (error) {
+      console.error("Error fetching task documents:", error);
+      res.status(500).json({ message: "Failed to fetch task documents" });
+    }
+  });
+
+  app.post('/api/tasks/:taskId/documents', isAuthenticated, async (req: any, res) => {
+    try {
+      const taskId = parseInt(req.params.taskId);
+      const { documentId, relationship } = req.body;
+      const taskDoc = await storage.createTaskDocument({ taskId, documentId, relationship });
+      res.json(taskDoc);
+    } catch (error) {
+      console.error("Error adding document to task:", error);
+      res.status(400).json({ message: "Failed to add document to task" });
+    }
+  });
+
+  app.delete('/api/tasks/:taskId/documents/:documentId', isAuthenticated, async (req: any, res) => {
+    try {
+      const taskId = parseInt(req.params.taskId);
+      const documentId = parseInt(req.params.documentId);
+      await storage.deleteTaskDocument(taskId, documentId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error removing document from task:", error);
+      res.status(500).json({ message: "Failed to remove document from task" });
+    }
+  });
+
+  // Task Risks
+  app.get('/api/tasks/:taskId/risks', isAuthenticated, async (req: any, res) => {
+    try {
+      const taskId = parseInt(req.params.taskId);
+      const taskRisks = await storage.getTaskRisks(taskId);
+      res.json(taskRisks);
+    } catch (error) {
+      console.error("Error fetching task risks:", error);
+      res.status(500).json({ message: "Failed to fetch task risks" });
+    }
+  });
+
+  app.post('/api/tasks/:taskId/risks', isAuthenticated, async (req: any, res) => {
+    try {
+      const taskId = parseInt(req.params.taskId);
+      const { riskId } = req.body;
+      const taskRisk = await storage.createTaskRisk({ taskId, riskId });
+      res.json(taskRisk);
+    } catch (error) {
+      console.error("Error adding risk to task:", error);
+      res.status(400).json({ message: "Failed to add risk to task" });
+    }
+  });
+
+  app.delete('/api/tasks/:taskId/risks/:riskId', isAuthenticated, async (req: any, res) => {
+    try {
+      const taskId = parseInt(req.params.taskId);
+      const riskId = parseInt(req.params.riskId);
+      await storage.deleteTaskRisk(taskId, riskId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error removing risk from task:", error);
+      res.status(500).json({ message: "Failed to remove risk from task" });
+    }
+  });
+
+  // Task Issues
+  app.get('/api/tasks/:taskId/issues', isAuthenticated, async (req: any, res) => {
+    try {
+      const taskId = parseInt(req.params.taskId);
+      const taskIssues = await storage.getTaskIssues(taskId);
+      res.json(taskIssues);
+    } catch (error) {
+      console.error("Error fetching task issues:", error);
+      res.status(500).json({ message: "Failed to fetch task issues" });
+    }
+  });
+
+  app.post('/api/tasks/:taskId/issues', isAuthenticated, async (req: any, res) => {
+    try {
+      const taskId = parseInt(req.params.taskId);
+      const { issueId } = req.body;
+      const taskIssue = await storage.createTaskIssue({ taskId, issueId });
+      res.json(taskIssue);
+    } catch (error) {
+      console.error("Error adding issue to task:", error);
+      res.status(400).json({ message: "Failed to add issue to task" });
+    }
+  });
+
+  app.delete('/api/tasks/:taskId/issues/:issueId', isAuthenticated, async (req: any, res) => {
+    try {
+      const taskId = parseInt(req.params.taskId);
+      const issueId = parseInt(req.params.issueId);
+      await storage.deleteTaskIssue(taskId, issueId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error removing issue from task:", error);
+      res.status(500).json({ message: "Failed to remove issue from task" });
+    }
+  });
+
+  // ===== Inheritance Routes =====
+  
+  app.get('/api/tasks/:taskId/inherited/resources', isAuthenticated, async (req: any, res) => {
+    try {
+      const taskId = parseInt(req.params.taskId);
+      const inherited = await storage.getInheritedResources(taskId);
+      res.json(inherited);
+    } catch (error) {
+      console.error("Error fetching inherited resources:", error);
+      res.status(500).json({ message: "Failed to fetch inherited resources" });
+    }
+  });
+
+  app.get('/api/tasks/:taskId/inherited/documents', isAuthenticated, async (req: any, res) => {
+    try {
+      const taskId = parseInt(req.params.taskId);
+      const inherited = await storage.getInheritedDocuments(taskId);
+      res.json(inherited);
+    } catch (error) {
+      console.error("Error fetching inherited documents:", error);
+      res.status(500).json({ message: "Failed to fetch inherited documents" });
+    }
+  });
+
+  app.get('/api/tasks/:taskId/inherited/risks', isAuthenticated, async (req: any, res) => {
+    try {
+      const taskId = parseInt(req.params.taskId);
+      const inherited = await storage.getInheritedRisks(taskId);
+      res.json(inherited);
+    } catch (error) {
+      console.error("Error fetching inherited risks:", error);
+      res.status(500).json({ message: "Failed to fetch inherited risks" });
+    }
+  });
+
+  app.get('/api/tasks/:taskId/inherited/issues', isAuthenticated, async (req: any, res) => {
+    try {
+      const taskId = parseInt(req.params.taskId);
+      const inherited = await storage.getInheritedIssues(taskId);
+      res.json(inherited);
+    } catch (error) {
+      console.error("Error fetching inherited issues:", error);
+      res.status(500).json({ message: "Failed to fetch inherited issues" });
+    }
+  });
+
   // ===== AI Assistant Routes =====
   
   // Get user's conversations

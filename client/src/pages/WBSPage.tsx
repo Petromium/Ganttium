@@ -7,13 +7,16 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
   Search, Filter, LayoutGrid, List, Calendar as CalendarIcon, 
   GanttChartSquare, AlertCircle, Plus, Clock, AlertTriangle, 
-  Loader2, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight
+  Loader2, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight, X
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import { TaskModal } from "@/components/TaskModal";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { useProject } from "@/contexts/ProjectContext";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -53,6 +56,12 @@ export default function WBSPage() {
   const [zoom, setZoom] = useState<ZoomLevel>("month");
   const [currentDate, setCurrentDate] = useState(new Date());
   const [searchQuery, setSearchQuery] = useState("");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [statusFilters, setStatusFilters] = useState<TaskStatus[]>([]);
+  const [priorityFilters, setPriorityFilters] = useState<string[]>([]);
+  const [disciplineFilters, setDisciplineFilters] = useState<string[]>([]);
+  const [dateRangeStart, setDateRangeStart] = useState<string>("");
+  const [dateRangeEnd, setDateRangeEnd] = useState<string>("");
 
   const { 
     data: tasks = [], 
@@ -95,15 +104,85 @@ export default function WBSPage() {
     },
   });
 
+  const uniqueDisciplines = useMemo(() => {
+    const disciplines = new Set<string>();
+    tasks.forEach(t => {
+      if (t.discipline) disciplines.add(t.discipline);
+    });
+    return Array.from(disciplines).sort();
+  }, [tasks]);
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (statusFilters.length > 0) count++;
+    if (priorityFilters.length > 0) count++;
+    if (disciplineFilters.length > 0) count++;
+    if (dateRangeStart || dateRangeEnd) count++;
+    return count;
+  }, [statusFilters, priorityFilters, disciplineFilters, dateRangeStart, dateRangeEnd]);
+
   const filteredTasks = useMemo(() => {
-    if (!searchQuery.trim()) return tasks;
-    const query = searchQuery.toLowerCase();
-    return tasks.filter(t => 
-      t.name.toLowerCase().includes(query) || 
-      t.wbsCode?.toLowerCase().includes(query) ||
-      t.description?.toLowerCase().includes(query)
+    let result = tasks;
+
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(t => 
+        t.name.toLowerCase().includes(query) || 
+        t.wbsCode?.toLowerCase().includes(query) ||
+        t.description?.toLowerCase().includes(query)
+      );
+    }
+
+    if (statusFilters.length > 0) {
+      result = result.filter(t => statusFilters.includes(t.status as TaskStatus));
+    }
+
+    if (priorityFilters.length > 0) {
+      result = result.filter(t => t.priority && priorityFilters.includes(t.priority));
+    }
+
+    if (disciplineFilters.length > 0) {
+      result = result.filter(t => t.discipline && disciplineFilters.includes(t.discipline));
+    }
+
+    if (dateRangeStart) {
+      const startDate = new Date(dateRangeStart);
+      result = result.filter(t => t.startDate && new Date(t.startDate) >= startDate);
+    }
+
+    if (dateRangeEnd) {
+      const endDate = new Date(dateRangeEnd);
+      result = result.filter(t => t.endDate && new Date(t.endDate) <= endDate);
+    }
+
+    return result;
+  }, [tasks, searchQuery, statusFilters, priorityFilters, disciplineFilters, dateRangeStart, dateRangeEnd]);
+
+  const clearFilters = () => {
+    setStatusFilters([]);
+    setPriorityFilters([]);
+    setDisciplineFilters([]);
+    setDateRangeStart("");
+    setDateRangeEnd("");
+  };
+
+  const toggleStatusFilter = (status: TaskStatus) => {
+    setStatusFilters(prev => 
+      prev.includes(status) ? prev.filter(s => s !== status) : [...prev, status]
     );
-  }, [tasks, searchQuery]);
+  };
+
+  const togglePriorityFilter = (priority: string) => {
+    setPriorityFilters(prev => 
+      prev.includes(priority) ? prev.filter(p => p !== priority) : [...prev, priority]
+    );
+  };
+
+  const toggleDisciplineFilter = (discipline: string) => {
+    setDisciplineFilters(prev => 
+      prev.includes(discipline) ? prev.filter(d => d !== discipline) : [...prev, discipline]
+    );
+  };
 
   const handleSelectTask = (id: number, selected: boolean) => {
     setSelectedTasks(prev => selected ? [...prev, id] : prev.filter(t => t !== id));
@@ -467,7 +546,122 @@ export default function WBSPage() {
           </div>
         )}
 
-        <Button variant="outline" size="icon" data-testid="button-filter"><Filter className="h-4 w-4" /></Button>
+        <Popover open={filterOpen} onOpenChange={setFilterOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="icon" className="relative" data-testid="button-filter">
+              <Filter className="h-4 w-4" />
+              {activeFilterCount > 0 && (
+                <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-primary text-[10px] font-medium text-primary-foreground flex items-center justify-center">
+                  {activeFilterCount}
+                </span>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-80" align="end">
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h4 className="font-semibold">Filters</h4>
+                {activeFilterCount > 0 && (
+                  <Button variant="ghost" size="sm" onClick={clearFilters} data-testid="button-clear-filters">
+                    <X className="h-3 w-3 mr-1" />Clear All
+                  </Button>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Status</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  {KANBAN_COLUMNS.map((col) => (
+                    <div key={col.id} className="flex items-center gap-2">
+                      <Checkbox 
+                        id={`status-${col.id}`}
+                        checked={statusFilters.includes(col.id)}
+                        onCheckedChange={() => toggleStatusFilter(col.id)}
+                        data-testid={`filter-status-${col.id}`}
+                      />
+                      <Label htmlFor={`status-${col.id}`} className="text-sm font-normal cursor-pointer">{col.title}</Label>
+                    </div>
+                  ))}
+                  <div className="flex items-center gap-2">
+                    <Checkbox 
+                      id="status-on-hold"
+                      checked={statusFilters.includes("on-hold")}
+                      onCheckedChange={() => toggleStatusFilter("on-hold")}
+                      data-testid="filter-status-on-hold"
+                    />
+                    <Label htmlFor="status-on-hold" className="text-sm font-normal cursor-pointer">On Hold</Label>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Priority</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  {["critical", "high", "medium", "low"].map((priority) => (
+                    <div key={priority} className="flex items-center gap-2">
+                      <Checkbox 
+                        id={`priority-${priority}`}
+                        checked={priorityFilters.includes(priority)}
+                        onCheckedChange={() => togglePriorityFilter(priority)}
+                        data-testid={`filter-priority-${priority}`}
+                      />
+                      <Label htmlFor={`priority-${priority}`} className="text-sm font-normal cursor-pointer capitalize">{priority}</Label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {uniqueDisciplines.length > 0 && (
+                <div className="space-y-2">
+                  <Label className="text-sm font-medium">Discipline</Label>
+                  <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto">
+                    {uniqueDisciplines.map((discipline) => (
+                      <div key={discipline} className="flex items-center gap-2">
+                        <Checkbox 
+                          id={`discipline-${discipline}`}
+                          checked={disciplineFilters.includes(discipline)}
+                          onCheckedChange={() => toggleDisciplineFilter(discipline)}
+                          data-testid={`filter-discipline-${discipline}`}
+                        />
+                        <Label htmlFor={`discipline-${discipline}`} className="text-sm font-normal cursor-pointer truncate">{discipline}</Label>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Date Range</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Start After</Label>
+                    <Input 
+                      type="date"
+                      value={dateRangeStart}
+                      onChange={(e) => setDateRangeStart(e.target.value)}
+                      className="h-8 text-sm"
+                      data-testid="filter-date-start"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">End Before</Label>
+                    <Input 
+                      type="date"
+                      value={dateRangeEnd}
+                      onChange={(e) => setDateRangeEnd(e.target.value)}
+                      className="h-8 text-sm"
+                      data-testid="filter-date-end"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t text-xs text-muted-foreground">
+                Showing {filteredTasks.length} of {tasks.length} tasks
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
       </div>
 
       {selectedTasks.length > 0 && (

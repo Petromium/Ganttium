@@ -59,6 +59,14 @@ import type {
   InsertAiUsageSummary,
   InsertDocument,
   Document,
+  InsertProjectEvent,
+  ProjectEvent,
+  InsertTaskDocument,
+  TaskDocument,
+  InsertTaskRisk,
+  TaskRisk,
+  InsertTaskIssue,
+  TaskIssue,
 } from "@shared/schema";
 
 const sql = neon(process.env.DATABASE_URL!);
@@ -243,6 +251,35 @@ export interface IStorage {
   createDocument(document: InsertDocument & { createdBy: string }): Promise<Document>;
   updateDocument(id: number, document: Partial<InsertDocument>): Promise<Document | undefined>;
   deleteDocument(id: number): Promise<void>;
+
+  // Project Events (Calendar)
+  getProjectEvent(id: number): Promise<ProjectEvent | undefined>;
+  getProjectEventsByProject(projectId: number): Promise<ProjectEvent[]>;
+  createProjectEvent(event: InsertProjectEvent & { createdBy: string }): Promise<ProjectEvent>;
+  updateProjectEvent(id: number, event: Partial<InsertProjectEvent>): Promise<ProjectEvent | undefined>;
+  deleteProjectEvent(id: number): Promise<void>;
+
+  // Task Documents (Junction)
+  getTaskDocuments(taskId: number): Promise<TaskDocument[]>;
+  createTaskDocument(taskDocument: InsertTaskDocument): Promise<TaskDocument>;
+  deleteTaskDocument(taskId: number, documentId: number): Promise<void>;
+
+  // Task Risks (Junction)
+  getTaskRisks(taskId: number): Promise<TaskRisk[]>;
+  createTaskRisk(taskRisk: InsertTaskRisk): Promise<TaskRisk>;
+  deleteTaskRisk(taskId: number, riskId: number): Promise<void>;
+
+  // Task Issues (Junction)
+  getTaskIssues(taskId: number): Promise<TaskIssue[]>;
+  createTaskIssue(taskIssue: InsertTaskIssue): Promise<TaskIssue>;
+  deleteTaskIssue(taskId: number, issueId: number): Promise<void>;
+
+  // Inheritance helpers
+  getTaskAncestors(taskId: number): Promise<Task[]>;
+  getInheritedResources(taskId: number): Promise<{ assignmentId: number; resourceId: number; resource: Resource | null; sourceTaskId: number; sourceTask: Task | null }[]>;
+  getInheritedDocuments(taskId: number): Promise<{ taskDocumentId: number; documentId: number; document: Document | null; sourceTaskId: number; sourceTask: Task | null }[]>;
+  getInheritedRisks(taskId: number): Promise<{ taskRiskId: number; riskId: number; risk: Risk | null; sourceTaskId: number; sourceTask: Task | null }[]>;
+  getInheritedIssues(taskId: number): Promise<{ taskIssueId: number; issueId: number; issue: Issue | null; sourceTaskId: number; sourceTask: Task | null }[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -1205,6 +1242,207 @@ export class DatabaseStorage implements IStorage {
 
   async deleteDocument(id: number): Promise<void> {
     await db.delete(schema.documents).where(eq(schema.documents.id, id));
+  }
+
+  // Project Events (Calendar)
+  async getProjectEvent(id: number): Promise<ProjectEvent | undefined> {
+    const [event] = await db.select().from(schema.projectEvents).where(eq(schema.projectEvents.id, id));
+    return event;
+  }
+
+  async getProjectEventsByProject(projectId: number): Promise<ProjectEvent[]> {
+    return db.select().from(schema.projectEvents)
+      .where(eq(schema.projectEvents.projectId, projectId))
+      .orderBy(asc(schema.projectEvents.startDate));
+  }
+
+  async createProjectEvent(event: InsertProjectEvent & { createdBy: string }): Promise<ProjectEvent> {
+    const [created] = await db.insert(schema.projectEvents).values(event).returning();
+    return created;
+  }
+
+  async updateProjectEvent(id: number, event: Partial<InsertProjectEvent>): Promise<ProjectEvent | undefined> {
+    const [updated] = await db.update(schema.projectEvents)
+      .set({ ...event, updatedAt: new Date() })
+      .where(eq(schema.projectEvents.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteProjectEvent(id: number): Promise<void> {
+    await db.delete(schema.projectEvents).where(eq(schema.projectEvents.id, id));
+  }
+
+  // Task Documents (Junction)
+  async getTaskDocuments(taskId: number): Promise<TaskDocument[]> {
+    return db.select().from(schema.taskDocuments)
+      .where(eq(schema.taskDocuments.taskId, taskId));
+  }
+
+  async createTaskDocument(taskDocument: InsertTaskDocument): Promise<TaskDocument> {
+    const [created] = await db.insert(schema.taskDocuments).values(taskDocument).returning();
+    return created;
+  }
+
+  async deleteTaskDocument(taskId: number, documentId: number): Promise<void> {
+    await db.delete(schema.taskDocuments).where(
+      and(
+        eq(schema.taskDocuments.taskId, taskId),
+        eq(schema.taskDocuments.documentId, documentId)
+      )
+    );
+  }
+
+  // Task Risks (Junction)
+  async getTaskRisks(taskId: number): Promise<TaskRisk[]> {
+    return db.select().from(schema.taskRisks)
+      .where(eq(schema.taskRisks.taskId, taskId));
+  }
+
+  async createTaskRisk(taskRisk: InsertTaskRisk): Promise<TaskRisk> {
+    const [created] = await db.insert(schema.taskRisks).values(taskRisk).returning();
+    return created;
+  }
+
+  async deleteTaskRisk(taskId: number, riskId: number): Promise<void> {
+    await db.delete(schema.taskRisks).where(
+      and(
+        eq(schema.taskRisks.taskId, taskId),
+        eq(schema.taskRisks.riskId, riskId)
+      )
+    );
+  }
+
+  // Task Issues (Junction)
+  async getTaskIssues(taskId: number): Promise<TaskIssue[]> {
+    return db.select().from(schema.taskIssues)
+      .where(eq(schema.taskIssues.taskId, taskId));
+  }
+
+  async createTaskIssue(taskIssue: InsertTaskIssue): Promise<TaskIssue> {
+    const [created] = await db.insert(schema.taskIssues).values(taskIssue).returning();
+    return created;
+  }
+
+  async deleteTaskIssue(taskId: number, issueId: number): Promise<void> {
+    await db.delete(schema.taskIssues).where(
+      and(
+        eq(schema.taskIssues.taskId, taskId),
+        eq(schema.taskIssues.issueId, issueId)
+      )
+    );
+  }
+
+  // Inheritance helpers
+  async getTaskAncestors(taskId: number): Promise<Task[]> {
+    const ancestors: Task[] = [];
+    let currentTask = await this.getTask(taskId);
+    
+    while (currentTask && currentTask.parentId) {
+      const parentTask = await this.getTask(currentTask.parentId);
+      if (parentTask) {
+        ancestors.push(parentTask);
+        currentTask = parentTask;
+      } else {
+        break;
+      }
+    }
+    
+    return ancestors;
+  }
+
+  async getInheritedResources(taskId: number): Promise<{ assignmentId: number; resourceId: number; resource: Resource | null; sourceTaskId: number; sourceTask: Task | null }[]> {
+    const ancestors = await this.getTaskAncestors(taskId);
+    const results: { assignmentId: number; resourceId: number; resource: Resource | null; sourceTaskId: number; sourceTask: Task | null }[] = [];
+    
+    for (const ancestor of ancestors) {
+      const assignments = await db.select().from(schema.resourceAssignments)
+        .where(eq(schema.resourceAssignments.taskId, ancestor.id));
+      
+      for (const assignment of assignments) {
+        const [resource] = await db.select().from(schema.resources)
+          .where(eq(schema.resources.id, assignment.resourceId));
+        
+        results.push({
+          assignmentId: assignment.id,
+          resourceId: assignment.resourceId,
+          resource: resource || null,
+          sourceTaskId: ancestor.id,
+          sourceTask: ancestor,
+        });
+      }
+    }
+    
+    return results;
+  }
+
+  async getInheritedDocuments(taskId: number): Promise<{ taskDocumentId: number; documentId: number; document: Document | null; sourceTaskId: number; sourceTask: Task | null }[]> {
+    const ancestors = await this.getTaskAncestors(taskId);
+    const results: { taskDocumentId: number; documentId: number; document: Document | null; sourceTaskId: number; sourceTask: Task | null }[] = [];
+    
+    for (const ancestor of ancestors) {
+      const taskDocs = await this.getTaskDocuments(ancestor.id);
+      
+      for (const taskDoc of taskDocs) {
+        const document = await this.getDocument(taskDoc.documentId);
+        
+        results.push({
+          taskDocumentId: taskDoc.id,
+          documentId: taskDoc.documentId,
+          document: document || null,
+          sourceTaskId: ancestor.id,
+          sourceTask: ancestor,
+        });
+      }
+    }
+    
+    return results;
+  }
+
+  async getInheritedRisks(taskId: number): Promise<{ taskRiskId: number; riskId: number; risk: Risk | null; sourceTaskId: number; sourceTask: Task | null }[]> {
+    const ancestors = await this.getTaskAncestors(taskId);
+    const results: { taskRiskId: number; riskId: number; risk: Risk | null; sourceTaskId: number; sourceTask: Task | null }[] = [];
+    
+    for (const ancestor of ancestors) {
+      const taskRisks = await this.getTaskRisks(ancestor.id);
+      
+      for (const taskRisk of taskRisks) {
+        const risk = await this.getRisk(taskRisk.riskId);
+        
+        results.push({
+          taskRiskId: taskRisk.id,
+          riskId: taskRisk.riskId,
+          risk: risk || null,
+          sourceTaskId: ancestor.id,
+          sourceTask: ancestor,
+        });
+      }
+    }
+    
+    return results;
+  }
+
+  async getInheritedIssues(taskId: number): Promise<{ taskIssueId: number; issueId: number; issue: Issue | null; sourceTaskId: number; sourceTask: Task | null }[]> {
+    const ancestors = await this.getTaskAncestors(taskId);
+    const results: { taskIssueId: number; issueId: number; issue: Issue | null; sourceTaskId: number; sourceTask: Task | null }[] = [];
+    
+    for (const ancestor of ancestors) {
+      const taskIssues = await this.getTaskIssues(ancestor.id);
+      
+      for (const taskIssue of taskIssues) {
+        const issue = await this.getIssue(taskIssue.issueId);
+        
+        results.push({
+          taskIssueId: taskIssue.id,
+          issueId: taskIssue.issueId,
+          issue: issue || null,
+          sourceTaskId: ancestor.id,
+          sourceTask: ancestor,
+        });
+      }
+    }
+    
+    return results;
   }
 }
 

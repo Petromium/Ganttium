@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useProject } from "@/contexts/ProjectContext";
@@ -15,12 +16,13 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { 
   Loader2, AlertTriangle, AlertCircle, User, Calendar, FileText, 
-  ArrowRight, ExternalLink, Clock, DollarSign, Activity
+  ArrowRight, ArrowLeft, Clock, Activity, Plus, X, Link2, GitBranch
 } from "lucide-react";
-import type { Task, Risk, Issue, ResourceAssignment, Resource } from "@shared/schema";
+import type { Task, Risk, Issue, ResourceAssignment, Resource, Document, TaskDependency } from "@shared/schema";
 
 type TaskStatus = "not-started" | "in-progress" | "review" | "completed" | "on-hold";
 type TaskPriority = "low" | "medium" | "high" | "critical";
+type DependencyType = "FS" | "SS" | "FF" | "SF";
 
 const DISCIPLINES = [
   { value: "civil", label: "Civil" },
@@ -30,9 +32,9 @@ const DISCIPLINES = [
   { value: "electrical", label: "Electrical" },
   { value: "instrumentation", label: "Instrumentation" },
   { value: "process", label: "Process" },
-  { value: "hse", label: "HSE" },
-  { value: "commissioning", label: "Commissioning" },
-  { value: "other", label: "Other" },
+  { value: "hvac", label: "HVAC" },
+  { value: "architectural", label: "Architectural" },
+  { value: "general", label: "General" },
 ];
 
 const CONSTRAINT_TYPES = [
@@ -44,6 +46,13 @@ const CONSTRAINT_TYPES = [
   { value: "snlt", label: "Start No Later Than" },
   { value: "fnet", label: "Finish No Earlier Than" },
   { value: "fnlt", label: "Finish No Later Than" },
+];
+
+const DEPENDENCY_TYPES = [
+  { value: "FS", label: "Finish-to-Start (FS)" },
+  { value: "SS", label: "Start-to-Start (SS)" },
+  { value: "FF", label: "Finish-to-Finish (FF)" },
+  { value: "SF", label: "Start-to-Finish (SF)" },
 ];
 
 interface TaskFormData {
@@ -83,6 +92,9 @@ export function TaskModal({
   const { selectedProjectId } = useProject();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("details");
+  const [selectedDependencyType, setSelectedDependencyType] = useState<DependencyType>("FS");
+  const [selectedPredecessor, setSelectedPredecessor] = useState<string>("");
+  const [lagDays, setLagDays] = useState<number>(0);
   
   const getDefaultFormData = (): TaskFormData => ({
     name: "",
@@ -103,6 +115,11 @@ export function TaskModal({
 
   const [formData, setFormData] = useState<TaskFormData>(getDefaultFormData());
   
+  const { data: allTasks = [] } = useQuery<Task[]>({
+    queryKey: [`/api/projects/${selectedProjectId}/tasks`],
+    enabled: !!selectedProjectId && open,
+  });
+
   const { data: risks = [] } = useQuery<Risk[]>({
     queryKey: [`/api/projects/${selectedProjectId}/risks`],
     enabled: !!selectedProjectId && !!task && open,
@@ -115,7 +132,12 @@ export function TaskModal({
 
   const { data: resources = [] } = useQuery<Resource[]>({
     queryKey: [`/api/projects/${selectedProjectId}/resources`],
-    enabled: !!selectedProjectId && !!task && open,
+    enabled: !!selectedProjectId && open,
+  });
+
+  const { data: documents = [] } = useQuery<Document[]>({
+    queryKey: [`/api/projects/${selectedProjectId}/documents`],
+    enabled: !!selectedProjectId && open,
   });
 
   const { data: assignments = [] } = useQuery<ResourceAssignment[]>({
@@ -123,9 +145,44 @@ export function TaskModal({
     enabled: !!task?.id && open,
   });
 
-  const { data: dependencies = [] } = useQuery<any[]>({
+  const { data: dependencies = [] } = useQuery<TaskDependency[]>({
     queryKey: [`/api/projects/${selectedProjectId}/dependencies`],
-    enabled: !!selectedProjectId && !!task && open,
+    enabled: !!selectedProjectId && open,
+  });
+
+  const { data: taskDocuments = [] } = useQuery<any[]>({
+    queryKey: [`/api/tasks/${task?.id}/documents`],
+    enabled: !!task?.id && open,
+  });
+
+  const { data: taskRisks = [] } = useQuery<any[]>({
+    queryKey: [`/api/tasks/${task?.id}/risks`],
+    enabled: !!task?.id && open,
+  });
+
+  const { data: taskIssues = [] } = useQuery<any[]>({
+    queryKey: [`/api/tasks/${task?.id}/issues`],
+    enabled: !!task?.id && open,
+  });
+
+  const { data: inheritedResources = [] } = useQuery<any[]>({
+    queryKey: [`/api/tasks/${task?.id}/inherited/resources`],
+    enabled: !!task?.id && open,
+  });
+
+  const { data: inheritedDocuments = [] } = useQuery<any[]>({
+    queryKey: [`/api/tasks/${task?.id}/inherited/documents`],
+    enabled: !!task?.id && open,
+  });
+
+  const { data: inheritedRisks = [] } = useQuery<any[]>({
+    queryKey: [`/api/tasks/${task?.id}/inherited/risks`],
+    enabled: !!task?.id && open,
+  });
+
+  const { data: inheritedIssues = [] } = useQuery<any[]>({
+    queryKey: [`/api/tasks/${task?.id}/inherited/issues`],
+    enabled: !!task?.id && open,
   });
   
   useEffect(() => {
@@ -154,6 +211,8 @@ export function TaskModal({
         });
       }
       setActiveTab("details");
+      setSelectedPredecessor("");
+      setLagDays(0);
     }
   }, [open, task, defaultStatus]);
 
@@ -199,6 +258,144 @@ export function TaskModal({
         description: error.message || "Failed to update task",
         variant: "destructive",
       });
+    },
+  });
+
+  const addDependencyMutation = useMutation({
+    mutationFn: async (data: { predecessorId: number; successorId: number; type: DependencyType; lagDays: number }) => {
+      return await apiRequest("POST", `/api/dependencies`, {
+        ...data,
+        projectId: selectedProjectId,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/dependencies`] });
+      toast({ title: "Success", description: "Dependency added" });
+      setSelectedPredecessor("");
+      setLagDays(0);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const removeDependencyMutation = useMutation({
+    mutationFn: async (dependencyId: number) => {
+      return await apiRequest("DELETE", `/api/dependencies/${dependencyId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/dependencies`] });
+      toast({ title: "Success", description: "Dependency removed" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const addResourceMutation = useMutation({
+    mutationFn: async (data: { resourceId: number; allocation: number }) => {
+      return await apiRequest("POST", `/api/assignments`, {
+        taskId: task?.id,
+        ...data,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/tasks/${task?.id}/assignments`] });
+      toast({ title: "Success", description: "Resource assigned" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const removeResourceMutation = useMutation({
+    mutationFn: async (assignmentId: number) => {
+      return await apiRequest("DELETE", `/api/assignments/${assignmentId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/tasks/${task?.id}/assignments`] });
+      toast({ title: "Success", description: "Resource removed" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const addDocumentMutation = useMutation({
+    mutationFn: async (data: { documentId: number; relationship?: string }) => {
+      return await apiRequest("POST", `/api/tasks/${task?.id}/documents`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/tasks/${task?.id}/documents`] });
+      toast({ title: "Success", description: "Document linked" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const removeDocumentMutation = useMutation({
+    mutationFn: async (documentId: number) => {
+      return await apiRequest("DELETE", `/api/tasks/${task?.id}/documents/${documentId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/tasks/${task?.id}/documents`] });
+      toast({ title: "Success", description: "Document unlinked" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const addRiskMutation = useMutation({
+    mutationFn: async (riskId: number) => {
+      return await apiRequest("POST", `/api/tasks/${task?.id}/risks`, { riskId });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/tasks/${task?.id}/risks`] });
+      toast({ title: "Success", description: "Risk linked" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const removeRiskMutation = useMutation({
+    mutationFn: async (riskId: number) => {
+      return await apiRequest("DELETE", `/api/tasks/${task?.id}/risks/${riskId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/tasks/${task?.id}/risks`] });
+      toast({ title: "Success", description: "Risk unlinked" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const addIssueMutation = useMutation({
+    mutationFn: async (issueId: number) => {
+      return await apiRequest("POST", `/api/tasks/${task?.id}/issues`, { issueId });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/tasks/${task?.id}/issues`] });
+      toast({ title: "Success", description: "Issue linked" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const removeIssueMutation = useMutation({
+    mutationFn: async (issueId: number) => {
+      return await apiRequest("DELETE", `/api/tasks/${task?.id}/issues/${issueId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/tasks/${task?.id}/issues`] });
+      toast({ title: "Success", description: "Issue unlinked" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
     },
   });
 
@@ -248,9 +445,13 @@ export function TaskModal({
     }
   };
 
-  const taskDependencies = dependencies.filter(
-    (dep: any) => dep.sourceTaskId === task?.id || dep.targetTaskId === task?.id
-  );
+  const predecessors = dependencies.filter((dep) => dep.successorId === task?.id);
+  const successors = dependencies.filter((dep) => dep.predecessorId === task?.id);
+  const availableTasks = allTasks.filter(t => t.id !== task?.id);
+  const linkedDocIds = taskDocuments.map((td: any) => td.documentId);
+  const linkedRiskIds = taskRisks.map((tr: any) => tr.riskId);
+  const linkedIssueIds = taskIssues.map((ti: any) => ti.issueId);
+  const assignedResourceIds = assignments.map(a => a.resourceId);
 
   const getStatusBadge = (status: string) => {
     const variants: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
@@ -279,6 +480,21 @@ export function TaskModal({
       critical: "text-red-600",
     };
     return colors[priority] || "text-muted-foreground";
+  };
+
+  const getTaskName = (taskId: number) => {
+    const t = allTasks.find(task => task.id === taskId);
+    return t ? `${t.wbsCode || '#' + t.id} - ${t.name}` : `Task #${taskId}`;
+  };
+
+  const handleAddPredecessor = () => {
+    if (!selectedPredecessor || !task) return;
+    addDependencyMutation.mutate({
+      predecessorId: parseInt(selectedPredecessor),
+      successorId: task.id,
+      type: selectedDependencyType,
+      lagDays,
+    });
   };
 
   const isLoading = createMutation.isPending || updateMutation.isPending;
@@ -318,16 +534,23 @@ export function TaskModal({
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 overflow-hidden flex flex-col">
-          <TabsList className="grid w-full grid-cols-5 shrink-0">
+          <TabsList className="grid w-full grid-cols-6 shrink-0">
             <TabsTrigger value="details">Details</TabsTrigger>
+            <TabsTrigger value="dependencies" disabled={!isEditing}>
+              Dependencies {isEditing && (predecessors.length + successors.length > 0) && `(${predecessors.length + successors.length})`}
+            </TabsTrigger>
+            <TabsTrigger value="resources" disabled={!isEditing}>
+              Resources {isEditing && assignments.length > 0 && `(${assignments.length})`}
+            </TabsTrigger>
+            <TabsTrigger value="documents" disabled={!isEditing}>
+              Documents {isEditing && taskDocuments.length > 0 && `(${taskDocuments.length})`}
+            </TabsTrigger>
             <TabsTrigger value="risks" disabled={!isEditing}>
-              Risks {isEditing && risks.length > 0 && `(${risks.length})`}
+              Risks {isEditing && taskRisks.length > 0 && `(${taskRisks.length})`}
             </TabsTrigger>
             <TabsTrigger value="issues" disabled={!isEditing}>
-              Issues {isEditing && issues.length > 0 && `(${issues.length})`}
+              Issues {isEditing && taskIssues.length > 0 && `(${taskIssues.length})`}
             </TabsTrigger>
-            <TabsTrigger value="resources" disabled={!isEditing}>Resources</TabsTrigger>
-            <TabsTrigger value="documents" disabled={!isEditing}>Documents</TabsTrigger>
           </TabsList>
 
           <ScrollArea className="flex-1 mt-4">
@@ -400,19 +623,40 @@ export function TaskModal({
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="progress">Progress ({formData.progress}%)</Label>
-                      <div className="flex items-center gap-4">
+                      <Label htmlFor="task-progress">Progress: {formData.progress}%</Label>
+                      <Input
+                        id="task-progress"
+                        type="range"
+                        min="0"
+                        max="100"
+                        value={formData.progress}
+                        onChange={(e) => setFormData({ ...formData, progress: parseInt(e.target.value) })}
+                        className="cursor-pointer"
+                        data-testid="slider-task-progress"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="start-date">Start Date</Label>
                         <Input
-                          id="progress"
-                          type="range"
-                          min={0}
-                          max={100}
-                          value={formData.progress}
-                          onChange={(e) => setFormData({ ...formData, progress: parseInt(e.target.value) })}
-                          data-testid="input-progress"
-                          className="flex-1"
+                          id="start-date"
+                          type="date"
+                          value={formData.startDate}
+                          onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+                          data-testid="input-start-date"
                         />
-                        <span className="w-12 text-right font-mono text-sm">{formData.progress}%</span>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="end-date">End Date</Label>
+                        <Input
+                          id="end-date"
+                          type="date"
+                          value={formData.endDate}
+                          onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+                          data-testid="input-end-date"
+                        />
                       </div>
                     </div>
                   </div>
@@ -431,55 +675,22 @@ export function TaskModal({
                             <SelectValue placeholder="Select discipline" />
                           </SelectTrigger>
                           <SelectContent>
-                            {DISCIPLINES.map(d => (
-                              <SelectItem key={d.value} value={d.value}>{d.label}</SelectItem>
+                            {DISCIPLINES.map((disc) => (
+                              <SelectItem key={disc.value} value={disc.value}>{disc.label}</SelectItem>
                             ))}
                           </SelectContent>
                         </Select>
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="area-code">Area/Zone Code</Label>
+                        <Label htmlFor="area-code">Area Code</Label>
                         <Input
                           id="area-code"
-                          placeholder="e.g., A-101"
+                          placeholder="e.g., A-100"
                           value={formData.areaCode}
                           onChange={(e) => setFormData({ ...formData, areaCode: e.target.value })}
                           data-testid="input-area-code"
                         />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="weight-factor">Weight Factor</Label>
-                        <Input
-                          id="weight-factor"
-                          type="number"
-                          step="0.01"
-                          min="0"
-                          max="100"
-                          value={formData.weightFactor}
-                          onChange={(e) => setFormData({ ...formData, weightFactor: parseFloat(e.target.value) || 1 })}
-                          data-testid="input-weight-factor"
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="constraint">Constraint Type</Label>
-                        <Select 
-                          value={formData.constraintType} 
-                          onValueChange={(value) => setFormData({ ...formData, constraintType: value })}
-                        >
-                          <SelectTrigger id="constraint" data-testid="select-constraint">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {CONSTRAINT_TYPES.map(c => (
-                              <SelectItem key={c.value} value={c.value}>{c.label}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
                       </div>
                     </div>
 
@@ -493,226 +704,572 @@ export function TaskModal({
                         data-testid="input-contractor"
                       />
                     </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="constraint-type">Constraint Type</Label>
+                        <Select 
+                          value={formData.constraintType} 
+                          onValueChange={(value) => setFormData({ ...formData, constraintType: value })}
+                        >
+                          <SelectTrigger id="constraint-type" data-testid="select-constraint">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {CONSTRAINT_TYPES.map((ct) => (
+                              <SelectItem key={ct.value} value={ct.value}>{ct.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="weight-factor">Weight Factor</Label>
+                        <Input
+                          id="weight-factor"
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          max="1"
+                          value={formData.weightFactor}
+                          onChange={(e) => setFormData({ ...formData, weightFactor: parseFloat(e.target.value) || 0 })}
+                          data-testid="input-weight-factor"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="baseline-start">Baseline Start</Label>
+                        <Input
+                          id="baseline-start"
+                          type="date"
+                          value={formData.baselineStart}
+                          onChange={(e) => setFormData({ ...formData, baselineStart: e.target.value })}
+                          data-testid="input-baseline-start"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="baseline-finish">Baseline Finish</Label>
+                        <Input
+                          id="baseline-finish"
+                          type="date"
+                          value={formData.baselineFinish}
+                          onChange={(e) => setFormData({ ...formData, baselineFinish: e.target.value })}
+                          data-testid="input-baseline-finish"
+                        />
+                      </div>
+                    </div>
                   </div>
                 </div>
-
-                <div className="border-t pt-4">
-                  <h3 className="text-sm font-semibold text-muted-foreground mb-4">Schedule</h3>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="start-date">Start Date</Label>
-                      <Input
-                        id="start-date"
-                        type="date"
-                        value={formData.startDate}
-                        onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-                        data-testid="input-start-date"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="end-date">End Date</Label>
-                      <Input
-                        id="end-date"
-                        type="date"
-                        value={formData.endDate}
-                        onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
-                        data-testid="input-end-date"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="baseline-start">Baseline Start</Label>
-                      <Input
-                        id="baseline-start"
-                        type="date"
-                        value={formData.baselineStart}
-                        onChange={(e) => setFormData({ ...formData, baselineStart: e.target.value })}
-                        data-testid="input-baseline-start"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="baseline-finish">Baseline Finish</Label>
-                      <Input
-                        id="baseline-finish"
-                        type="date"
-                        value={formData.baselineFinish}
-                        onChange={(e) => setFormData({ ...formData, baselineFinish: e.target.value })}
-                        data-testid="input-baseline-finish"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {isEditing && taskDependencies.length > 0 && (
-                  <div className="border-t pt-4">
-                    <h3 className="text-sm font-semibold text-muted-foreground mb-3">Dependencies</h3>
-                    <div className="space-y-2">
-                      {taskDependencies.map((dep: any) => (
-                        <div key={dep.id} className="flex items-center gap-2 text-sm p-2 bg-muted/50 rounded">
-                          <Badge variant="outline" className="font-mono text-xs">
-                            {dep.sourceTaskId === task?.id ? "Successor" : "Predecessor"}
-                          </Badge>
-                          <span className="font-medium">
-                            Task #{dep.sourceTaskId === task?.id ? dep.targetTaskId : dep.sourceTaskId}
-                          </span>
-                          <ArrowRight className="h-4 w-4" />
-                          <Badge variant="secondary">{dep.dependencyType}</Badge>
-                          {dep.lagDays !== 0 && (
-                            <span className="text-muted-foreground">
-                              ({dep.lagDays > 0 ? "+" : ""}{dep.lagDays} days)
-                            </span>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
               </TabsContent>
 
-              <TabsContent value="risks" className="space-y-4 mt-0">
-                {risks.length === 0 ? (
-                  <div className="text-center py-12">
-                    <AlertTriangle className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                    <h3 className="text-lg font-semibold mb-2">No Risks Found</h3>
-                    <p className="text-sm text-muted-foreground">
-                      No risks have been identified for this project yet.
-                    </p>
+              <TabsContent value="dependencies" className="space-y-4 mt-0">
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 p-4 bg-muted/50 rounded-lg">
+                    <GitBranch className="h-5 w-5 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm font-medium">Task Dependencies</p>
+                      <p className="text-xs text-muted-foreground">Define predecessor and successor relationships for this task</p>
+                    </div>
                   </div>
-                ) : (
-                  <div className="space-y-3">
-                    {risks.map((risk) => (
-                      <Card key={risk.id} className="hover-elevate cursor-pointer">
-                        <CardContent className="p-4">
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1">
-                                <Badge variant="outline" className="font-mono text-xs">{risk.code}</Badge>
-                                <Badge variant={getStatusBadge(risk.status)}>{risk.status}</Badge>
-                              </div>
-                              <h4 className="font-medium mb-1">{risk.title}</h4>
-                              <p className="text-sm text-muted-foreground line-clamp-2">{risk.description}</p>
-                            </div>
-                            <div className="flex flex-col items-end gap-1">
-                              <div className="flex items-center gap-1 text-sm">
-                                <Activity className="h-4 w-4" />
-                                <span>P: {risk.probability}</span>
-                              </div>
-                              <Badge variant="outline" className={
-                                risk.impact === "critical" ? "border-red-500 text-red-500" :
-                                risk.impact === "high" ? "border-orange-500 text-orange-500" :
-                                risk.impact === "medium" ? "border-amber-500 text-amber-500" : ""
-                              }>
-                                {risk.impact}
-                              </Badge>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                )}
-              </TabsContent>
 
-              <TabsContent value="issues" className="space-y-4 mt-0">
-                {issues.length === 0 ? (
-                  <div className="text-center py-12">
-                    <AlertCircle className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                    <h3 className="text-lg font-semibold mb-2">No Issues Found</h3>
-                    <p className="text-sm text-muted-foreground">
-                      No issues have been reported for this project yet.
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {issues.map((issue) => (
-                      <Card key={issue.id} className="hover-elevate cursor-pointer">
-                        <CardContent className="p-4">
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1">
-                                <Badge variant="outline" className="font-mono text-xs">{issue.code}</Badge>
-                                <Badge variant={getStatusBadge(issue.status)}>{issue.status}</Badge>
-                                <Badge variant="outline" className={getPriorityColor(issue.priority)}>
-                                  {issue.priority}
-                                </Badge>
-                              </div>
-                              <h4 className="font-medium mb-1">{issue.title}</h4>
-                              <p className="text-sm text-muted-foreground line-clamp-2">{issue.description}</p>
-                            </div>
-                            <div className="flex flex-col items-end gap-1 text-sm text-muted-foreground">
-                              <div className="flex items-center gap-1">
-                                <Calendar className="h-4 w-4" />
-                                <span>{new Date(issue.reportedDate).toLocaleDateString()}</span>
-                              </div>
-                              {issue.targetResolutionDate && (
-                                <div className="flex items-center gap-1">
-                                  <Clock className="h-4 w-4" />
-                                  <span>Due: {new Date(issue.targetResolutionDate).toLocaleDateString()}</span>
-                                </div>
+                  <div className="border rounded-lg p-4 space-y-4">
+                    <h4 className="text-sm font-semibold flex items-center gap-2">
+                      <ArrowLeft className="h-4 w-4" />
+                      Predecessors ({predecessors.length})
+                    </h4>
+                    
+                    <div className="flex gap-2 items-end flex-wrap">
+                      <div className="flex-1 min-w-[200px]">
+                        <Label className="text-xs">Select Predecessor</Label>
+                        <Select value={selectedPredecessor} onValueChange={setSelectedPredecessor}>
+                          <SelectTrigger data-testid="select-predecessor">
+                            <SelectValue placeholder="Choose a task..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableTasks
+                              .filter(t => !predecessors.some(p => p.predecessorId === t.id))
+                              .map((t) => (
+                                <SelectItem key={t.id} value={t.id.toString()}>
+                                  {t.wbsCode || `#${t.id}`} - {t.name}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="w-[140px]">
+                        <Label className="text-xs">Type</Label>
+                        <Select value={selectedDependencyType} onValueChange={(v: DependencyType) => setSelectedDependencyType(v)}>
+                          <SelectTrigger data-testid="select-dependency-type">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {DEPENDENCY_TYPES.map((dt) => (
+                              <SelectItem key={dt.value} value={dt.value}>{dt.label}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="w-[80px]">
+                        <Label className="text-xs">Lag (days)</Label>
+                        <Input
+                          type="number"
+                          value={lagDays}
+                          onChange={(e) => setLagDays(parseInt(e.target.value) || 0)}
+                          data-testid="input-lag-days"
+                        />
+                      </div>
+                      <Button 
+                        size="sm" 
+                        onClick={handleAddPredecessor}
+                        disabled={!selectedPredecessor || addDependencyMutation.isPending}
+                        data-testid="button-add-predecessor"
+                      >
+                        <Plus className="h-4 w-4 mr-1" />
+                        Add
+                      </Button>
+                    </div>
+
+                    {predecessors.length === 0 ? (
+                      <p className="text-sm text-muted-foreground py-4 text-center">No predecessors defined</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {predecessors.map((dep) => (
+                          <div key={dep.id} className="flex items-center justify-between p-3 bg-muted/30 rounded">
+                            <div className="flex items-center gap-3">
+                              <Badge variant="outline" className="font-mono text-xs">{dep.type}</Badge>
+                              <span className="text-sm">{getTaskName(dep.predecessorId)}</span>
+                              {dep.lagDays !== 0 && (
+                                <span className="text-xs text-muted-foreground">
+                                  ({dep.lagDays > 0 ? "+" : ""}{dep.lagDays} days)
+                                </span>
                               )}
                             </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeDependencyMutation.mutate(dep.id)}
+                              disabled={removeDependencyMutation.isPending}
+                              data-testid={`button-remove-predecessor-${dep.id}`}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
                           </div>
-                        </CardContent>
-                      </Card>
-                    ))}
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )}
+
+                  <div className="border rounded-lg p-4 space-y-4">
+                    <h4 className="text-sm font-semibold flex items-center gap-2">
+                      <ArrowRight className="h-4 w-4" />
+                      Successors ({successors.length})
+                    </h4>
+                    
+                    {successors.length === 0 ? (
+                      <p className="text-sm text-muted-foreground py-4 text-center">No successors defined</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {successors.map((dep) => (
+                          <div key={dep.id} className="flex items-center justify-between p-3 bg-muted/30 rounded">
+                            <div className="flex items-center gap-3">
+                              <Badge variant="outline" className="font-mono text-xs">{dep.type}</Badge>
+                              <span className="text-sm">{getTaskName(dep.successorId)}</span>
+                              {dep.lagDays !== 0 && (
+                                <span className="text-xs text-muted-foreground">
+                                  ({dep.lagDays > 0 ? "+" : ""}{dep.lagDays} days)
+                                </span>
+                              )}
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeDependencyMutation.mutate(dep.id)}
+                              disabled={removeDependencyMutation.isPending}
+                              data-testid={`button-remove-successor-${dep.id}`}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </TabsContent>
 
               <TabsContent value="resources" className="space-y-4 mt-0">
-                {assignments.length === 0 ? (
-                  <div className="text-center py-12">
-                    <User className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                    <h3 className="text-lg font-semibold mb-2">No Resources Assigned</h3>
-                    <p className="text-sm text-muted-foreground">
-                      No resources have been assigned to this task yet.
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-2">
-                      Resource assignments can be managed from the Resources page.
-                    </p>
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 p-4 bg-muted/50 rounded-lg">
+                    <User className="h-5 w-5 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm font-medium">Resource Assignments</p>
+                      <p className="text-xs text-muted-foreground">Assign resources to this task. Inherited resources from parent tasks are shown below.</p>
+                    </div>
                   </div>
-                ) : (
-                  <div className="space-y-3">
-                    {assignments.map((assignment) => {
-                      const resource = resources.find(r => r.id === assignment.resourceId);
-                      return (
-                        <Card key={assignment.id} className="hover-elevate">
-                          <CardContent className="p-4">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-3">
-                                <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                                  <User className="h-5 w-5 text-primary" />
-                                </div>
-                                <div>
-                                  <h4 className="font-medium">{resource?.name || `Resource #${assignment.resourceId}`}</h4>
-                                  <p className="text-sm text-muted-foreground">{resource?.type || "Unknown type"}</p>
-                                </div>
+
+                  {assignments.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-semibold">Directly Assigned Resources</h4>
+                      {assignments.map((assignment) => {
+                        const resource = resources.find(r => r.id === assignment.resourceId);
+                        return (
+                          <div key={assignment.id} className="flex items-center justify-between p-3 border rounded">
+                            <div className="flex items-center gap-3">
+                              <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                                <User className="h-4 w-4 text-primary" />
                               </div>
-                              <div className="text-right">
-                                <p className="font-mono text-sm">{assignment.units}%</p>
-                                <p className="text-xs text-muted-foreground">Allocation</p>
+                              <div>
+                                <p className="text-sm font-medium">{resource?.name || `Resource #${assignment.resourceId}`}</p>
+                                <p className="text-xs text-muted-foreground">{resource?.type} • {resource?.discipline}</p>
                               </div>
                             </div>
-                          </CardContent>
-                        </Card>
-                      );
-                    })}
+                            <div className="flex items-center gap-2">
+                              <Badge variant="secondary">{assignment.allocation}%</Badge>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeResourceMutation.mutate(assignment.id)}
+                                disabled={removeResourceMutation.isPending}
+                              >
+                                <X className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {inheritedResources.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-semibold flex items-center gap-2">
+                        <Link2 className="h-4 w-4" />
+                        Inherited from Parent Tasks
+                      </h4>
+                      {inheritedResources.map((ir: any) => (
+                        <div key={`inherited-${ir.assignmentId}`} className="flex items-center justify-between p-3 border border-dashed rounded bg-muted/20">
+                          <div className="flex items-center gap-3">
+                            <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center">
+                              <User className="h-4 w-4 text-muted-foreground" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium">{ir.resource?.name || `Resource #${ir.resourceId}`}</p>
+                              <p className="text-xs text-muted-foreground">{ir.resource?.type} • {ir.resource?.discipline}</p>
+                            </div>
+                          </div>
+                          <Badge variant="outline" className="text-xs">
+                            From: {ir.sourceTask?.wbsCode || `#${ir.sourceTaskId}`}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-semibold">Available Resources</h4>
+                    {resources.filter(r => !assignedResourceIds.includes(r.id)).length === 0 ? (
+                      <p className="text-sm text-muted-foreground py-4 text-center">All resources are already assigned</p>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {resources.filter(r => !assignedResourceIds.includes(r.id)).map((resource) => (
+                          <Card key={resource.id} className="hover-elevate cursor-pointer" onClick={() => addResourceMutation.mutate({ resourceId: resource.id, allocation: 100 })}>
+                            <CardContent className="p-3 flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <User className="h-4 w-4 text-muted-foreground" />
+                                <div>
+                                  <p className="text-sm font-medium">{resource.name}</p>
+                                  <p className="text-xs text-muted-foreground">{resource.type} • {resource.discipline}</p>
+                                </div>
+                              </div>
+                              <Plus className="h-4 w-4 text-muted-foreground" />
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )}
+                </div>
               </TabsContent>
 
               <TabsContent value="documents" className="space-y-4 mt-0">
-                <div className="text-center py-12">
-                  <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="text-lg font-semibold mb-2">Document Management</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Document attachments and SOPs linked to this task will appear here.
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-2">
-                    Use the Document Register to manage project documents.
-                  </p>
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 p-4 bg-muted/50 rounded-lg">
+                    <FileText className="h-5 w-5 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm font-medium">Linked Documents</p>
+                      <p className="text-xs text-muted-foreground">Attach documents to this task. Inherited documents from parent tasks are shown below.</p>
+                    </div>
+                  </div>
+
+                  {taskDocuments.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-semibold">Directly Attached Documents</h4>
+                      {taskDocuments.map((td: any) => {
+                        const doc = documents.find(d => d.id === td.documentId);
+                        return (
+                          <div key={td.id} className="flex items-center justify-between p-3 border rounded">
+                            <div className="flex items-center gap-3">
+                              <FileText className="h-5 w-5 text-muted-foreground" />
+                              <div>
+                                <p className="text-sm font-medium">{doc?.title || `Document #${td.documentId}`}</p>
+                                <p className="text-xs text-muted-foreground">{doc?.documentNumber} • {doc?.documentType}</p>
+                              </div>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeDocumentMutation.mutate(td.documentId)}
+                              disabled={removeDocumentMutation.isPending}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {inheritedDocuments.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-semibold flex items-center gap-2">
+                        <Link2 className="h-4 w-4" />
+                        Inherited from Parent Tasks
+                      </h4>
+                      {inheritedDocuments.map((id: any) => (
+                        <div key={`inherited-doc-${id.taskDocumentId}`} className="flex items-center justify-between p-3 border border-dashed rounded bg-muted/20">
+                          <div className="flex items-center gap-3">
+                            <FileText className="h-5 w-5 text-muted-foreground" />
+                            <div>
+                              <p className="text-sm font-medium">{id.document?.title || `Document #${id.documentId}`}</p>
+                              <p className="text-xs text-muted-foreground">{id.document?.documentNumber} • {id.document?.documentType}</p>
+                            </div>
+                          </div>
+                          <Badge variant="outline" className="text-xs">
+                            From: {id.sourceTask?.wbsCode || `#${id.sourceTaskId}`}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-semibold">Available Documents</h4>
+                    {documents.filter(d => !linkedDocIds.includes(d.id)).length === 0 ? (
+                      <p className="text-sm text-muted-foreground py-4 text-center">No documents available to link</p>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-2 max-h-[200px] overflow-y-auto">
+                        {documents.filter(d => !linkedDocIds.includes(d.id)).map((doc) => (
+                          <Card key={doc.id} className="hover-elevate cursor-pointer" onClick={() => addDocumentMutation.mutate({ documentId: doc.id })}>
+                            <CardContent className="p-3 flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <FileText className="h-4 w-4 text-muted-foreground" />
+                                <div>
+                                  <p className="text-sm font-medium">{doc.title}</p>
+                                  <p className="text-xs text-muted-foreground">{doc.documentNumber} • Rev {doc.revision}</p>
+                                </div>
+                              </div>
+                              <Link2 className="h-4 w-4 text-muted-foreground" />
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="risks" className="space-y-4 mt-0">
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 p-4 bg-muted/50 rounded-lg">
+                    <AlertTriangle className="h-5 w-5 text-amber-500" />
+                    <div>
+                      <p className="text-sm font-medium">Linked Risks</p>
+                      <p className="text-xs text-muted-foreground">Associate risks with this task. Inherited risks from parent tasks are shown below.</p>
+                    </div>
+                  </div>
+
+                  {taskRisks.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-semibold">Directly Associated Risks</h4>
+                      {taskRisks.map((tr: any) => {
+                        const risk = risks.find(r => r.id === tr.riskId);
+                        return (
+                          <div key={tr.id} className="flex items-center justify-between p-3 border rounded">
+                            <div className="flex items-center gap-3">
+                              <AlertTriangle className="h-5 w-5 text-amber-500" />
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="outline" className="font-mono text-xs">{risk?.code}</Badge>
+                                  <p className="text-sm font-medium">{risk?.title}</p>
+                                </div>
+                                <p className="text-xs text-muted-foreground">Impact: {risk?.impact} • Status: {risk?.status}</p>
+                              </div>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeRiskMutation.mutate(tr.riskId)}
+                              disabled={removeRiskMutation.isPending}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {inheritedRisks.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-semibold flex items-center gap-2">
+                        <Link2 className="h-4 w-4" />
+                        Inherited from Parent Tasks
+                      </h4>
+                      {inheritedRisks.map((ir: any) => (
+                        <div key={`inherited-risk-${ir.taskRiskId}`} className="flex items-center justify-between p-3 border border-dashed rounded bg-muted/20">
+                          <div className="flex items-center gap-3">
+                            <AlertTriangle className="h-5 w-5 text-amber-400" />
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="font-mono text-xs">{ir.risk?.code}</Badge>
+                                <p className="text-sm font-medium">{ir.risk?.title}</p>
+                              </div>
+                              <p className="text-xs text-muted-foreground">Impact: {ir.risk?.impact} • Status: {ir.risk?.status}</p>
+                            </div>
+                          </div>
+                          <Badge variant="outline" className="text-xs">
+                            From: {ir.sourceTask?.wbsCode || `#${ir.sourceTaskId}`}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-semibold">Available Risks</h4>
+                    {risks.filter(r => !linkedRiskIds.includes(r.id)).length === 0 ? (
+                      <p className="text-sm text-muted-foreground py-4 text-center">No risks available to link</p>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-2 max-h-[200px] overflow-y-auto">
+                        {risks.filter(r => !linkedRiskIds.includes(r.id)).map((risk) => (
+                          <Card key={risk.id} className="hover-elevate cursor-pointer" onClick={() => addRiskMutation.mutate(risk.id)}>
+                            <CardContent className="p-3 flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <AlertTriangle className="h-4 w-4 text-amber-500" />
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <Badge variant="outline" className="font-mono text-xs">{risk.code}</Badge>
+                                    <p className="text-sm font-medium">{risk.title}</p>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground">Impact: {risk.impact}</p>
+                                </div>
+                              </div>
+                              <Plus className="h-4 w-4 text-muted-foreground" />
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="issues" className="space-y-4 mt-0">
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 p-4 bg-muted/50 rounded-lg">
+                    <AlertCircle className="h-5 w-5 text-red-500" />
+                    <div>
+                      <p className="text-sm font-medium">Linked Issues</p>
+                      <p className="text-xs text-muted-foreground">Associate issues with this task. Inherited issues from parent tasks are shown below.</p>
+                    </div>
+                  </div>
+
+                  {taskIssues.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-semibold">Directly Associated Issues</h4>
+                      {taskIssues.map((ti: any) => {
+                        const issue = issues.find(i => i.id === ti.issueId);
+                        return (
+                          <div key={ti.id} className="flex items-center justify-between p-3 border rounded">
+                            <div className="flex items-center gap-3">
+                              <AlertCircle className="h-5 w-5 text-red-500" />
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <Badge variant="outline" className="font-mono text-xs">{issue?.code}</Badge>
+                                  <p className="text-sm font-medium">{issue?.title}</p>
+                                </div>
+                                <p className="text-xs text-muted-foreground">Priority: {issue?.priority} • Status: {issue?.status}</p>
+                              </div>
+                            </div>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeIssueMutation.mutate(ti.issueId)}
+                              disabled={removeIssueMutation.isPending}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {inheritedIssues.length > 0 && (
+                    <div className="space-y-2">
+                      <h4 className="text-sm font-semibold flex items-center gap-2">
+                        <Link2 className="h-4 w-4" />
+                        Inherited from Parent Tasks
+                      </h4>
+                      {inheritedIssues.map((ii: any) => (
+                        <div key={`inherited-issue-${ii.taskIssueId}`} className="flex items-center justify-between p-3 border border-dashed rounded bg-muted/20">
+                          <div className="flex items-center gap-3">
+                            <AlertCircle className="h-5 w-5 text-red-400" />
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <Badge variant="outline" className="font-mono text-xs">{ii.issue?.code}</Badge>
+                                <p className="text-sm font-medium">{ii.issue?.title}</p>
+                              </div>
+                              <p className="text-xs text-muted-foreground">Priority: {ii.issue?.priority} • Status: {ii.issue?.status}</p>
+                            </div>
+                          </div>
+                          <Badge variant="outline" className="text-xs">
+                            From: {ii.sourceTask?.wbsCode || `#${ii.sourceTaskId}`}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-semibold">Available Issues</h4>
+                    {issues.filter(i => !linkedIssueIds.includes(i.id)).length === 0 ? (
+                      <p className="text-sm text-muted-foreground py-4 text-center">No issues available to link</p>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-2 max-h-[200px] overflow-y-auto">
+                        {issues.filter(i => !linkedIssueIds.includes(i.id)).map((issue) => (
+                          <Card key={issue.id} className="hover-elevate cursor-pointer" onClick={() => addIssueMutation.mutate(issue.id)}>
+                            <CardContent className="p-3 flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <AlertCircle className="h-4 w-4 text-red-500" />
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <Badge variant="outline" className="font-mono text-xs">{issue.code}</Badge>
+                                    <p className="text-sm font-medium">{issue.title}</p>
+                                  </div>
+                                  <p className="text-xs text-muted-foreground">Priority: {issue.priority}</p>
+                                </div>
+                              </div>
+                              <Plus className="h-4 w-4 text-muted-foreground" />
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </TabsContent>
             </div>

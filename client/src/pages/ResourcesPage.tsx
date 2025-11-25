@@ -42,6 +42,38 @@ const DISCIPLINES = [
   { value: "hse", label: "HSE" },
 ];
 
+const RATE_TYPES = [
+  { value: "per-hour", label: "Per Hour (USD/hr)" },
+  { value: "per-use", label: "Per Use (USD/use)" },
+  { value: "per-unit", label: "Per Unit (USD/unit)" },
+];
+
+const UNIT_TYPES = [
+  { value: "ea", label: "Each (EA)" },
+  { value: "lot", label: "Lot" },
+  { value: "hr", label: "Hour (hr)" },
+  { value: "day", label: "Day" },
+  { value: "week", label: "Week" },
+  { value: "month", label: "Month" },
+  { value: "m", label: "Meter (m)" },
+  { value: "ft", label: "Feet (ft)" },
+  { value: "yd", label: "Yard (yd)" },
+  { value: "km", label: "Kilometer (km)" },
+  { value: "mi", label: "Mile (mi)" },
+  { value: "m2", label: "Square Meter (m²)" },
+  { value: "ft2", label: "Square Feet (ft²)" },
+  { value: "m3", label: "Cubic Meter (m³)" },
+  { value: "ft3", label: "Cubic Feet (ft³)" },
+  { value: "kg", label: "Kilogram (kg)" },
+  { value: "lb", label: "Pound (lb)" },
+  { value: "ton", label: "Ton" },
+  { value: "mt", label: "Metric Ton (MT)" },
+  { value: "l", label: "Liter (L)" },
+  { value: "gal", label: "Gallon (gal)" },
+  { value: "scm", label: "Standard Cubic Meter (SCM)" },
+  { value: "scf", label: "Standard Cubic Feet (SCF)" },
+];
+
 interface ResourceFormData {
   name: string;
   type: string;
@@ -49,6 +81,9 @@ interface ResourceFormData {
   availability: number;
   costPerHour: string;
   currency: string;
+  rateType: string;
+  rate: string;
+  unitType: string;
 }
 
 export default function ResourcesPage() {
@@ -63,6 +98,9 @@ export default function ResourcesPage() {
     availability: 100,
     costPerHour: "",
     currency: "USD",
+    rateType: "per-hour",
+    rate: "",
+    unitType: "hr",
   });
 
   const { data: resources = [], isLoading } = useQuery<Resource[]>({
@@ -145,6 +183,9 @@ export default function ResourcesPage() {
         availability: resource.availability,
         costPerHour: resource.costPerHour || "",
         currency: resource.currency,
+        rateType: resource.rateType || "per-hour",
+        rate: resource.rate || "",
+        unitType: resource.unitType || "hr",
       });
     } else {
       setEditingResource(null);
@@ -155,6 +196,9 @@ export default function ResourcesPage() {
         availability: 100,
         costPerHour: "",
         currency: "USD",
+        rateType: "per-hour",
+        rate: "",
+        unitType: "hr",
       });
     }
     setModalOpen(true);
@@ -170,6 +214,9 @@ export default function ResourcesPage() {
       availability: 100,
       costPerHour: "",
       currency: "USD",
+      rateType: "per-hour",
+      rate: "",
+      unitType: "hr",
     });
   };
 
@@ -190,6 +237,9 @@ export default function ResourcesPage() {
       availability: formData.availability,
       costPerHour: formData.costPerHour || null,
       currency: formData.currency,
+      rateType: formData.rateType,
+      rate: formData.rate || null,
+      unitType: formData.unitType,
     };
 
     if (editingResource) {
@@ -390,11 +440,15 @@ export default function ResourcesPage() {
                               <p className="text-xs text-muted-foreground">Availability</p>
                             </div>
 
-                            {resource.costPerHour && (
+                            {(resource.rate || resource.costPerHour) && (
                               <div className="text-right">
                                 <p className="font-mono text-sm flex items-center gap-1">
                                   <DollarSign className="h-3 w-3" />
-                                  {parseFloat(resource.costPerHour).toFixed(2)}/hr
+                                  {parseFloat(resource.rate || resource.costPerHour || "0").toFixed(2)}
+                                  {resource.rateType === "per-hour" && "/hr"}
+                                  {resource.rateType === "per-use" && "/use"}
+                                  {resource.rateType === "per-unit" && `/${resource.unitType || "unit"}`}
+                                  {!resource.rateType && "/hr"}
                                 </p>
                                 <p className="text-xs text-muted-foreground">{resource.currency}</p>
                               </div>
@@ -503,17 +557,36 @@ export default function ResourcesPage() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="rate-type">Pricing Model</Label>
+              <Select 
+                value={formData.rateType} 
+                onValueChange={(value) => setFormData({ ...formData, rateType: value })}
+              >
+                <SelectTrigger id="rate-type" data-testid="select-rate-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {RATE_TYPES.map((rt) => (
+                    <SelectItem key={rt.value} value={rt.value}>
+                      {rt.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="cost-per-hour">Cost per Hour</Label>
+                <Label htmlFor="rate">Rate</Label>
                 <Input
-                  id="cost-per-hour"
+                  id="rate"
                   type="number"
                   step="0.01"
                   placeholder="0.00"
-                  value={formData.costPerHour}
-                  onChange={(e) => setFormData({ ...formData, costPerHour: e.target.value })}
-                  data-testid="input-cost-per-hour"
+                  value={formData.rate}
+                  onChange={(e) => setFormData({ ...formData, rate: e.target.value })}
+                  data-testid="input-rate"
                 />
               </div>
 
@@ -536,6 +609,27 @@ export default function ResourcesPage() {
                   </SelectContent>
                 </Select>
               </div>
+
+              {formData.rateType === "per-unit" && (
+                <div className="space-y-2">
+                  <Label htmlFor="unit-type">Unit</Label>
+                  <Select 
+                    value={formData.unitType} 
+                    onValueChange={(value) => setFormData({ ...formData, unitType: value })}
+                  >
+                    <SelectTrigger id="unit-type" data-testid="select-unit-type">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {UNIT_TYPES.map((ut) => (
+                        <SelectItem key={ut.value} value={ut.value}>
+                          {ut.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
           </div>
 

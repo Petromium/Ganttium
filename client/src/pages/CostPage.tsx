@@ -122,8 +122,8 @@ function calculateEarnedValue(
   
   const plannedProgress = totalTasks > 0 
     ? tasks.filter(t => {
-        if (!t.plannedEnd) return false;
-        return new Date(t.plannedEnd) <= new Date();
+        if (!t.endDate) return false;
+        return new Date(t.endDate) <= new Date();
       }).length / totalTasks
     : 0.5;
   
@@ -643,14 +643,14 @@ export default function CostPage() {
             <div className="space-y-2">
               <Label htmlFor="task">Link to Task (optional)</Label>
               <Select
-                value={formData.taskId?.toString() || ''}
-                onValueChange={(v) => setFormData({ ...formData, taskId: v ? parseInt(v) : undefined })}
+                value={formData.taskId?.toString() || 'none'}
+                onValueChange={(v) => setFormData({ ...formData, taskId: v && v !== 'none' ? parseInt(v) : undefined })}
               >
                 <SelectTrigger data-testid="select-task">
                   <SelectValue placeholder="Select task (optional)" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">None</SelectItem>
+                  <SelectItem value="none">None</SelectItem>
                   {tasks.map((task) => (
                     <SelectItem key={task.id} value={task.id.toString()}>
                       {task.wbsCode} - {task.name}
