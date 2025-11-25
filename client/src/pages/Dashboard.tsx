@@ -1,43 +1,284 @@
+import { useQuery } from "@tanstack/react-query";
+import { useProject } from "@/contexts/ProjectContext";
 import { MetricCard } from "@/components/MetricCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { BarChart3, TrendingUp, AlertTriangle, CheckCircle2, Clock, DollarSign } from "lucide-react";
+import { BarChart3, TrendingUp, AlertTriangle, Clock, DollarSign, FolderKanban } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import type { Task, Risk, Issue, CostItem, WBSItem } from "@shared/schema";
+
+interface DashboardStats {
+  totalTasks: number;
+  completedTasks: number;
+  inProgressTasks: number;
+  completionRate: number;
+  openRisks: number;
+  openIssues: number;
+  totalBudget: number;
+  actualCost: number;
+  budgetUsed: number;
+}
+
+function calculateDashboardStats(
+  tasks: Task[],
+  risks: Risk[],
+  issues: Issue[],
+  costItems: CostItem[]
+): DashboardStats {
+  const totalTasks = tasks.length;
+  const completedTasks = tasks.filter(t => t.status === 'completed').length;
+  const inProgressTasks = tasks.filter(t => t.status === 'in-progress').length;
+  const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+  
+  const openRisks = risks.filter(r => r.status !== 'closed').length;
+  const openIssues = issues.filter(i => i.status !== 'closed' && i.status !== 'resolved').length;
+  
+  const totalBudget = costItems.reduce((sum, c) => sum + Number(c.budgeted || 0), 0);
+  const actualCost = costItems.reduce((sum, c) => sum + Number(c.actual || 0), 0);
+  const budgetUsed = totalBudget > 0 ? Math.round((actualCost / totalBudget) * 100) : 0;
+
+  return {
+    totalTasks,
+    completedTasks,
+    inProgressTasks,
+    completionRate,
+    openRisks,
+    openIssues,
+    totalBudget,
+    actualCost,
+    budgetUsed
+  };
+}
+
+function formatCurrency(value: number): string {
+  if (value >= 1000000) {
+    return `$${(value / 1000000).toFixed(1)}M`;
+  }
+  if (value >= 1000) {
+    return `$${(value / 1000).toFixed(0)}K`;
+  }
+  return `$${value.toFixed(0)}`;
+}
+
+interface WBSProgress {
+  wbsCode: string;
+  name: string;
+  progress: number;
+  taskCount: number;
+}
+
+function calculateWBSProgress(tasks: Task[], wbsItems: WBSItem[]): WBSProgress[] {
+  const wbsMap = new Map<string, WBSItem>();
+  wbsItems.forEach(item => wbsMap.set(item.code, item));
+  
+  const level1Groups = new Map<string, { wbs: WBSItem | null; tasks: Task[] }>();
+  
+  tasks.forEach(task => {
+    const parts = task.wbsCode.split('.');
+    const level1Code = parts[0];
+    
+    if (!level1Groups.has(level1Code)) {
+      const wbsItem = wbsItems.find(w => w.code === level1Code && w.level === 1);
+      level1Groups.set(level1Code, { wbs: wbsItem || null, tasks: [] });
+    }
+    level1Groups.get(level1Code)!.tasks.push(task);
+  });
+  
+  return Array.from(level1Groups.entries())
+    .map(([code, data]) => {
+      const avgProgress = data.tasks.length > 0
+        ? data.tasks.reduce((sum, t) => sum + (t.progress || 0), 0) / data.tasks.length
+        : 0;
+      return {
+        wbsCode: code,
+        name: data.wbs?.name || `WBS ${code}`,
+        progress: Math.round(avgProgress),
+        taskCount: data.tasks.length
+      };
+    })
+    .sort((a, b) => a.wbsCode.localeCompare(b.wbsCode, undefined, { numeric: true }))
+    .slice(0, 5);
+}
+
+function safeDate(dateValue: string | Date | null | undefined): Date | null {
+  if (!dateValue) return null;
+  const date = new Date(dateValue);
+  return isNaN(date.getTime()) ? null : date;
+}
+
+function formatTimeAgo(dateValue: string | Date | null | undefined): string {
+  const date = safeDate(dateValue);
+  if (!date) return 'Recently';
+  
+  const now = new Date();
+  const diff = now.getTime() - date.getTime();
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+  
+  if (minutes < 1) return 'Just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days === 1) return '1 day ago';
+  return `${days} days ago`;
+}
 
 export default function Dashboard() {
+  const { selectedProject } = useProject();
+  const projectId = selectedProject?.id;
+
+  const { data: tasks = [], isLoading: tasksLoading, error: tasksError } = useQuery<Task[]>({
+    queryKey: ['/api/projects', projectId, 'tasks'],
+    enabled: !!projectId,
+    retry: 1,
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/tasks`, { credentials: 'include' });
+      if (res.status === 401) return [];
+      if (!res.ok) throw new Error('Failed to fetch tasks');
+      return res.json();
+    }
+  });
+
+  const { data: wbsItems = [] } = useQuery<WBSItem[]>({
+    queryKey: ['/api/projects', projectId, 'wbs'],
+    enabled: !!projectId,
+    retry: 1,
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/wbs`, { credentials: 'include' });
+      if (res.status === 401) return [];
+      if (!res.ok) throw new Error('Failed to fetch WBS');
+      return res.json();
+    }
+  });
+
+  const { data: risks = [], isLoading: risksLoading } = useQuery<Risk[]>({
+    queryKey: ['/api/projects', projectId, 'risks'],
+    enabled: !!projectId,
+    retry: 1,
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/risks`, { credentials: 'include' });
+      if (res.status === 401) return [];
+      if (!res.ok) throw new Error('Failed to fetch risks');
+      return res.json();
+    }
+  });
+
+  const { data: issues = [], isLoading: issuesLoading } = useQuery<Issue[]>({
+    queryKey: ['/api/projects', projectId, 'issues'],
+    enabled: !!projectId,
+    retry: 1,
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/issues`, { credentials: 'include' });
+      if (res.status === 401) return [];
+      if (!res.ok) throw new Error('Failed to fetch issues');
+      return res.json();
+    }
+  });
+
+  const { data: costItems = [], isLoading: costsLoading } = useQuery<CostItem[]>({
+    queryKey: ['/api/projects', projectId, 'costs'],
+    enabled: !!projectId,
+    retry: 1,
+    queryFn: async () => {
+      const res = await fetch(`/api/projects/${projectId}/costs`, { credentials: 'include' });
+      if (res.status === 401) return [];
+      if (!res.ok) throw new Error('Failed to fetch costs');
+      return res.json();
+    }
+  });
+
+  const isLoading = tasksLoading || risksLoading || issuesLoading || costsLoading;
+
+  if (!selectedProject) {
+    return (
+      <div className="p-6">
+        <Alert>
+          <FolderKanban className="h-4 w-4" />
+          <AlertDescription>
+            Please select a project to view the dashboard.
+          </AlertDescription>
+        </Alert>
+      </div>
+    );
+  }
+
+  const stats = calculateDashboardStats(tasks, risks, issues, costItems);
+  const wbsProgress = calculateWBSProgress(tasks, wbsItems);
+  
+  const recentItems: Array<{ id: string; type: 'risk' | 'issue'; title: string; date: Date | null }> = [
+    ...risks.map(r => ({
+      id: `risk-${r.id}`,
+      type: 'risk' as const,
+      title: r.title,
+      date: safeDate(r.createdAt)
+    })),
+    ...issues.map(i => ({
+      id: `issue-${i.id}`,
+      type: 'issue' as const,
+      title: i.title,
+      date: safeDate(i.createdAt)
+    }))
+  ].sort((a, b) => {
+    if (!a.date && !b.date) return 0;
+    if (!a.date) return 1;
+    if (!b.date) return -1;
+    return b.date.getTime() - a.date.getTime();
+  }).slice(0, 5);
+
+  const criticalTasks = tasks
+    .filter(t => t.status !== 'completed' && (t.priority === 'critical' || t.priority === 'high'))
+    .slice(0, 4);
+
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-3xl font-semibold mb-2">Project Overview</h1>
-        <p className="text-muted-foreground">Refinery Expansion Project - Q4 2024</p>
+        <h1 className="text-3xl font-semibold mb-2" data-testid="text-dashboard-title">Project Overview</h1>
+        <p className="text-muted-foreground" data-testid="text-project-name">
+          {selectedProject.name} - {selectedProject.code}
+        </p>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <MetricCard
-          title="Total Tasks"
-          value="212"
-          change={8}
-          icon={BarChart3}
-        />
-        <MetricCard
-          title="Completion Rate"
-          value="67%"
-          change={12}
-          icon={TrendingUp}
-        />
-        <MetricCard
-          title="Budget Utilization"
-          value="$1.2M"
-          change={-3}
-          icon={DollarSign}
-        />
-        <MetricCard
-          title="At Risk Items"
-          value="12"
-          change={-15}
-          icon={AlertTriangle}
-        />
-      </div>
+      {isLoading ? (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <Skeleton className="h-32" />
+          <Skeleton className="h-32" />
+          <Skeleton className="h-32" />
+          <Skeleton className="h-32" />
+        </div>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <MetricCard
+            title="Total Tasks"
+            value={stats.totalTasks.toString()}
+            change={stats.totalTasks > 0 ? Math.round((stats.inProgressTasks / stats.totalTasks) * 100) : 0}
+            icon={BarChart3}
+            data-testid="metric-total-tasks"
+          />
+          <MetricCard
+            title="Completion Rate"
+            value={`${stats.completionRate}%`}
+            change={stats.completionRate > 50 ? 10 : -5}
+            icon={TrendingUp}
+            data-testid="metric-completion-rate"
+          />
+          <MetricCard
+            title="Budget Used"
+            value={formatCurrency(stats.actualCost)}
+            change={stats.budgetUsed > 80 ? 5 : -3}
+            icon={DollarSign}
+            data-testid="metric-budget-used"
+          />
+          <MetricCard
+            title="Open Risks"
+            value={stats.openRisks.toString()}
+            change={stats.openRisks > 5 ? 10 : -15}
+            icon={AlertTriangle}
+            data-testid="metric-open-risks"
+          />
+        </div>
+      )}
 
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
@@ -45,49 +286,30 @@ export default function Dashboard() {
             <CardTitle>Work Breakdown Progress</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">Engineering & Design</span>
-                  <Badge variant="secondary">WBS 1.0</Badge>
-                </div>
-                <span className="text-sm font-semibold">85%</span>
+            {isLoading ? (
+              <div className="space-y-4">
+                <Skeleton className="h-12" />
+                <Skeleton className="h-12" />
+                <Skeleton className="h-12" />
               </div>
-              <Progress value={85} className="h-2" />
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">Procurement</span>
-                  <Badge variant="secondary">WBS 2.0</Badge>
+            ) : wbsProgress.length > 0 ? (
+              wbsProgress.map((wbs) => (
+                <div key={wbs.wbsCode}>
+                  <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">{wbs.name}</span>
+                      <Badge variant="secondary">WBS {wbs.wbsCode}</Badge>
+                    </div>
+                    <span className="text-sm font-semibold">{wbs.progress}%</span>
+                  </div>
+                  <Progress value={wbs.progress} className="h-2" />
                 </div>
-                <span className="text-sm font-semibold">72%</span>
-              </div>
-              <Progress value={72} className="h-2" />
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">Construction</span>
-                  <Badge variant="secondary">WBS 3.0</Badge>
-                </div>
-                <span className="text-sm font-semibold">45%</span>
-              </div>
-              <Progress value={45} className="h-2" />
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium">Commissioning</span>
-                  <Badge variant="secondary">WBS 4.0</Badge>
-                </div>
-                <span className="text-sm font-semibold">12%</span>
-              </div>
-              <Progress value={12} className="h-2" />
-            </div>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No WBS items found. Add tasks to see progress.
+              </p>
+            )}
           </CardContent>
         </Card>
 
@@ -96,68 +318,77 @@ export default function Dashboard() {
             <CardTitle>Recent Activity</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="h-5 w-5 text-chart-3 mt-0.5" />
-              <div className="flex-1">
-                <p className="text-sm font-medium">Task Completed: Structural Analysis</p>
-                <p className="text-xs text-muted-foreground">2 hours ago</p>
+            {isLoading ? (
+              <div className="space-y-4">
+                <Skeleton className="h-12" />
+                <Skeleton className="h-12" />
+                <Skeleton className="h-12" />
               </div>
-            </div>
-
-            <div className="flex items-start gap-3">
-              <AlertTriangle className="h-5 w-5 text-chart-2 mt-0.5" />
-              <div className="flex-1">
-                <p className="text-sm font-medium">Risk Identified: Material Delivery Delay</p>
-                <p className="text-xs text-muted-foreground">5 hours ago</p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3">
-              <Clock className="h-5 w-5 text-chart-1 mt-0.5" />
-              <div className="flex-1">
-                <p className="text-sm font-medium">Milestone Approaching: Foundation Complete</p>
-                <p className="text-xs text-muted-foreground">1 day ago</p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="h-5 w-5 text-chart-3 mt-0.5" />
-              <div className="flex-1">
-                <p className="text-sm font-medium">Change Request Approved: CR-2024-018</p>
-                <p className="text-xs text-muted-foreground">2 days ago</p>
-              </div>
-            </div>
+            ) : recentItems.length > 0 ? (
+              recentItems.map((item) => (
+                <div key={item.id} className="flex items-start gap-3">
+                  {item.type === 'risk' ? (
+                    <AlertTriangle className="h-5 w-5 text-chart-2 mt-0.5" />
+                  ) : (
+                    <Clock className="h-5 w-5 text-chart-1 mt-0.5" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">
+                      {item.type === 'risk' ? 'Risk: ' : 'Issue: '}{item.title}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {formatTimeAgo(item.date)}
+                    </p>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-4">
+                No recent activity to display.
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Critical Path Tasks</CardTitle>
+          <CardTitle>Critical & High Priority Tasks</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3">
-            {[
-              { id: "T-245", name: "Foundation Excavation", progress: 90, status: "In Progress" },
-              { id: "T-246", name: "Steel Framework Assembly", progress: 65, status: "In Progress" },
-              { id: "T-247", name: "Electrical Infrastructure", progress: 30, status: "At Risk" },
-              { id: "T-248", name: "HVAC Installation", progress: 0, status: "Not Started" },
-            ].map((task) => (
-              <div key={task.id} className="flex items-center gap-4">
-                <Badge variant="outline" className="font-mono">{task.id}</Badge>
-                <div className="flex-1">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm font-medium">{task.name}</span>
-                    <Badge variant={task.status === "At Risk" ? "destructive" : "secondary"}>
-                      {task.status}
-                    </Badge>
+          {isLoading ? (
+            <div className="space-y-3">
+              <Skeleton className="h-12" />
+              <Skeleton className="h-12" />
+              <Skeleton className="h-12" />
+            </div>
+          ) : criticalTasks.length > 0 ? (
+            <div className="space-y-3">
+              {criticalTasks.map((task) => (
+                <div key={task.id} className="flex items-center gap-4 flex-wrap" data-testid={`critical-task-${task.id}`}>
+                  <Badge variant="outline" className="font-mono">{task.wbsCode}</Badge>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2 mb-1 flex-wrap">
+                      <span className="text-sm font-medium truncate">{task.name}</span>
+                      <Badge 
+                        variant={task.priority === 'critical' ? 'destructive' : 'secondary'}
+                      >
+                        {task.status === 'not-started' ? 'Not Started' : 
+                         task.status === 'in-progress' ? 'In Progress' : 
+                         task.status}
+                      </Badge>
+                    </div>
+                    <Progress value={task.progress} className="h-1.5" />
                   </div>
-                  <Progress value={task.progress} className="h-1.5" />
+                  <span className="text-sm text-muted-foreground w-12 text-right">{task.progress}%</span>
                 </div>
-                <span className="text-sm text-muted-foreground w-12 text-right">{task.progress}%</span>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              No critical or high priority tasks pending.
+            </p>
+          )}
         </CardContent>
       </Card>
     </div>

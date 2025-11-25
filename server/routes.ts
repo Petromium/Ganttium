@@ -1948,6 +1948,206 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ==================== SUBSCRIPTION & USAGE ROUTES ====================
+  
+  // Get all subscription plans
+  app.get('/api/subscription-plans', isAuthenticated, async (_req, res) => {
+    try {
+      const plans = await storage.getSubscriptionPlans();
+      res.json(plans);
+    } catch (error) {
+      console.error("Error getting subscription plans:", error);
+      res.status(500).json({ message: "Failed to get subscription plans" });
+    }
+  });
+  
+  // Get organization subscription and usage
+  app.get('/api/organizations/:orgId/subscription', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const subscription = await storage.getOrganizationSubscription(orgId);
+      let plan = null;
+      
+      if (subscription) {
+        plan = await storage.getSubscriptionPlan(subscription.planId);
+      } else {
+        plan = await storage.getSubscriptionPlanByTier('free');
+      }
+      
+      res.json({ subscription, plan });
+    } catch (error) {
+      console.error("Error getting subscription:", error);
+      res.status(500).json({ message: "Failed to get subscription" });
+    }
+  });
+  
+  // Get organization usage statistics
+  app.get('/api/organizations/:orgId/usage', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      const now = new Date();
+      const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      
+      const [storageQuota, aiUsage, emailUsage, subscription] = await Promise.all([
+        storage.getStorageQuota(orgId),
+        storage.getAiUsageSummary(orgId, currentMonth),
+        storage.getEmailUsage(orgId, currentMonth),
+        storage.getOrganizationSubscription(orgId)
+      ]);
+      
+      let plan = null;
+      if (subscription) {
+        plan = await storage.getSubscriptionPlan(subscription.planId);
+      } else {
+        plan = await storage.getSubscriptionPlanByTier('free');
+      }
+      
+      const projects = await storage.getProjectsByOrganization(orgId);
+      const userOrgs = await storage.getUserOrganizations(userId);
+      const orgMembers = userOrgs.filter(uo => uo.organizationId === orgId);
+      
+      res.json({
+        storage: {
+          usedBytes: storageQuota?.usedBytes || 0,
+          quotaBytes: plan?.storageQuotaBytes || 1073741824,
+          usedPercent: storageQuota && plan ? Math.round((storageQuota.usedBytes / plan.storageQuotaBytes) * 100) : 0
+        },
+        ai: {
+          tokensUsed: aiUsage?.tokensUsed || 0,
+          tokenLimit: plan?.aiTokensMonthly || 10000,
+          requestCount: aiUsage?.requestCount || 0,
+          usedPercent: aiUsage && plan ? Math.round((aiUsage.tokensUsed / plan.aiTokensMonthly) * 100) : 0
+        },
+        email: {
+          emailsSent: emailUsage?.emailsSent || 0,
+          emailLimit: plan?.emailsMonthly || 100,
+          usedPercent: emailUsage && plan ? Math.round((emailUsage.emailsSent / plan.emailsMonthly) * 100) : 0
+        },
+        projects: {
+          count: projects.length,
+          limit: plan?.maxProjects || 3
+        },
+        users: {
+          count: orgMembers.length,
+          limit: plan?.maxUsers || 2
+        },
+        plan: plan ? {
+          tier: plan.tier,
+          name: plan.name,
+          includesCloudSync: plan.includesCloudSync,
+          includesAdvancedReports: plan.includesAdvancedReports
+        } : null
+      });
+    } catch (error) {
+      console.error("Error getting usage:", error);
+      res.status(500).json({ message: "Failed to get usage statistics" });
+    }
+  });
+  
+  // Initialize default subscription plans (admin only - can be called once)
+  app.post('/api/admin/init-subscription-plans', isAuthenticated, async (_req, res) => {
+    try {
+      const existingPlans = await storage.getSubscriptionPlans();
+      if (existingPlans.length > 0) {
+        return res.status(400).json({ message: "Plans already initialized" });
+      }
+      
+      const defaultPlans = [
+        {
+          tier: 'free' as const,
+          name: 'Free',
+          description: 'Get started with basic project management features',
+          priceMonthly: '0',
+          priceYearly: '0',
+          maxProjects: 3,
+          maxTasksPerProject: 100,
+          maxUsers: 2,
+          storageQuotaBytes: 536870912, // 512MB
+          aiTokensMonthly: 10000,
+          emailsMonthly: 50,
+          includesCloudSync: false,
+          includesAdvancedReports: false,
+          includesWhiteLabel: false,
+          isActive: true
+        },
+        {
+          tier: 'starter' as const,
+          name: 'Starter',
+          description: 'Essential features for small teams',
+          priceMonthly: '29',
+          priceYearly: '290',
+          maxProjects: 10,
+          maxTasksPerProject: 500,
+          maxUsers: 5,
+          storageQuotaBytes: 2147483648, // 2GB
+          aiTokensMonthly: 50000,
+          emailsMonthly: 500,
+          includesCloudSync: true,
+          includesAdvancedReports: false,
+          includesWhiteLabel: false,
+          isActive: true
+        },
+        {
+          tier: 'professional' as const,
+          name: 'Professional',
+          description: 'Advanced features for growing organizations',
+          priceMonthly: '79',
+          priceYearly: '790',
+          maxProjects: 50,
+          maxTasksPerProject: 1000,
+          maxUsers: 20,
+          storageQuotaBytes: 10737418240, // 10GB
+          aiTokensMonthly: 200000,
+          emailsMonthly: 2000,
+          includesCloudSync: true,
+          includesAdvancedReports: true,
+          includesWhiteLabel: false,
+          isActive: true
+        },
+        {
+          tier: 'enterprise' as const,
+          name: 'Enterprise',
+          description: 'Full-featured solution for large enterprises',
+          priceMonthly: '199',
+          priceYearly: '1990',
+          maxProjects: 100,
+          maxTasksPerProject: 1000,
+          maxUsers: 100,
+          storageQuotaBytes: 53687091200, // 50GB
+          aiTokensMonthly: 1000000,
+          emailsMonthly: 10000,
+          includesCloudSync: true,
+          includesAdvancedReports: true,
+          includesWhiteLabel: true,
+          isActive: true
+        }
+      ];
+      
+      const createdPlans = [];
+      for (const plan of defaultPlans) {
+        const created = await storage.createSubscriptionPlan(plan);
+        createdPlans.push(created);
+      }
+      
+      res.json({ message: "Subscription plans initialized", plans: createdPlans });
+    } catch (error) {
+      console.error("Error initializing subscription plans:", error);
+      res.status(500).json({ message: "Failed to initialize subscription plans" });
+    }
+  });
+
   const httpServer = createServer(app);
   
   // Initialize WebSocket server

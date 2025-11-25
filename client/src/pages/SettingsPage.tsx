@@ -21,8 +21,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Cloud, HardDrive, RefreshCw, Unlink, Check, AlertCircle, Clock, Loader2, ExternalLink, FolderSync } from "lucide-react";
+import { Cloud, HardDrive, RefreshCw, Unlink, Check, AlertCircle, Clock, Loader2, ExternalLink, FolderSync, Sparkles, Mail, Users, FolderKanban, CreditCard } from "lucide-react";
 import { SiGoogledrive, SiDropbox } from "react-icons/si";
+import { Progress } from "@/components/ui/progress";
 import { format, formatDistanceToNow } from "date-fns";
 
 interface CloudStorageProvider {
@@ -49,6 +50,15 @@ interface StorageQuota {
   usedBytes: number;
   quotaBytes: number;
   usedPercent: number;
+}
+
+interface UsageStats {
+  storage: { usedBytes: number; quotaBytes: number; usedPercent: number };
+  ai: { tokensUsed: number; tokenLimit: number; requestCount: number; usedPercent: number };
+  email: { emailsSent: number; emailLimit: number; usedPercent: number };
+  projects: { count: number; limit: number };
+  users: { count: number; limit: number };
+  plan: { tier: string; name: string; includesCloudSync: boolean; includesAdvancedReports: boolean } | null;
 }
 
 function ProviderIcon({ provider, className = "h-5 w-5" }: { provider: string; className?: string }) {
@@ -134,6 +144,16 @@ export default function SettingsPage() {
     queryFn: async () => {
       const response = await fetch(`/api/organizations/${organizationId}/storage`, { credentials: "include" });
       if (!response.ok) throw new Error("Failed to fetch storage quota");
+      return response.json();
+    },
+  });
+
+  const { data: usageStats, isLoading: usageLoading } = useQuery<UsageStats>({
+    queryKey: ["/api/organizations", organizationId, "usage"],
+    enabled: !!organizationId,
+    queryFn: async () => {
+      const response = await fetch(`/api/organizations/${organizationId}/usage`, { credentials: "include" });
+      if (!response.ok) throw new Error("Failed to fetch usage stats");
       return response.json();
     },
   });
@@ -225,8 +245,12 @@ export default function SettingsPage() {
         <p className="text-muted-foreground">Manage integrations and storage for your organization</p>
       </div>
 
-      <Tabs defaultValue="cloud-storage" className="space-y-4">
+      <Tabs defaultValue="usage" className="space-y-4">
         <TabsList>
+          <TabsTrigger value="usage" data-testid="tab-usage">
+            <CreditCard className="h-4 w-4 mr-2" />
+            Usage & Plan
+          </TabsTrigger>
           <TabsTrigger value="cloud-storage" data-testid="tab-cloud-storage">
             <Cloud className="h-4 w-4 mr-2" />
             Cloud Storage
@@ -236,6 +260,182 @@ export default function SettingsPage() {
             Storage Quota
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="usage" className="space-y-4">
+          {usageLoading ? (
+            <div className="space-y-4">
+              <Skeleton className="h-48" />
+              <Skeleton className="h-48" />
+            </div>
+          ) : usageStats ? (
+            <>
+              <Card>
+                <CardHeader>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        Current Plan
+                        <Badge variant={usageStats.plan?.tier === 'free' ? 'secondary' : 'default'}>
+                          {usageStats.plan?.name || 'Free'}
+                        </Badge>
+                      </CardTitle>
+                      <CardDescription>
+                        Your organization's subscription and resource usage
+                      </CardDescription>
+                    </div>
+                    <Button variant="outline" size="sm" data-testid="button-upgrade-plan">
+                      Upgrade Plan
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <HardDrive className="h-4 w-4 text-muted-foreground" />
+                          Storage
+                        </div>
+                        <span className="text-sm text-muted-foreground">
+                          {formatBytes(usageStats.storage.usedBytes)} / {formatBytes(usageStats.storage.quotaBytes)}
+                        </span>
+                      </div>
+                      <Progress 
+                        value={usageStats.storage.usedPercent} 
+                        className={usageStats.storage.usedPercent > 90 ? "bg-destructive/20" : ""}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <Sparkles className="h-4 w-4 text-muted-foreground" />
+                          AI Tokens
+                        </div>
+                        <span className="text-sm text-muted-foreground">
+                          {usageStats.ai.tokensUsed.toLocaleString()} / {usageStats.ai.tokenLimit.toLocaleString()}
+                        </span>
+                      </div>
+                      <Progress 
+                        value={usageStats.ai.usedPercent} 
+                        className={usageStats.ai.usedPercent > 90 ? "bg-destructive/20" : ""}
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                          <Mail className="h-4 w-4 text-muted-foreground" />
+                          Emails Sent
+                        </div>
+                        <span className="text-sm text-muted-foreground">
+                          {usageStats.email.emailsSent} / {usageStats.email.emailLimit}
+                        </span>
+                      </div>
+                      <Progress 
+                        value={usageStats.email.usedPercent} 
+                        className={usageStats.email.usedPercent > 90 ? "bg-destructive/20" : ""}
+                      />
+                    </div>
+                  </div>
+                  
+                  <Separator />
+                  
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="flex items-center justify-between p-4 rounded-lg border">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-md bg-muted">
+                          <FolderKanban className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <p className="font-medium">Projects</p>
+                          <p className="text-sm text-muted-foreground">Active projects</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-2xl font-semibold">{usageStats.projects.count}</p>
+                        <p className="text-sm text-muted-foreground">of {usageStats.projects.limit} max</p>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center justify-between p-4 rounded-lg border">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-md bg-muted">
+                          <Users className="h-5 w-5" />
+                        </div>
+                        <div>
+                          <p className="font-medium">Team Members</p>
+                          <p className="text-sm text-muted-foreground">Organization users</p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-2xl font-semibold">{usageStats.users.count}</p>
+                        <p className="text-sm text-muted-foreground">of {usageStats.users.limit} max</p>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Plan Features</CardTitle>
+                  <CardDescription>
+                    Features included in your current subscription
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                    <div className="flex items-center gap-2 p-3 rounded-lg border">
+                      {usageStats.plan?.includesCloudSync ? (
+                        <Check className="h-4 w-4 text-green-500" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 text-muted-foreground" />
+                      )}
+                      <span className={!usageStats.plan?.includesCloudSync ? "text-muted-foreground" : ""}>
+                        Cloud Storage Sync
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 p-3 rounded-lg border">
+                      {usageStats.plan?.includesAdvancedReports ? (
+                        <Check className="h-4 w-4 text-green-500" />
+                      ) : (
+                        <AlertCircle className="h-4 w-4 text-muted-foreground" />
+                      )}
+                      <span className={!usageStats.plan?.includesAdvancedReports ? "text-muted-foreground" : ""}>
+                        Advanced Reports
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 p-3 rounded-lg border">
+                      <Check className="h-4 w-4 text-green-500" />
+                      <span>AI Assistant</span>
+                    </div>
+                    <div className="flex items-center gap-2 p-3 rounded-lg border">
+                      <Check className="h-4 w-4 text-green-500" />
+                      <span>Email Notifications</span>
+                    </div>
+                    <div className="flex items-center gap-2 p-3 rounded-lg border">
+                      <Check className="h-4 w-4 text-green-500" />
+                      <span>Real-time Collaboration</span>
+                    </div>
+                    <div className="flex items-center gap-2 p-3 rounded-lg border">
+                      <Check className="h-4 w-4 text-green-500" />
+                      <span>PDF Reports</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          ) : (
+            <Card>
+              <CardContent className="py-8">
+                <p className="text-muted-foreground text-center">
+                  Unable to load usage information.
+                </p>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
 
         <TabsContent value="cloud-storage" className="space-y-4">
           <Card>

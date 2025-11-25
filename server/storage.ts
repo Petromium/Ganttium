@@ -51,6 +51,12 @@ import type {
   CloudStorageConnection,
   InsertCloudSyncedFile,
   CloudSyncedFile,
+  SubscriptionPlan,
+  InsertSubscriptionPlan,
+  OrganizationSubscription,
+  InsertOrganizationSubscription,
+  AiUsageSummary,
+  InsertAiUsageSummary,
 } from "@shared/schema";
 
 const sql = neon(process.env.DATABASE_URL!);
@@ -200,6 +206,29 @@ export interface IStorage {
   updateStorageQuota(organizationId: number, usedBytes: number): Promise<StorageQuota>;
   incrementStorageUsage(organizationId: number, bytes: number): Promise<StorageQuota>;
   decrementStorageUsage(organizationId: number, bytes: number): Promise<StorageQuota>;
+
+  // Subscription Plans
+  getSubscriptionPlans(): Promise<SubscriptionPlan[]>;
+  getSubscriptionPlan(id: number): Promise<SubscriptionPlan | undefined>;
+  getSubscriptionPlanByTier(tier: string): Promise<SubscriptionPlan | undefined>;
+  createSubscriptionPlan(plan: InsertSubscriptionPlan): Promise<SubscriptionPlan>;
+  updateSubscriptionPlan(id: number, plan: Partial<InsertSubscriptionPlan>): Promise<SubscriptionPlan | undefined>;
+
+  // Organization Subscriptions
+  getOrganizationSubscription(organizationId: number): Promise<OrganizationSubscription | undefined>;
+  createOrganizationSubscription(subscription: InsertOrganizationSubscription): Promise<OrganizationSubscription>;
+  updateOrganizationSubscription(organizationId: number, subscription: Partial<InsertOrganizationSubscription>): Promise<OrganizationSubscription | undefined>;
+
+  // AI Usage Summary
+  getAiUsageSummary(organizationId: number, month: string): Promise<AiUsageSummary | undefined>;
+  incrementAiUsage(organizationId: number, tokensUsed: number): Promise<AiUsageSummary>;
+  
+  // Cloud Storage Connections
+  getCloudStorageConnections(organizationId: number): Promise<CloudStorageConnection[]>;
+  getCloudStorageConnection(id: number): Promise<CloudStorageConnection | undefined>;
+  createCloudStorageConnection(connection: InsertCloudStorageConnection & { connectedBy: string }): Promise<CloudStorageConnection>;
+  updateCloudStorageConnection(id: number, connection: Partial<InsertCloudStorageConnection>): Promise<CloudStorageConnection | undefined>;
+  deleteCloudStorageConnection(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -872,7 +901,103 @@ export class DatabaseStorage implements IStorage {
     return this.updateStorageQuota(organizationId, newUsed);
   }
 
+  // Subscription Plans
+  async getSubscriptionPlans(): Promise<SubscriptionPlan[]> {
+    return db.select().from(schema.subscriptionPlans)
+      .where(eq(schema.subscriptionPlans.isActive, true))
+      .orderBy(asc(schema.subscriptionPlans.priceMonthly));
+  }
+
+  async getSubscriptionPlan(id: number): Promise<SubscriptionPlan | undefined> {
+    const [plan] = await db.select().from(schema.subscriptionPlans)
+      .where(eq(schema.subscriptionPlans.id, id));
+    return plan;
+  }
+
+  async getSubscriptionPlanByTier(tier: string): Promise<SubscriptionPlan | undefined> {
+    const [plan] = await db.select().from(schema.subscriptionPlans)
+      .where(eq(schema.subscriptionPlans.tier, tier as any));
+    return plan;
+  }
+
+  async createSubscriptionPlan(plan: InsertSubscriptionPlan): Promise<SubscriptionPlan> {
+    const [created] = await db.insert(schema.subscriptionPlans).values(plan).returning();
+    return created;
+  }
+
+  async updateSubscriptionPlan(id: number, plan: Partial<InsertSubscriptionPlan>): Promise<SubscriptionPlan | undefined> {
+    const [updated] = await db.update(schema.subscriptionPlans)
+      .set({ ...plan, updatedAt: new Date() })
+      .where(eq(schema.subscriptionPlans.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Organization Subscriptions
+  async getOrganizationSubscription(organizationId: number): Promise<OrganizationSubscription | undefined> {
+    const [subscription] = await db.select().from(schema.organizationSubscriptions)
+      .where(eq(schema.organizationSubscriptions.organizationId, organizationId));
+    return subscription;
+  }
+
+  async createOrganizationSubscription(subscription: InsertOrganizationSubscription): Promise<OrganizationSubscription> {
+    const [created] = await db.insert(schema.organizationSubscriptions).values(subscription).returning();
+    return created;
+  }
+
+  async updateOrganizationSubscription(organizationId: number, subscription: Partial<InsertOrganizationSubscription>): Promise<OrganizationSubscription | undefined> {
+    const [updated] = await db.update(schema.organizationSubscriptions)
+      .set({ ...subscription, updatedAt: new Date() })
+      .where(eq(schema.organizationSubscriptions.organizationId, organizationId))
+      .returning();
+    return updated;
+  }
+
+  // AI Usage Summary
+  async getAiUsageSummary(organizationId: number, month: string): Promise<AiUsageSummary | undefined> {
+    const [summary] = await db.select().from(schema.aiUsageSummary)
+      .where(and(
+        eq(schema.aiUsageSummary.organizationId, organizationId),
+        eq(schema.aiUsageSummary.month, month)
+      ));
+    return summary;
+  }
+
+  async incrementAiUsage(organizationId: number, tokensUsed: number): Promise<AiUsageSummary> {
+    const now = new Date();
+    const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    
+    const existing = await this.getAiUsageSummary(organizationId, month);
+    
+    if (existing) {
+      const [updated] = await db.update(schema.aiUsageSummary)
+        .set({
+          tokensUsed: existing.tokensUsed + tokensUsed,
+          requestCount: existing.requestCount + 1,
+          updatedAt: new Date()
+        })
+        .where(eq(schema.aiUsageSummary.id, existing.id))
+        .returning();
+      return updated;
+    } else {
+      const [created] = await db.insert(schema.aiUsageSummary)
+        .values({
+          organizationId,
+          month,
+          tokensUsed,
+          requestCount: 1,
+          tokenLimit: 50000
+        })
+        .returning();
+      return created;
+    }
+  }
+
   // Cloud Storage Connections
+  async getCloudStorageConnections(organizationId: number): Promise<CloudStorageConnection[]> {
+    return this.getCloudStorageConnectionsByOrganization(organizationId);
+  }
+
   async getCloudStorageConnectionsByOrganization(organizationId: number): Promise<CloudStorageConnection[]> {
     return db.select().from(schema.cloudStorageConnections)
       .where(eq(schema.cloudStorageConnections.organizationId, organizationId))

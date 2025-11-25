@@ -502,6 +502,83 @@ export const selectStorageQuotaSchema = createSelectSchema(storageQuotas);
 export type InsertStorageQuota = z.infer<typeof insertStorageQuotaSchema>;
 export type StorageQuota = typeof storageQuotas.$inferSelect;
 
+// Subscription Tier Enum
+export const subscriptionTierEnum = pgEnum("subscription_tier", ["free", "starter", "professional", "enterprise"]);
+
+// Subscription Plans (defines limits for each tier)
+export const subscriptionPlans = pgTable("subscription_plans", {
+  id: serial("id").primaryKey(),
+  tier: subscriptionTierEnum("tier").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  priceMonthly: decimal("price_monthly", { precision: 10, scale: 2 }).notNull(),
+  priceYearly: decimal("price_yearly", { precision: 10, scale: 2 }).notNull(),
+  maxProjects: integer("max_projects").notNull(),
+  maxTasksPerProject: integer("max_tasks_per_project").notNull(),
+  maxUsers: integer("max_users").notNull(),
+  storageQuotaBytes: integer("storage_quota_bytes").notNull(), // Bytes
+  aiTokensMonthly: integer("ai_tokens_monthly").notNull(), // Monthly AI token limit
+  emailsMonthly: integer("emails_monthly").notNull(), // Monthly email limit
+  includesCloudSync: boolean("includes_cloud_sync").notNull().default(false),
+  includesAdvancedReports: boolean("includes_advanced_reports").notNull().default(false),
+  includesWhiteLabel: boolean("includes_white_label").notNull().default(false),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Organization Subscriptions (active subscription for each org)
+export const organizationSubscriptions = pgTable("organization_subscriptions", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }).unique(),
+  planId: integer("plan_id").notNull().references(() => subscriptionPlans.id),
+  status: varchar("status", { length: 50 }).notNull().default("active"), // active, cancelled, past_due, expired
+  billingCycle: varchar("billing_cycle", { length: 20 }).notNull().default("monthly"), // monthly, yearly
+  currentPeriodStart: timestamp("current_period_start").notNull().defaultNow(),
+  currentPeriodEnd: timestamp("current_period_end").notNull(),
+  cancelledAt: timestamp("cancelled_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// AI Usage Summary (aggregated monthly usage per organization)
+export const aiUsageSummary = pgTable("ai_usage_summary", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  month: varchar("month", { length: 7 }).notNull(), // Format: YYYY-MM
+  tokensUsed: integer("tokens_used").notNull().default(0),
+  tokenLimit: integer("token_limit").notNull().default(50000), // Based on subscription tier
+  requestCount: integer("request_count").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqueOrgMonth: unique("ai_usage_summary_org_month_unique").on(table.organizationId, table.month),
+}));
+
+// Zod Schemas for Subscription Plans
+export const insertSubscriptionPlanSchema = createInsertSchema(subscriptionPlans).omit({ id: true, createdAt: true, updatedAt: true });
+export const updateSubscriptionPlanSchema = insertSubscriptionPlanSchema.partial();
+export const selectSubscriptionPlanSchema = createSelectSchema(subscriptionPlans);
+export type InsertSubscriptionPlan = z.infer<typeof insertSubscriptionPlanSchema>;
+export type UpdateSubscriptionPlan = z.infer<typeof updateSubscriptionPlanSchema>;
+export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
+
+// Zod Schemas for Organization Subscriptions
+export const insertOrganizationSubscriptionSchema = createInsertSchema(organizationSubscriptions).omit({ id: true, createdAt: true, updatedAt: true });
+export const updateOrganizationSubscriptionSchema = insertOrganizationSubscriptionSchema.partial();
+export const selectOrganizationSubscriptionSchema = createSelectSchema(organizationSubscriptions);
+export type InsertOrganizationSubscription = z.infer<typeof insertOrganizationSubscriptionSchema>;
+export type UpdateOrganizationSubscription = z.infer<typeof updateOrganizationSubscriptionSchema>;
+export type OrganizationSubscription = typeof organizationSubscriptions.$inferSelect;
+
+// Zod Schemas for AI Usage Summary
+export const insertAiUsageSummarySchema = createInsertSchema(aiUsageSummary).omit({ id: true, createdAt: true, updatedAt: true });
+export const updateAiUsageSummarySchema = insertAiUsageSummarySchema.partial();
+export const selectAiUsageSummarySchema = createSelectSchema(aiUsageSummary);
+export type InsertAiUsageSummary = z.infer<typeof insertAiUsageSummarySchema>;
+export type UpdateAiUsageSummary = z.infer<typeof updateAiUsageSummarySchema>;
+export type AiUsageSummary = typeof aiUsageSummary.$inferSelect;
+
 // Cloud Storage Connections (Google Drive, OneDrive, Dropbox per organization)
 export const cloudStorageConnections = pgTable("cloud_storage_connections", {
   id: serial("id").primaryKey(),
