@@ -503,68 +503,6 @@ function DocumentsPageContent() {
         </Select>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                <FileText className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{documents.length}</p>
-                <p className="text-sm text-muted-foreground">Total Documents</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-blue-500/10 flex items-center justify-center">
-                <File className="h-5 w-5 text-blue-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">
-                  {documents.filter(d => d.status === "ifc").length}
-                </p>
-                <p className="text-sm text-muted-foreground">Issued for Construction</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-amber-500/10 flex items-center justify-center">
-                <Clock className="h-5 w-5 text-amber-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">
-                  {documents.filter(d => d.status === "ifa").length}
-                </p>
-                <p className="text-sm text-muted-foreground">Pending Approval</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-full bg-green-500/10 flex items-center justify-center">
-                <FolderOpen className="h-5 w-5 text-green-500" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold">{filteredDocs.length}</p>
-                <p className="text-sm text-muted-foreground">Showing</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
       {documents.length === 0 ? (
         <Card>
           <CardContent className="p-12 text-center">

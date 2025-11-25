@@ -1,13 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { 
   FileText, CheckCircle, Clock, AlertCircle, 
-  FileCheck, FolderOpen
+  FileCheck, FolderOpen, File
 } from "lucide-react";
-import { useProject } from "@/contexts/ProjectContext";
-import type { Document } from "@shared/schema";
+import { useDocumentsOptional } from "@/contexts/DocumentContext";
 
 interface StatItemProps {
   label: string;
@@ -31,13 +29,9 @@ function StatItem({ label, value, icon, badgeVariant }: StatItemProps) {
 }
 
 export function DocumentStats() {
-  const { selectedProjectId } = useProject();
-
-  const { data: documents = [], isLoading } = useQuery<Document[]>({
-    queryKey: ["/api/projects", selectedProjectId, "documents"],
-    enabled: !!selectedProjectId,
-    refetchInterval: 15 * 60 * 1000,
-  });
+  const docContext = useDocumentsOptional();
+  const documents = docContext?.documents || [];
+  const isLoading = docContext?.isLoading ?? false;
 
   if (isLoading) {
     return (
@@ -87,16 +81,42 @@ export function DocumentStats() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="space-y-1">
+        <div className="grid grid-cols-2 gap-2">
+          <div className="p-3 rounded-lg bg-primary/10 flex items-center gap-2">
+            <FileText className="h-5 w-5 text-primary" />
+            <div>
+              <p className="text-xl font-bold">{totalDocs}</p>
+              <p className="text-xs text-muted-foreground">Total Documents</p>
+            </div>
+          </div>
+          <div className="p-3 rounded-lg bg-blue-500/10 flex items-center gap-2">
+            <File className="h-5 w-5 text-blue-500" />
+            <div>
+              <p className="text-xl font-bold">{ifcDocs.length}</p>
+              <p className="text-xs text-muted-foreground">Issued for Construction</p>
+            </div>
+          </div>
+          <div className="p-3 rounded-lg bg-amber-500/10 flex items-center gap-2">
+            <Clock className="h-5 w-5 text-amber-500" />
+            <div>
+              <p className="text-xl font-bold">{ifaDocs.length}</p>
+              <p className="text-xs text-muted-foreground">Pending Approval</p>
+            </div>
+          </div>
+          <div className="p-3 rounded-lg bg-green-500/10 flex items-center gap-2">
+            <FolderOpen className="h-5 w-5 text-green-500" />
+            <div>
+              <p className="text-xl font-bold">{withAttachments.length}</p>
+              <p className="text-xs text-muted-foreground">With Files</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="border-t pt-3 space-y-1">
           <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
             <FolderOpen className="h-3 w-3" />
-            Status Overview
+            Status Breakdown
           </p>
-          <StatItem
-            label="Total Documents"
-            value={totalDocs}
-            icon={<FileText className="h-3.5 w-3.5 text-muted-foreground" />}
-          />
           <StatItem
             label="Draft"
             value={draftDocs.length}
