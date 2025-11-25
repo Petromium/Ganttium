@@ -1,4 +1,5 @@
-import { Search, Plus, Download, Bell, Moon, Sun, User } from "lucide-react";
+import { useState } from "react";
+import { Search, Plus, Download, Bell, Moon, Sun, User, X, Building2, FolderKanban } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -16,6 +17,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useProject } from "@/contexts/ProjectContext";
@@ -25,6 +33,7 @@ import { Badge } from "@/components/ui/badge";
 export function TopBar() {
   const { theme, toggleTheme } = useTheme();
   const { user } = useAuth();
+  const [searchOpen, setSearchOpen] = useState(false);
   const {
     organizations,
     projects,
@@ -42,17 +51,90 @@ export function TopBar() {
     window.location.href = "/api/logout";
   };
 
+  const selectedOrg = organizations.find(o => o.id === selectedOrgId);
+  const selectedProject = projects.find(p => p.id === selectedProjectId);
+
   return (
-    <header className="flex h-16 items-center gap-4 border-b bg-background px-4">
+    <header className="flex h-14 md:h-16 items-center gap-2 md:gap-4 border-b bg-background px-2 md:px-4">
       <SidebarTrigger data-testid="button-sidebar-toggle" />
       
+      {/* Mobile: Sheet-based selector */}
+      <Sheet>
+        <SheetTrigger asChild className="md:hidden">
+          <Button variant="outline" size="sm" className="gap-1 text-xs max-w-[120px] truncate" data-testid="button-mobile-selector">
+            <FolderKanban className="h-3 w-3 shrink-0" />
+            <span className="truncate">{selectedProject?.name || "Select"}</span>
+          </Button>
+        </SheetTrigger>
+        <SheetContent side="top" className="h-auto">
+          <SheetHeader>
+            <SheetTitle>Select Context</SheetTitle>
+          </SheetHeader>
+          <div className="flex flex-col gap-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium flex items-center gap-2">
+                <Building2 className="h-4 w-4" />
+                Organization
+              </label>
+              <Select
+                value={selectedOrgId?.toString() || ""}
+                onValueChange={(value) => setSelectedOrgId(parseInt(value))}
+                disabled={isLoadingOrgs || organizations.length === 0 || !!orgsError}
+              >
+                <SelectTrigger data-testid="trigger-organization-mobile">
+                  <SelectValue placeholder={
+                    orgsError ? "Error" :
+                    isLoadingOrgs ? "Loading..." :
+                    "Select Organization"
+                  } />
+                </SelectTrigger>
+                <SelectContent>
+                  {organizations.map((org) => (
+                    <SelectItem key={org.id} value={org.id.toString()}>
+                      {org.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium flex items-center gap-2">
+                <FolderKanban className="h-4 w-4" />
+                Project
+              </label>
+              <Select
+                value={selectedProjectId?.toString() || ""}
+                onValueChange={(value) => setSelectedProjectId(parseInt(value))}
+                disabled={isLoadingProjects || projects.length === 0 || !selectedOrgId || !!projectsError}
+              >
+                <SelectTrigger data-testid="trigger-project-mobile">
+                  <SelectValue placeholder={
+                    projectsError ? "Error" :
+                    isLoadingProjects ? "Loading..." :
+                    "Select Project"
+                  } />
+                </SelectTrigger>
+                <SelectContent>
+                  {projects.map((project) => (
+                    <SelectItem key={project.id} value={project.id.toString()}>
+                      {project.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* Desktop: Inline selectors */}
       <Select
         value={selectedOrgId?.toString() || ""}
         onValueChange={(value) => setSelectedOrgId(parseInt(value))}
         disabled={isLoadingOrgs || organizations.length === 0 || !!orgsError}
         data-testid="select-organization"
       >
-        <SelectTrigger className="w-48" data-testid="trigger-organization">
+        <SelectTrigger className="hidden md:flex w-48" data-testid="trigger-organization">
           <SelectValue placeholder={
             orgsError ? "Error loading orgs" :
             isLoadingOrgs ? "Loading..." :
@@ -74,7 +156,7 @@ export function TopBar() {
         disabled={isLoadingProjects || projects.length === 0 || !selectedOrgId || !!projectsError}
         data-testid="select-project"
       >
-        <SelectTrigger className="w-56" data-testid="trigger-project">
+        <SelectTrigger className="hidden md:flex w-56" data-testid="trigger-project">
           <SelectValue placeholder={
             projectsError ? "Error loading projects" :
             isLoadingProjects ? "Loading..." :
@@ -90,7 +172,8 @@ export function TopBar() {
         </SelectContent>
       </Select>
 
-      <div className="relative flex-1 max-w-md">
+      {/* Desktop: Full search bar */}
+      <div className="relative hidden md:flex flex-1 max-w-md">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
           type="search"
@@ -100,9 +183,51 @@ export function TopBar() {
         />
       </div>
 
+      {/* Mobile: Expandable search */}
+      {searchOpen ? (
+        <div className="flex md:hidden flex-1 items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              type="search"
+              placeholder="Search..."
+              className="pl-9 h-9"
+              autoFocus
+              data-testid="input-search-mobile"
+            />
+          </div>
+          <Button variant="ghost" size="icon" onClick={() => setSearchOpen(false)} data-testid="button-close-search">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      ) : (
+        <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setSearchOpen(true)} data-testid="button-open-search">
+          <Search className="h-4 w-4" />
+        </Button>
+      )}
+
+      {/* Add button - icon only on mobile */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="default" size="default" data-testid="button-add">
+          <Button variant="default" size="icon" className="md:hidden shrink-0" data-testid="button-add-mobile">
+            <Plus className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuLabel>Create New</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem data-testid="menu-item-new-task">New Task</DropdownMenuItem>
+          <DropdownMenuItem data-testid="menu-item-new-risk">New Risk</DropdownMenuItem>
+          <DropdownMenuItem data-testid="menu-item-new-issue">New Issue</DropdownMenuItem>
+          <DropdownMenuItem data-testid="menu-item-new-change">Change Request</DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem data-testid="menu-item-new-project">New Project</DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="default" size="default" className="hidden md:flex" data-testid="button-add">
             <Plus className="h-4 w-4 mr-2" />
             Add
           </Button>
@@ -119,10 +244,10 @@ export function TopBar() {
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <div className="flex items-center gap-2 ml-auto">
+      <div className="flex items-center gap-1 md:gap-2 ml-auto">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" data-testid="button-import-export">
+            <Button variant="ghost" size="icon" className="hidden md:flex" data-testid="button-import-export">
               <Download className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>

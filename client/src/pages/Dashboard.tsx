@@ -7,7 +7,13 @@ import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import type { Task, Risk, Issue, CostItem, WBSItem } from "@shared/schema";
+import type { Task, Risk, Issue, CostItem } from "@shared/schema";
+
+interface WBSItem {
+  code: string;
+  name: string;
+  level: number;
+}
 
 interface DashboardStats {
   totalTasks: number;
@@ -232,23 +238,23 @@ export default function Dashboard() {
     .slice(0, 4);
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-3 md:p-6 space-y-4 md:space-y-6">
       <div>
-        <h1 className="text-3xl font-semibold mb-2" data-testid="text-dashboard-title">Project Overview</h1>
-        <p className="text-muted-foreground" data-testid="text-project-name">
+        <h1 className="text-xl md:text-3xl font-semibold mb-1 md:mb-2" data-testid="text-dashboard-title">Project Overview</h1>
+        <p className="text-sm md:text-base text-muted-foreground" data-testid="text-project-name">
           {selectedProject.name} - {selectedProject.code}
         </p>
       </div>
 
       {isLoading ? (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
+        <div className="grid gap-3 md:gap-4 grid-cols-2 lg:grid-cols-4">
+          <Skeleton className="h-24 md:h-32" />
+          <Skeleton className="h-24 md:h-32" />
+          <Skeleton className="h-24 md:h-32" />
+          <Skeleton className="h-24 md:h-32" />
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 md:gap-4 grid-cols-2 lg:grid-cols-4">
           <MetricCard
             title="Total Tasks"
             value={stats.totalTasks.toString()}

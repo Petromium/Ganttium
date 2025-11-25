@@ -105,16 +105,19 @@ function AuthenticatedApp() {
 
   return (
     <ProjectProvider>
-      <SidebarProvider style={sidebarStyle}>
+      <SidebarProvider style={sidebarStyle} defaultOpen={false}>
         <div className="flex h-screen w-full">
           <AppSidebar />
-          <div className="flex flex-col flex-1 overflow-hidden">
+          <div className="flex flex-col flex-1 overflow-hidden min-w-0">
             <TopBar />
             <div className="flex flex-1 overflow-hidden">
               <main className="flex-1 overflow-y-auto bg-background">
                 <Router />
               </main>
-              <RightSidebar />
+              {/* Hide RightSidebar on mobile */}
+              <div className="hidden lg:block">
+                <RightSidebar />
+              </div>
             </div>
           </div>
         </div>
