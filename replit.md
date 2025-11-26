@@ -5,7 +5,7 @@ A comprehensive, multi-tenant SaaS platform for EPC (Engineering, Procurement, C
 
 ## Current Status
 **Phase:** Core Features Complete, Advanced Features In Progress
-**Last Updated:** November 25, 2024
+**Last Updated:** November 26, 2024
 
 ### ✅ Completed
 - Multi-tenant database schema with all core tables
@@ -36,6 +36,12 @@ A comprehensive, multi-tenant SaaS platform for EPC (Engineering, Procurement, C
   - Supports all dependency types (FS, SS, FF, SF) with lag/lead time
   - Business day calculations (skips weekends)
   - Constraint handling (ASAP, SNET, FNET, MSO, MFO)
+- **Multi-Select Bulk Actions** - Microsoft Project-inspired task management:
+  - Always-visible selection toolbar with dropdown menus
+  - Shift+Click range selection using pointer-event stash for accessibility
+  - Bulk operations: Status, Progress, Dependencies, Resources, Risks, Issues, Delete
+  - Select All/Clear All with confirmation dialogs
+  - Security validation on all bulk API endpoints
 
 ### 🚧 In Progress / Needs Completion
 - PWA offline capabilities (IndexedDB caching, 7-day support)
@@ -163,6 +169,16 @@ A comprehensive, multi-tenant SaaS platform for EPC (Engineering, Procurement, C
 ### Resource Utilization
 - `GET /api/projects/:projectId/resource-utilization` - Get resource utilization timeline with weekly periods
 - `GET /api/resources/:resourceId/assignments` - Get all task assignments for a resource
+
+### Bulk Operations
+- `POST /api/bulk/tasks/update` - Bulk update task status/progress (validates same project ownership)
+- `DELETE /api/bulk/tasks/delete` - Bulk delete tasks with confirmation
+- `POST /api/bulk/dependencies/add` - Add dependency to multiple tasks
+- `DELETE /api/bulk/dependencies/remove` - Remove dependency from multiple tasks
+- `POST /api/bulk/resource-assignments` - Assign resources to multiple tasks
+- `POST /api/bulk/task-risks` - Link risks to multiple tasks
+- `POST /api/bulk/task-issues` - Link issues to multiple tasks
+- All bulk endpoints include security validation (same project, entity ownership)
 
 ## Frontend Pages
 
