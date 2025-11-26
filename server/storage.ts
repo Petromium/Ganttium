@@ -1,7 +1,6 @@
-import { drizzle } from "drizzle-orm/neon-http";
-import { neon } from "@neondatabase/serverless";
 import { eq, and, desc, asc, isNull, inArray } from "drizzle-orm";
 import * as schema from "@shared/schema";
+import { db } from "./db";
 import type {
   InsertOrganization,
   Organization,
@@ -70,9 +69,6 @@ import type {
   InsertTaskIssue,
   TaskIssue,
 } from "@shared/schema";
-
-const sql = neon(process.env.DATABASE_URL!);
-const db = drizzle(sql, { schema });
 
 export interface IStorage {
   // Organizations
@@ -272,7 +268,7 @@ export interface IStorage {
   // AI Usage Summary
   getAiUsageSummary(organizationId: number, month: string): Promise<AiUsageSummary | undefined>;
   incrementAiUsage(organizationId: number, tokensUsed: number): Promise<AiUsageSummary>;
-  
+
   // Cloud Storage Connections
   getCloudStorageConnections(organizationId: number): Promise<CloudStorageConnection[]>;
   getCloudStorageConnection(id: number): Promise<CloudStorageConnection | undefined>;
@@ -340,7 +336,7 @@ export class DatabaseStorage implements IStorage {
   async getOrganizationsByUser(userId: string): Promise<Organization[]> {
     const userOrgs = await db.select().from(schema.userOrganizations)
       .where(eq(schema.userOrganizations.userId, userId));
-    
+
     const orgIds = userOrgs.map(uo => uo.organizationId);
     if (orgIds.length === 0) return [];
 
@@ -383,7 +379,7 @@ export class DatabaseStorage implements IStorage {
   async getUsersByOrganization(organizationId: number): Promise<User[]> {
     const userOrgs = await db.select().from(schema.userOrganizations)
       .where(eq(schema.userOrganizations.organizationId, organizationId));
-    
+
     const userIds = userOrgs.map(uo => uo.userId);
     if (userIds.length === 0) return [];
 
@@ -421,11 +417,15 @@ export class DatabaseStorage implements IStorage {
 
   async assignDemoOrgToUser(userId: string): Promise<void> {
     const DEMO_ORG_SLUG = "demo-solar-project";
-    
-    const demoOrg = await this.getOrganizationBySlug(DEMO_ORG_SLUG);
+
+    let demoOrg = await this.getOrganizationBySlug(DEMO_ORG_SLUG);
     if (!demoOrg) {
-      console.log("Demo organization not found, skipping auto-assignment");
-      return;
+      // Auto-create default organization in development mode
+      demoOrg = await this.createOrganization({
+        name: "My Organization",
+        slug: DEMO_ORG_SLUG,
+      });
+      console.log("Created default organization for dev user:", demoOrg.name);
     }
 
     const existingAssignment = await this.getUserOrganization(userId, demoOrg.id);
@@ -436,9 +436,9 @@ export class DatabaseStorage implements IStorage {
     await db.insert(schema.userOrganizations).values({
       userId,
       organizationId: demoOrg.id,
-      role: "viewer",
+      role: "owner",
     });
-    console.log(`Assigned user ${userId} to demo organization as viewer`);
+    console.log(`Assigned user ${userId} to organization as owner`);
   }
 
   // User Organizations
@@ -652,7 +652,7 @@ export class DatabaseStorage implements IStorage {
     // Build query based on whether it's a stakeholder or resource assignment
     // New unique constraint is (stakeholder/resource, task, raciType)
     let existing: StakeholderRaci | undefined;
-    
+
     if (raci.stakeholderId) {
       const [found] = await db.select().from(schema.stakeholderRaci)
         .where(and(
@@ -670,7 +670,7 @@ export class DatabaseStorage implements IStorage {
         ));
       existing = found;
     }
-    
+
     if (existing) {
       // Update existing record
       const [updated] = await db.update(schema.stakeholderRaci)
@@ -736,14 +736,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async propagateRaciToDescendants(
-    sourceTaskId: number, 
+    sourceTaskId: number,
     raciType: string,
     stakeholderId: number | null,
     resourceId: number | null,
     projectId: number
   ): Promise<void> {
     const descendants = await this.getTaskDescendants(sourceTaskId);
-    
+
     for (const descendant of descendants) {
       const existingExplicit = await db.select().from(schema.stakeholderRaci)
         .where(and(
@@ -753,7 +753,7 @@ export class DatabaseStorage implements IStorage {
           stakeholderId ? eq(schema.stakeholderRaci.stakeholderId, stakeholderId) : isNull(schema.stakeholderRaci.stakeholderId),
           resourceId ? eq(schema.stakeholderRaci.resourceId, resourceId) : isNull(schema.stakeholderRaci.resourceId)
         ));
-      
+
       if (existingExplicit.length === 0) {
         const existingInherited = await db.select().from(schema.stakeholderRaci)
           .where(and(
@@ -763,7 +763,7 @@ export class DatabaseStorage implements IStorage {
             stakeholderId ? eq(schema.stakeholderRaci.stakeholderId, stakeholderId) : isNull(schema.stakeholderRaci.stakeholderId),
             resourceId ? eq(schema.stakeholderRaci.resourceId, resourceId) : isNull(schema.stakeholderRaci.resourceId)
           ));
-        
+
         if (existingInherited.length === 0) {
           await db.insert(schema.stakeholderRaci).values({
             projectId,
@@ -786,7 +786,7 @@ export class DatabaseStorage implements IStorage {
     resourceId: number | null
   ): Promise<void> {
     const descendants = await this.getTaskDescendants(sourceTaskId);
-    
+
     for (const descendant of descendants) {
       await db.delete(schema.stakeholderRaci)
         .where(and(
@@ -806,16 +806,16 @@ export class DatabaseStorage implements IStorage {
         eq(schema.stakeholderRaci.raciType, raciType as any),
         eq(schema.stakeholderRaci.isInherited, false)
       ));
-    
+
     const task = await this.getTask(taskId);
     if (!task || !task.parentId) return;
-    
+
     const parentRaci = await db.select().from(schema.stakeholderRaci)
       .where(and(
         eq(schema.stakeholderRaci.taskId, task.parentId),
         eq(schema.stakeholderRaci.raciType, raciType as any)
       ));
-    
+
     for (const parent of parentRaci) {
       await db.insert(schema.stakeholderRaci).values({
         projectId: task.projectId,
@@ -1006,7 +1006,7 @@ export class DatabaseStorage implements IStorage {
   async getResourceAssignmentsByResource(resourceId: number): Promise<(ResourceAssignment & { task: Task | null })[]> {
     const assignments = await db.select().from(schema.resourceAssignments)
       .where(eq(schema.resourceAssignments.resourceId, resourceId));
-    
+
     const result: (ResourceAssignment & { task: Task | null })[] = [];
     for (const assignment of assignments) {
       const task = await this.getTask(assignment.taskId);
@@ -1036,10 +1036,10 @@ export class DatabaseStorage implements IStorage {
     const resources = await this.getResourcesByProject(projectId);
     const tasks = await this.getTasksByProject(projectId);
     const tasksMap = new Map(tasks.map(t => [t.id, t]));
-    
+
     const weekMs = 7 * 24 * 60 * 60 * 1000;
     const periods: Array<{ start: Date; end: Date }> = [];
-    
+
     let currentStart = new Date(startDate);
     currentStart.setHours(0, 0, 0, 0);
     while (currentStart < endDate) {
@@ -1047,7 +1047,7 @@ export class DatabaseStorage implements IStorage {
       periods.push({ start: new Date(currentStart), end: periodEnd });
       currentStart = new Date(periodEnd);
     }
-    
+
     const result: Array<{
       resourceId: number;
       resourceName: string;
@@ -1064,11 +1064,11 @@ export class DatabaseStorage implements IStorage {
         }>;
       }>;
     }> = [];
-    
+
     for (const resource of resources) {
       const assignments = await db.select().from(schema.resourceAssignments)
         .where(eq(schema.resourceAssignments.resourceId, resource.id));
-      
+
       const resourcePeriods: Array<{
         periodStart: Date;
         periodEnd: Date;
@@ -1080,28 +1080,28 @@ export class DatabaseStorage implements IStorage {
           allocation: number;
         }>;
       }> = [];
-      
+
       for (const period of periods) {
         let totalWeightedAllocation = 0;
         const periodAssignments: Array<{ taskId: number; taskName: string; allocation: number }> = [];
-        
+
         const periodDays = Math.max(1, Math.ceil((period.end.getTime() - period.start.getTime()) / (24 * 60 * 60 * 1000)));
-        
+
         for (const assignment of assignments) {
           const task = tasksMap.get(assignment.taskId);
           if (!task || !task.startDate || !task.endDate) continue;
-          
+
           const taskStart = new Date(task.startDate);
           const taskEnd = new Date(task.endDate);
-          
+
           if (taskStart <= period.end && taskEnd >= period.start) {
             const overlapStart = new Date(Math.max(taskStart.getTime(), period.start.getTime()));
             const overlapEnd = new Date(Math.min(taskEnd.getTime(), period.end.getTime()));
             const overlapDays = Math.max(1, Math.ceil((overlapEnd.getTime() - overlapStart.getTime()) / (24 * 60 * 60 * 1000)));
-            
+
             const weightedAllocation = (assignment.allocation * overlapDays) / periodDays;
             totalWeightedAllocation += weightedAllocation;
-            
+
             periodAssignments.push({
               taskId: task.id,
               taskName: task.name,
@@ -1109,7 +1109,7 @@ export class DatabaseStorage implements IStorage {
             });
           }
         }
-        
+
         const finalUtilization = Math.round(totalWeightedAllocation);
         resourcePeriods.push({
           periodStart: period.start,
@@ -1119,7 +1119,7 @@ export class DatabaseStorage implements IStorage {
           assignments: periodAssignments,
         });
       }
-      
+
       result.push({
         resourceId: resource.id,
         resourceName: resource.name,
@@ -1127,7 +1127,7 @@ export class DatabaseStorage implements IStorage {
         periods: resourcePeriods,
       });
     }
-    
+
     return { resources: result };
   }
 
@@ -1315,12 +1315,12 @@ export class DatabaseStorage implements IStorage {
   async incrementEmailUsage(organizationId: number): Promise<EmailUsage> {
     const month = new Date().toISOString().slice(0, 7); // YYYY-MM format
     const existing = await this.getEmailUsage(organizationId, month);
-    
+
     if (existing) {
       const [updated] = await db.update(schema.emailUsage)
-        .set({ 
+        .set({
           emailsSent: existing.emailsSent + 1,
-          updatedAt: new Date() 
+          updatedAt: new Date()
         })
         .where(eq(schema.emailUsage.id, existing.id))
         .returning();
@@ -1378,7 +1378,7 @@ export class DatabaseStorage implements IStorage {
 
   async updateStorageQuota(organizationId: number, usedBytes: number): Promise<StorageQuota> {
     const existing = await this.getStorageQuota(organizationId);
-    
+
     if (existing) {
       const [updated] = await db.update(schema.storageQuotas)
         .set({ usedBytes, updatedAt: new Date() })
@@ -1471,9 +1471,9 @@ export class DatabaseStorage implements IStorage {
   async incrementAiUsage(organizationId: number, tokensUsed: number): Promise<AiUsageSummary> {
     const now = new Date();
     const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-    
+
     const existing = await this.getAiUsageSummary(organizationId, month);
-    
+
     if (existing) {
       const [updated] = await db.update(schema.aiUsageSummary)
         .set({
@@ -1538,11 +1538,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateCloudStorageConnectionTokens(
-    id: number, 
+    id: number,
     tokens: { accessToken: string; refreshToken?: string; tokenExpiresAt?: Date }
   ): Promise<CloudStorageConnection | undefined> {
     const [updated] = await db.update(schema.cloudStorageConnections)
-      .set({ 
+      .set({
         accessToken: tokens.accessToken,
         ...(tokens.refreshToken && { refreshToken: tokens.refreshToken }),
         ...(tokens.tokenExpiresAt && { tokenExpiresAt: tokens.tokenExpiresAt }),
@@ -1554,11 +1554,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateCloudStorageConnectionSyncStatus(
-    id: number, 
+    id: number,
     status: { syncStatus: string; lastSyncAt?: Date; syncError?: string | null }
   ): Promise<CloudStorageConnection | undefined> {
     const [updated] = await db.update(schema.cloudStorageConnections)
-      .set({ 
+      .set({
         syncStatus: status.syncStatus,
         ...(status.lastSyncAt && { lastSyncAt: status.lastSyncAt }),
         syncError: status.syncError ?? null,
@@ -1750,7 +1750,7 @@ export class DatabaseStorage implements IStorage {
   async getTaskAncestors(taskId: number): Promise<Task[]> {
     const ancestors: Task[] = [];
     let currentTask = await this.getTask(taskId);
-    
+
     while (currentTask && currentTask.parentId) {
       const parentTask = await this.getTask(currentTask.parentId);
       if (parentTask) {
@@ -1760,22 +1760,22 @@ export class DatabaseStorage implements IStorage {
         break;
       }
     }
-    
+
     return ancestors;
   }
 
   async getInheritedResources(taskId: number): Promise<{ assignmentId: number; resourceId: number; resource: Resource | null; sourceTaskId: number; sourceTask: Task | null }[]> {
     const ancestors = await this.getTaskAncestors(taskId);
     const results: { assignmentId: number; resourceId: number; resource: Resource | null; sourceTaskId: number; sourceTask: Task | null }[] = [];
-    
+
     for (const ancestor of ancestors) {
       const assignments = await db.select().from(schema.resourceAssignments)
         .where(eq(schema.resourceAssignments.taskId, ancestor.id));
-      
+
       for (const assignment of assignments) {
         const [resource] = await db.select().from(schema.resources)
           .where(eq(schema.resources.id, assignment.resourceId));
-        
+
         results.push({
           assignmentId: assignment.id,
           resourceId: assignment.resourceId,
@@ -1785,20 +1785,20 @@ export class DatabaseStorage implements IStorage {
         });
       }
     }
-    
+
     return results;
   }
 
   async getInheritedDocuments(taskId: number): Promise<{ taskDocumentId: number; documentId: number; document: Document | null; sourceTaskId: number; sourceTask: Task | null }[]> {
     const ancestors = await this.getTaskAncestors(taskId);
     const results: { taskDocumentId: number; documentId: number; document: Document | null; sourceTaskId: number; sourceTask: Task | null }[] = [];
-    
+
     for (const ancestor of ancestors) {
       const taskDocs = await this.getTaskDocuments(ancestor.id);
-      
+
       for (const taskDoc of taskDocs) {
         const document = await this.getDocument(taskDoc.documentId);
-        
+
         results.push({
           taskDocumentId: taskDoc.id,
           documentId: taskDoc.documentId,
@@ -1808,20 +1808,20 @@ export class DatabaseStorage implements IStorage {
         });
       }
     }
-    
+
     return results;
   }
 
   async getInheritedRisks(taskId: number): Promise<{ taskRiskId: number; riskId: number; risk: Risk | null; sourceTaskId: number; sourceTask: Task | null }[]> {
     const ancestors = await this.getTaskAncestors(taskId);
     const results: { taskRiskId: number; riskId: number; risk: Risk | null; sourceTaskId: number; sourceTask: Task | null }[] = [];
-    
+
     for (const ancestor of ancestors) {
       const taskRisks = await this.getTaskRisks(ancestor.id);
-      
+
       for (const taskRisk of taskRisks) {
         const risk = await this.getRisk(taskRisk.riskId);
-        
+
         results.push({
           taskRiskId: taskRisk.id,
           riskId: taskRisk.riskId,
@@ -1831,20 +1831,20 @@ export class DatabaseStorage implements IStorage {
         });
       }
     }
-    
+
     return results;
   }
 
   async getInheritedIssues(taskId: number): Promise<{ taskIssueId: number; issueId: number; issue: Issue | null; sourceTaskId: number; sourceTask: Task | null }[]> {
     const ancestors = await this.getTaskAncestors(taskId);
     const results: { taskIssueId: number; issueId: number; issue: Issue | null; sourceTaskId: number; sourceTask: Task | null }[] = [];
-    
+
     for (const ancestor of ancestors) {
       const taskIssues = await this.getTaskIssues(ancestor.id);
-      
+
       for (const taskIssue of taskIssues) {
         const issue = await this.getIssue(taskIssue.issueId);
-        
+
         results.push({
           taskIssueId: taskIssue.id,
           issueId: taskIssue.issueId,
@@ -1854,7 +1854,7 @@ export class DatabaseStorage implements IStorage {
         });
       }
     }
-    
+
     return results;
   }
 
@@ -1862,7 +1862,7 @@ export class DatabaseStorage implements IStorage {
   async getTasksByOrganization(organizationId: number): Promise<(Task & { projectName: string })[]> {
     const projects = await this.getProjectsByOrganization(organizationId);
     const projectMap = new Map(projects.map(p => [p.id, p.name]));
-    
+
     const allTasks: (Task & { projectName: string })[] = [];
     for (const project of projects) {
       const tasks = await this.getTasksByProject(project.id);
@@ -1879,7 +1879,7 @@ export class DatabaseStorage implements IStorage {
   async getRisksByOrganization(organizationId: number): Promise<(Risk & { projectName: string })[]> {
     const projects = await this.getProjectsByOrganization(organizationId);
     const projectMap = new Map(projects.map(p => [p.id, p.name]));
-    
+
     const allRisks: (Risk & { projectName: string })[] = [];
     for (const project of projects) {
       const risks = await this.getRisksByProject(project.id);
@@ -1896,7 +1896,7 @@ export class DatabaseStorage implements IStorage {
   async getIssuesByOrganization(organizationId: number): Promise<(Issue & { projectName: string })[]> {
     const projects = await this.getProjectsByOrganization(organizationId);
     const projectMap = new Map(projects.map(p => [p.id, p.name]));
-    
+
     const allIssues: (Issue & { projectName: string })[] = [];
     for (const project of projects) {
       const issues = await this.getIssuesByProject(project.id);
@@ -1913,7 +1913,7 @@ export class DatabaseStorage implements IStorage {
   async getResourcesByOrganization(organizationId: number): Promise<(Resource & { projectName: string })[]> {
     const projects = await this.getProjectsByOrganization(organizationId);
     const projectMap = new Map(projects.map(p => [p.id, p.name]));
-    
+
     const allResources: (Resource & { projectName: string })[] = [];
     for (const project of projects) {
       const resources = await this.getResourcesByProject(project.id);
@@ -1930,7 +1930,7 @@ export class DatabaseStorage implements IStorage {
   async getCostItemsByOrganization(organizationId: number): Promise<(CostItem & { projectName: string })[]> {
     const projects = await this.getProjectsByOrganization(organizationId);
     const projectMap = new Map(projects.map(p => [p.id, p.name]));
-    
+
     const allCostItems: (CostItem & { projectName: string })[] = [];
     for (const project of projects) {
       const costs = await this.getCostItemsByProject(project.id);

@@ -30,7 +30,7 @@ export const sessionStore = new pgStore({
 export function getSession() {
   // Only use secure cookies in production (HTTPS)
   const isProduction = process.env.NODE_ENV === "production";
-  
+
   return session({
     secret: process.env.SESSION_SECRET!,
     store: sessionStore,
@@ -63,7 +63,7 @@ async function upsertUser(claims: any) {
     lastName: claims["last_name"],
     profileImageUrl: claims["profile_image_url"],
   });
-  
+
   // Auto-assign the demo organization to all users
   await storage.assignDemoOrgToUser(userId);
 }
@@ -73,6 +73,15 @@ export async function setupAuth(app: Express) {
   app.use(getSession());
   app.use(passport.initialize());
   app.use(passport.session());
+
+  // Skip OIDC setup in development
+  if (process.env.NODE_ENV === "development") {
+    // Mock login route for development
+    app.get("/api/login", (req, res) => {
+      res.redirect("/");
+    });
+    return;
+  }
 
   const config = await getOidcConfig();
 
@@ -139,6 +148,32 @@ export async function setupAuth(app: Express) {
 }
 
 export const isAuthenticated: RequestHandler = async (req, res, next) => {
+  // Bypass auth in development
+  if (process.env.NODE_ENV === "development") {
+    const devUser = {
+      claims: {
+        sub: "dev-user-id",
+        email: "dev@example.com",
+        first_name: "Dev",
+        last_name: "User",
+        profile_image_url: "https://ui-avatars.com/api/?name=Dev+User"
+      },
+      access_token: "mock-token",
+      refresh_token: "mock-refresh-token",
+      expires_at: Math.floor(Date.now() / 1000) + 3600
+    };
+    (req as any).user = devUser;
+
+    // Ensure user exists in DB
+    try {
+      await upsertUser(devUser.claims);
+    } catch (error) {
+      console.error("Error upserting dev user:", error);
+    }
+
+    return next();
+  }
+
   const user = req.user as any;
 
   if (!req.isAuthenticated() || !user.expires_at) {

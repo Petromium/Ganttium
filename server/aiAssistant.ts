@@ -4,10 +4,11 @@ import type { InsertTask, InsertRisk, InsertIssue, InsertStakeholder } from "@sh
 
 // This is using Replit's AI Integrations service, which provides OpenAI-compatible API access without requiring your own OpenAI API key.
 // the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
-const openai = new OpenAI({
+const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+const openai = apiKey ? new OpenAI({
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY
-});
+  apiKey: apiKey
+}) : null;
 
 // Define available functions for the AI assistant
 const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
@@ -135,7 +136,7 @@ async function verifyProjectAccess(
   if (!project) {
     throw new Error(`Project ${projectId} not found`);
   }
-  
+
   const userOrg = await storage.getUserOrganization(userId, project.organizationId);
   if (!userOrg) {
     throw new Error(`Access denied to project ${projectId}`);
@@ -155,7 +156,7 @@ async function executeFunctionCall(
         const { projectId } = args;
         // Verify access
         await verifyProjectAccess(projectId, userId, storage);
-        
+
         const [tasks, risks, issues, stakeholders, costItems] = await Promise.all([
           storage.getTasksByProject(projectId),
           storage.getRisksByProject(projectId),
@@ -163,7 +164,7 @@ async function executeFunctionCall(
           storage.getStakeholdersByProject(projectId),
           storage.getCostItemsByProject(projectId)
         ]);
-        
+
         return JSON.stringify({
           tasks: {
             total: tasks.length,
@@ -190,17 +191,17 @@ async function executeFunctionCall(
           }
         });
       }
-      
+
       case "analyze_project_risks": {
         const { projectId } = args;
         // Verify access
         await verifyProjectAccess(projectId, userId, storage);
-        
+
         const risks = await storage.getRisksByProject(projectId);
-        
+
         const riskScore = (r: any) => r.probability * (r.impact === 'critical' ? 5 : r.impact === 'high' ? 4 : r.impact === 'medium' ? 3 : r.impact === 'low' ? 2 : 1);
         const sortedRisks = risks.sort((a, b) => riskScore(b) - riskScore(a));
-        
+
         return JSON.stringify({
           totalRisks: risks.length,
           highPriorityRisks: sortedRisks.slice(0, 5).map(r => ({
@@ -218,14 +219,14 @@ async function executeFunctionCall(
           unmitigated: risks.filter(r => r.status === 'identified').length
         });
       }
-      
+
       case "analyze_resource_workload": {
         const { projectId } = args;
         // Verify access
         await verifyProjectAccess(projectId, userId, storage);
-        
+
         const tasks = await storage.getTasksByProject(projectId);
-        
+
         const workloadByAssignee = tasks.reduce((acc, t) => {
           if (t.assignedTo) {
             if (!acc[t.assignedTo]) {
@@ -241,18 +242,18 @@ async function executeFunctionCall(
           }
           return acc;
         }, {} as Record<string, any>);
-        
+
         return JSON.stringify({
           totalAssigned: tasks.filter(t => t.assignedTo).length,
           unassigned: tasks.filter(t => !t.assignedTo).length,
           workloadByAssignee
         });
       }
-      
+
       case "create_task": {
         // Verify access
         await verifyProjectAccess(args.projectId, userId, storage);
-        
+
         const taskData: InsertTask = {
           projectId: args.projectId,
           name: args.title,
@@ -269,19 +270,19 @@ async function executeFunctionCall(
           actualHours: null,
           createdBy: userId
         };
-        
+
         const task = await storage.createTask(taskData);
         return JSON.stringify({ success: true, task });
       }
-      
+
       case "create_risk": {
         // Verify access
         await verifyProjectAccess(args.projectId, userId, storage);
-        
+
         const existingRisks = await storage.getRisksByProject(args.projectId);
         const nextNumber = existingRisks.length + 1;
         const code = `RISK-${String(nextNumber).padStart(3, '0')}`;
-        
+
         const riskData: InsertRisk = {
           projectId: args.projectId,
           code,
@@ -295,19 +296,19 @@ async function executeFunctionCall(
           owner: null,
           identifiedDate: new Date()
         };
-        
+
         const risk = await storage.createRisk(riskData);
         return JSON.stringify({ success: true, risk });
       }
-      
+
       case "create_issue": {
         // Verify access
         await verifyProjectAccess(args.projectId, userId, storage);
-        
+
         const existingIssues = await storage.getIssuesByProject(args.projectId);
         const nextNumber = existingIssues.length + 1;
         const code = `ISS-${String(nextNumber).padStart(3, '0')}`;
-        
+
         const issueData: InsertIssue = {
           projectId: args.projectId,
           code,
@@ -322,11 +323,11 @@ async function executeFunctionCall(
           resolvedDate: null,
           resolution: null
         };
-        
+
         const issue = await storage.createIssue(issueData);
         return JSON.stringify({ success: true, issue });
       }
-      
+
       default:
         throw new Error(`Unknown or unauthorized function: ${name}`);
     }
@@ -372,9 +373,17 @@ When analyzing data, be specific and provide actionable recommendations.
 Focus on EPC industry best practices and PMI standards.
 ${projectId ? `Current project context: Project ID ${projectId}` : 'No project selected. Ask user to select a project first.'}`
     };
-    
+
     const allMessages = [systemMessage, ...messages];
-    
+
+    // Check if OpenAI is initialized
+    if (!openai) {
+      return {
+        message: "AI Assistant is not configured. Please set OPENAI_API_KEY in your environment variables.",
+        tokensUsed: 0
+      };
+    }
+
     // Initial API call
     let response = await openai.chat.completions.create({
       model: "gpt-5", // the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
@@ -383,37 +392,39 @@ ${projectId ? `Current project context: Project ID ${projectId}` : 'No project s
       tool_choice: "auto",
       max_completion_tokens: 8192
     });
-    
+
     const functionCalls: Array<{ name: string; args: any; result: string }> = [];
     let totalTokens = response.usage?.total_tokens || 0;
-    
+
     // Handle function calls iteratively
     while (response.choices[0]?.finish_reason === "tool_calls") {
       const toolCalls = response.choices[0].message.tool_calls || [];
-      
+
       // Execute all function calls
       for (const toolCall of toolCalls) {
         if (toolCall.type !== 'function') continue;
-        
+
         const functionName = toolCall.function.name;
         const functionArgs = JSON.parse(toolCall.function.arguments);
-        
+
         const result = await executeFunctionCall(functionName, functionArgs, storage, userId);
         functionCalls.push({ name: functionName, args: functionArgs, result });
-        
+
         // Add function result to messages
         allMessages.push({
           role: "assistant",
           content: response.choices[0].message.content || ""
         });
-        
+
         allMessages.push({
           role: "user" as any,
           content: `Function ${functionName} result: ${result}`
         });
       }
-      
+
       // Call API again with function results
+      if (!openai) break; // Should not happen if we passed the first check, but for safety
+
       response = await openai.chat.completions.create({
         model: "gpt-5",
         messages: allMessages,
@@ -421,10 +432,10 @@ ${projectId ? `Current project context: Project ID ${projectId}` : 'No project s
         tool_choice: "auto",
         max_completion_tokens: 8192
       });
-      
+
       totalTokens += response.usage?.total_tokens || 0;
     }
-    
+
     return {
       message: response.choices[0]?.message?.content || "No response generated",
       tokensUsed: totalTokens,
