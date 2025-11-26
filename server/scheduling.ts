@@ -770,8 +770,21 @@ export class SchedulingService {
       if (processed.has(taskId)) continue;
       processed.add(taskId);
       
-      const task = taskMap.get(taskId);
+      // Get task from map, but if it's the changed task, refresh from DB to ensure we have latest data
+      let task = taskMap.get(taskId);
       if (!task) continue;
+      
+      // If this is the changed task, refresh from database to ensure we have the latest estimatedHours
+      if (taskId === changedTaskId) {
+        const [refreshedTask] = await db.select()
+          .from(tasks)
+          .where(eq(tasks.id, taskId));
+        if (refreshedTask) {
+          task = refreshedTask;
+          taskMap.set(taskId, refreshedTask); // Update map with fresh data
+          console.log(`[DEBUG] Refreshed changed task ${taskId} from DB - estimatedHours: ${task.estimatedHours}, startDate: ${task.startDate}`);
+        }
+      }
       
       // Skip calculations for completed tasks (100% progress)
       if (task.progress === 100) {
@@ -885,6 +898,245 @@ export class SchedulingService {
         }
       }
     }
+  }
+
+  /**
+   * Detect if a constraint conflicts with computed dates
+   * Returns conflict information if constraint cannot be met with current resources
+   */
+  async detectConstraintConflict(
+    task: Task,
+    computedEndDate: Date | null,
+    resourceAssignments: Array<ResourceAssignment & { resource: Resource }>
+  ): Promise<{
+    hasConflict: boolean;
+    constraintType: string;
+    constraintDate: Date | null;
+    computedEndDate: Date | null;
+    conflictDays: number | null;
+    message: string;
+  }> {
+    if (!task.constraintDate || task.constraintType === "asap" || task.constraintType === "alap") {
+      return {
+        hasConflict: false,
+        constraintType: task.constraintType || "asap",
+        constraintDate: task.constraintDate,
+        computedEndDate,
+        conflictDays: null,
+        message: "",
+      };
+    }
+
+    const constraintDate = new Date(task.constraintDate);
+    let hasConflict = false;
+    let conflictDays: number | null = null;
+    let message = "";
+
+    switch (task.constraintType) {
+      case "mfo": // Must Finish On
+        if (computedEndDate && computedEndDate > constraintDate) {
+          hasConflict = true;
+          conflictDays = Math.ceil((computedEndDate.getTime() - constraintDate.getTime()) / (1000 * 60 * 60 * 24));
+          message = `Computed finish date (${computedEndDate.toLocaleDateString()}) is ${conflictDays} days after constraint date (${constraintDate.toLocaleDateString()})`;
+        }
+        break;
+      case "fnlt": // Finish No Later Than
+        if (computedEndDate && computedEndDate > constraintDate) {
+          hasConflict = true;
+          conflictDays = Math.ceil((computedEndDate.getTime() - constraintDate.getTime()) / (1000 * 60 * 60 * 24));
+          message = `Computed finish date (${computedEndDate.toLocaleDateString()}) is ${conflictDays} days after constraint date (${constraintDate.toLocaleDateString()})`;
+        }
+        break;
+      case "mso": // Must Start On
+        if (task.startDate) {
+          const startDate = new Date(task.startDate);
+          if (startDate > constraintDate) {
+            hasConflict = true;
+            conflictDays = Math.ceil((startDate.getTime() - constraintDate.getTime()) / (1000 * 60 * 60 * 24));
+            message = `Computed start date (${startDate.toLocaleDateString()}) is ${conflictDays} days after constraint date (${constraintDate.toLocaleDateString()})`;
+          }
+        }
+        break;
+      case "snlt": // Start No Later Than
+        if (task.startDate) {
+          const startDate = new Date(task.startDate);
+          if (startDate > constraintDate) {
+            hasConflict = true;
+            conflictDays = Math.ceil((startDate.getTime() - constraintDate.getTime()) / (1000 * 60 * 60 * 24));
+            message = `Computed start date (${startDate.toLocaleDateString()}) is ${conflictDays} days after constraint date (${constraintDate.toLocaleDateString()})`;
+          }
+        }
+        break;
+    }
+
+    return {
+      hasConflict,
+      constraintType: task.constraintType || "asap",
+      constraintDate: task.constraintDate,
+      computedEndDate,
+      conflictDays,
+      message,
+    };
+  }
+
+  /**
+   * Suggest resource leveling options to meet a constraint
+   * Returns array of options with preview dates
+   */
+  async suggestResourceLeveling(
+    task: Task,
+    resourceAssignments: Array<ResourceAssignment & { resource: Resource }>,
+    conflictDays: number,
+    constraintDate: Date,
+    constraintType: string
+  ): Promise<Array<{
+    option: string;
+    description: string;
+    changes: Array<{ type: string; resourceId?: number; resourceName?: string; currentValue: any; newValue: any }>;
+    previewEndDate: Date | null;
+    previewDuration: number;
+    feasibility: "high" | "medium" | "low";
+  }>> {
+    const suggestions: Array<{
+      option: string;
+      description: string;
+      changes: Array<{ type: string; resourceId?: number; resourceName?: string; currentValue: any; newValue: any }>;
+      previewEndDate: Date | null;
+      previewDuration: number;
+      feasibility: "high" | "medium" | "low";
+    }> = [];
+
+    if (resourceAssignments.length === 0) {
+      // No resources assigned - suggest adding resources
+      return [{
+        option: "add_resources",
+        description: "Assign resources to this task to enable duration calculation",
+        changes: [],
+        previewEndDate: null,
+        previewDuration: 0,
+        feasibility: "medium",
+      }];
+    }
+
+    const estimatedHours = task.estimatedHours ? Number(task.estimatedHours) : 0;
+    const startDate = task.startDate ? new Date(task.startDate) : new Date();
+    const workMode = (task.workMode as 'parallel' | 'sequential') || 'parallel';
+
+    // Option 1: Increase allocation of existing resources
+    for (const assignment of resourceAssignments) {
+      const resource = assignment.resource;
+      const currentAllocation = assignment.allocation || 100;
+      
+      // Calculate what allocation would be needed to meet constraint
+      // Simplified: if we need to reduce duration by X%, increase allocation by similar amount
+      const targetAllocation = Math.min(200, Math.ceil(currentAllocation * (1 + conflictDays / 10)));
+      
+      if (targetAllocation > currentAllocation && targetAllocation <= 200) {
+        // Calculate preview duration with increased allocation
+        const testAssignment = { ...assignment, allocation: targetAllocation };
+        const previewDuration = await this.calculateTaskDuration(
+          task,
+          [testAssignment],
+          workMode
+        );
+        const primaryResource = resourceAssignments[0]?.resource || null;
+        const previewEndDate = this.addCalendarDays(startDate, previewDuration, primaryResource);
+
+        suggestions.push({
+          option: `increase_allocation_${assignment.resourceId}`,
+          description: `Increase ${resource.name}'s allocation from ${currentAllocation}% to ${targetAllocation}%`,
+          changes: [{
+            type: "allocation",
+            resourceId: assignment.resourceId,
+            resourceName: resource.name,
+            currentValue: currentAllocation,
+            newValue: targetAllocation,
+          }],
+          previewEndDate,
+          previewDuration,
+          feasibility: targetAllocation <= 150 ? "high" : targetAllocation <= 175 ? "medium" : "low",
+        });
+      }
+    }
+
+    // Option 2: Add additional resources (if available resources exist)
+    // This would require fetching available resources from the project
+    // For now, suggest adding a duplicate of existing resources
+    if (resourceAssignments.length > 0) {
+      const firstResource = resourceAssignments[0].resource;
+      const testAssignments = [
+        ...resourceAssignments,
+        {
+          ...resourceAssignments[0],
+          resourceId: -1, // Placeholder for new resource
+          id: -1,
+        } as ResourceAssignment & { resource: Resource },
+      ];
+      
+      const previewDuration = await this.calculateTaskDuration(
+        task,
+        testAssignments,
+        workMode
+      );
+      const primaryResource = resourceAssignments[0]?.resource || null;
+      const previewEndDate = this.addCalendarDays(startDate, previewDuration, primaryResource);
+
+      suggestions.push({
+        option: "add_duplicate_resource",
+        description: `Add another ${firstResource.name} to work in parallel`,
+        changes: [{
+          type: "add_resource",
+          resourceName: firstResource.name,
+          currentValue: resourceAssignments.length,
+          newValue: resourceAssignments.length + 1,
+        }],
+        previewEndDate,
+        previewDuration,
+        feasibility: "medium",
+      });
+    }
+
+    // Option 3: Increase working hours per day
+    for (const assignment of resourceAssignments) {
+      const resource = assignment.resource;
+      const currentMaxHours = resource.maxHoursPerDay || 8;
+      const newMaxHours = Math.min(12, currentMaxHours + 2); // Increase by 2 hours, max 12
+
+      if (newMaxHours > currentMaxHours) {
+        const modifiedResource = { ...resource, maxHoursPerDay: newMaxHours };
+        const testAssignment = { ...assignment, resource: modifiedResource };
+        const previewDuration = await this.calculateTaskDuration(
+          task,
+          [testAssignment],
+          workMode
+        );
+        const previewEndDate = this.addCalendarDays(startDate, previewDuration, modifiedResource);
+
+        suggestions.push({
+          option: `increase_hours_${assignment.resourceId}`,
+          description: `Increase ${resource.name}'s max hours per day from ${currentMaxHours} to ${newMaxHours}`,
+          changes: [{
+            type: "maxHoursPerDay",
+            resourceId: assignment.resourceId,
+            resourceName: resource.name,
+            currentValue: currentMaxHours,
+            newValue: newMaxHours,
+          }],
+          previewEndDate,
+          previewDuration,
+          feasibility: newMaxHours <= 10 ? "high" : "medium",
+        });
+      }
+    }
+
+    return suggestions.sort((a, b) => {
+      // Sort by feasibility (high first), then by preview duration (shorter first)
+      const feasibilityOrder = { high: 0, medium: 1, low: 2 };
+      if (feasibilityOrder[a.feasibility] !== feasibilityOrder[b.feasibility]) {
+        return feasibilityOrder[a.feasibility] - feasibilityOrder[b.feasibility];
+      }
+      return (a.previewDuration || 0) - (b.previewDuration || 0);
+    });
   }
 }
 

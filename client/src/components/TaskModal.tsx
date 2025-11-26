@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import type { Task, Risk, Issue, ResourceAssignment, Resource, Document, TaskDependency } from "@shared/schema";
 import { EditResourceModal } from "@/components/modals/EditResourceModal";
+import { ResourceLevelingModal } from "@/components/modals/ResourceLevelingModal";
 
 type TaskStatus = "not-started" | "in-progress" | "review" | "completed" | "on-hold";
 type TaskPriority = "low" | "medium" | "high" | "critical";
@@ -109,6 +110,7 @@ export function TaskModal({
   const [showResourceCreation, setShowResourceCreation] = useState(false);
   const [newlyCreatedResourceId, setNewlyCreatedResourceId] = useState<number | null>(null);
   const [showPmiLegend, setShowPmiLegend] = useState(false);
+  const [showResourceLeveling, setShowResourceLeveling] = useState(false);
   
   const getDefaultFormData = (): TaskFormData => ({
     name: "",
@@ -267,15 +269,36 @@ export function TaskModal({
 
   const updateMutation = useMutation({
     mutationFn: async (data: any) => {
-      return await apiRequest("PATCH", `/api/tasks/${task?.id}`, data);
+      const response = await apiRequest("PATCH", `/api/tasks/${task?.id}`, data);
+      return await response.json();
     },
-    onSuccess: () => {
+    onSuccess: (updatedTask: Task) => {
+      // Update formData with refreshed task data, especially endDate and computedDuration
+      if (updatedTask) {
+        setFormData(prev => ({
+          ...prev,
+          endDate: updatedTask.endDate ? new Date(updatedTask.endDate).toISOString().split('T')[0] : prev.endDate,
+          startDate: updatedTask.startDate ? new Date(updatedTask.startDate).toISOString().split('T')[0] : prev.startDate,
+          estimatedHours: updatedTask.estimatedHours ? String(updatedTask.estimatedHours) : prev.estimatedHours,
+        }));
+        // Don't close modal if estimatedHours changed - let user see the updated endDate
+        const estimatedHoursChanged = task && updatedTask.estimatedHours && 
+          Number(task.estimatedHours) !== Number(updatedTask.estimatedHours);
+        
+        if (!estimatedHoursChanged) {
+          handleClose();
+        } else {
+          // Keep modal open but show success message
+          toast({
+            title: "Task Updated",
+            description: "Estimated hours updated. End date recalculated based on new duration.",
+          });
+        }
+      } else {
+        handleClose();
+      }
       queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/tasks`] });
-      toast({
-        title: "Success",
-        description: "Task updated successfully",
-      });
-      handleClose();
+      queryClient.invalidateQueries({ queryKey: [`/api/tasks/${task?.id}`] });
     },
     onError: (error: Error) => {
       toast({
@@ -569,6 +592,58 @@ export function TaskModal({
           queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/resources`] });
         }}
       />
+    );
+  }
+
+  // Render Resource Leveling Modal if needed
+  if (showResourceLeveling && task) {
+    return (
+      <>
+        <ResourceLevelingModal
+          task={task}
+          open={showResourceLeveling}
+          onOpenChange={(isOpen) => {
+            setShowResourceLeveling(isOpen);
+            if (!isOpen) {
+              // Refresh task data after leveling
+              queryClient.invalidateQueries({ queryKey: [`/api/tasks/${task.id}`] });
+            }
+          }}
+          onApply={(option) => {
+            // Refresh task data after applying leveling
+            queryClient.invalidateQueries({ queryKey: [`/api/tasks/${task.id}`] });
+            queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/tasks`] });
+          }}
+        />
+        {/* Keep the main modal open but hidden */}
+        <div style={{ display: 'none' }} />
+      </>
+    );
+  }
+
+  // Render Resource Leveling Modal if needed
+  if (showResourceLeveling && task) {
+    return (
+      <>
+        <ResourceLevelingModal
+          task={task}
+          open={showResourceLeveling}
+          onOpenChange={(isOpen) => {
+            setShowResourceLeveling(isOpen);
+            if (!isOpen) {
+              // Refresh task data after leveling
+              queryClient.invalidateQueries({ queryKey: [`/api/tasks/${task.id}`] });
+            }
+          }}
+          onApply={(option) => {
+            // Refresh task data after applying leveling
+            queryClient.invalidateQueries({ queryKey: [`/api/tasks/${task.id}`] });
+            queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/tasks`] });
+          }}
+        />
+        {/* Keep the main modal open but hidden */}
+        <div style={{ display: 'none' }} />
+      </>
     );
   }
 
@@ -880,38 +955,7 @@ export function TaskModal({
 
                     {/* Baseline Dates Section */}
                     <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <h4 className="text-sm font-semibold">Baseline Dates</h4>
-                        {task && !(task as any).baselineStart && (task as any).computedDuration && (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={async () => {
-                              try {
-                                await apiRequest("PATCH", `/api/tasks/${task.id}`, {
-                                  baselineStart: task.startDate,
-                                  baselineFinish: task.endDate,
-                                  baselineDuration: (task as any).computedDuration,
-                                });
-                                toast({
-                                  title: "Baseline Set",
-                                  description: "Baseline dates set from computed schedule.",
-                                });
-                                queryClient.invalidateQueries({ queryKey: [`/api/tasks/${task.id}`] });
-                              } catch (error: any) {
-                                toast({
-                                  title: "Error",
-                                  description: "Failed to set baseline.",
-                                  variant: "destructive",
-                                });
-                              }
-                            }}
-                          >
-                            Set Baseline
-                          </Button>
-                        )}
-                      </div>
+                      <h4 className="text-sm font-semibold">Baseline Dates</h4>
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                           <Label htmlFor="baseline-start">Baseline Start</Label>
@@ -1053,19 +1097,33 @@ export function TaskModal({
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
                         <Label htmlFor="constraint-type">Constraint Type</Label>
-                        <Select 
-                          value={formData.constraintType} 
-                          onValueChange={(value) => setFormData({ ...formData, constraintType: value })}
-                        >
-                          <SelectTrigger id="constraint-type" data-testid="select-constraint">
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {CONSTRAINT_TYPES.map((ct) => (
-                              <SelectItem key={ct.value} value={ct.value}>{ct.label}</SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <div className="space-y-2">
+                          <Select 
+                            value={formData.constraintType} 
+                            onValueChange={(value) => setFormData({ ...formData, constraintType: value })}
+                          >
+                            <SelectTrigger id="constraint-type" data-testid="select-constraint">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {CONSTRAINT_TYPES.map((ct) => (
+                                <SelectItem key={ct.value} value={ct.value}>{ct.label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {formData.constraintType !== "asap" && formData.constraintType !== "alap" && task && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setShowResourceLeveling(true)}
+                              className="w-full"
+                            >
+                              <AlertTriangle className="h-4 w-4 mr-2" />
+                              Check Resource Leveling
+                            </Button>
+                          )}
+                        </div>
                       </div>
 
                       <div className="space-y-2">
@@ -1841,47 +1899,109 @@ export function TaskModal({
             Cancel
           </Button>
           {isEditing && task && (
-            <Button 
-              variant="outline" 
-              onClick={async () => {
-                try {
-                  const response = await apiRequest("POST", `/api/tasks/${task.id}/recalculate`);
-                  
-                  // Check if response is actually JSON
-                  const contentType = response.headers.get("content-type");
-                  if (!contentType || !contentType.includes("application/json")) {
-                    const text = await response.text();
-                    console.error("Non-JSON response received:", text.substring(0, 200));
-                    throw new Error(`Server returned ${response.status}: Expected JSON but got ${contentType}`);
+            <>
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  try {
+                    // Check if constraint is applied
+                    const hasConstraint = formData.constraintType !== "asap" && (task as any).constraintDate;
+                    
+                    const baselineData: any = {
+                      baselineStart: formData.startDate,
+                      baselineFinish: formData.endDate,
+                    };
+                    
+                    // Include computedDuration if available
+                    if ((task as any).computedDuration) {
+                      baselineData.baselineDuration = (task as any).computedDuration;
+                    }
+                    
+                    const response = await apiRequest("PATCH", `/api/tasks/${task.id}`, baselineData);
+                    const updatedTask = await response.json();
+                    
+                    // Update formData with refreshed baseline dates
+                    setFormData(prev => ({
+                      ...prev,
+                      baselineStart: updatedTask.baselineStart ? new Date(updatedTask.baselineStart).toISOString().split('T')[0] : prev.baselineStart,
+                      baselineFinish: updatedTask.baselineFinish ? new Date(updatedTask.baselineFinish).toISOString().split('T')[0] : prev.baselineFinish,
+                    }));
+                    
+                    queryClient.invalidateQueries({ queryKey: [`/api/tasks/${task.id}`] });
+                    toast({
+                      title: "Baseline Set",
+                      description: hasConstraint 
+                        ? "Baseline dates set from planned dates (constraint may override)."
+                        : "Baseline dates set from planned dates.",
+                    });
+                  } catch (error: any) {
+                    console.error("Set baseline error:", error);
+                    toast({
+                      title: "Error",
+                      description: error?.message || "Failed to set baseline.",
+                      variant: "destructive",
+                    });
                   }
-                  
-                  const result = await response.json();
-                  toast({
-                    title: "Schedule Recalculated",
-                    description: result.message || "Task dates and dependent tasks have been recalculated.",
-                  });
-                  queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/tasks`] });
-                  // Refresh the current task data
-                  queryClient.invalidateQueries({ queryKey: [`/api/tasks/${task.id}`] });
-                } catch (error: any) {
-                  // Parse error message from the error string (format: "500: error message")
-                  const errorMatch = error?.message?.match(/^\d+:\s*(.+)$/);
-                  const errorMessage = errorMatch?.[1] || error?.message || "Failed to recalculate schedule. Please ensure the server has been restarted.";
-                  console.error("Recalculate schedule error:", error);
-                  toast({
-                    title: "Error",
-                    description: errorMessage,
-                    variant: "destructive",
-                  });
-                }
-              }}
-              disabled={isLoading || formData.progress === 100}
-              data-testid="button-recalculate-schedule"
-              title={formData.progress === 100 ? "Task completed - calculations disabled" : ""}
-            >
-              <Activity className="h-4 w-4 mr-2" />
-              Recalculate Schedule
-            </Button>
+                }}
+                disabled={isLoading || !formData.startDate || !formData.endDate || formData.progress === 100}
+                data-testid="button-set-baseline"
+                title={!formData.startDate || !formData.endDate ? "Set planned dates first" : formData.progress === 100 ? "Task completed - baseline locked" : ""}
+              >
+                Set Baseline
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={async () => {
+                  try {
+                    const response = await apiRequest("POST", `/api/tasks/${task.id}/recalculate`);
+                    
+                    // Check if response is actually JSON
+                    const contentType = response.headers.get("content-type");
+                    if (!contentType || !contentType.includes("application/json")) {
+                      const text = await response.text();
+                      console.error("Non-JSON response received:", text.substring(0, 200));
+                      throw new Error(`Server returned ${response.status}: Expected JSON but got ${contentType}`);
+                    }
+                    
+                    const result = await response.json();
+                    const updatedTask = result.task || result;
+                    
+                    // Update formData with refreshed task data, especially endDate and computedDuration
+                    if (updatedTask) {
+                      setFormData(prev => ({
+                        ...prev,
+                        endDate: updatedTask.endDate ? new Date(updatedTask.endDate).toISOString().split('T')[0] : prev.endDate,
+                        startDate: updatedTask.startDate ? new Date(updatedTask.startDate).toISOString().split('T')[0] : prev.startDate,
+                      }));
+                    }
+                    
+                    toast({
+                      title: "Schedule Recalculated",
+                      description: result.message || "Task dates and dependent tasks have been recalculated.",
+                    });
+                    queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/tasks`] });
+                    // Refresh the current task data
+                    queryClient.invalidateQueries({ queryKey: [`/api/tasks/${task.id}`] });
+                  } catch (error: any) {
+                    // Parse error message from the error string (format: "500: error message")
+                    const errorMatch = error?.message?.match(/^\d+:\s*(.+)$/);
+                    const errorMessage = errorMatch?.[1] || error?.message || "Failed to recalculate schedule. Please ensure the server has been restarted.";
+                    console.error("Recalculate schedule error:", error);
+                    toast({
+                      title: "Error",
+                      description: errorMessage,
+                      variant: "destructive",
+                    });
+                  }
+                }}
+                disabled={isLoading || formData.progress === 100}
+                data-testid="button-recalculate-schedule"
+                title={formData.progress === 100 ? "Task completed - calculations disabled" : ""}
+              >
+                <Activity className="h-4 w-4 mr-2" />
+                Recalculate Schedule
+              </Button>
+            </>
           )}
           <Button onClick={handleSave} disabled={isLoading} data-testid="button-save-task">
             {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}

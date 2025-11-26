@@ -470,23 +470,73 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const shouldPropagate = startDateChanged || estimatedHoursChanged;
       
       const updated = await storage.updateTask(id, data);
-
-      // If start date or effort hours changed, propagate to dependent tasks
+      
+      // If start date or effort hours changed, recalculate this task's duration and propagate to dependent tasks
       // Skip propagation for completed tasks (100% progress)
       if (shouldPropagate && updated && !isCompleted) {
         try {
+          console.log(`[DEBUG] Propagating dates for task ${id}, estimatedHoursChanged: ${estimatedHoursChanged}, startDateChanged: ${startDateChanged}`);
+          console.log(`[DEBUG] Updated task estimatedHours: ${updated.estimatedHours}, startDate: ${updated.startDate}`);
+          
+          // Ensure propagateDates uses the updated task data
           await schedulingService.propagateDates(task.projectId, id);
-          // Refresh updated task after propagation
+          
+          // Refresh updated task after propagation to get computedDuration and endDate
           const refreshed = await storage.getTask(id);
           if (refreshed) {
+            console.log(`[DEBUG] Task ${id} refreshed after propagation - endDate: ${refreshed.endDate}, computedDuration: ${(refreshed as any).computedDuration}`);
             // Notify with refreshed data
             wsManager.notifyProjectUpdate(task.projectId, "task-updated", refreshed, userId);
             res.json(refreshed);
             return;
+          } else {
+            console.error(`[DEBUG] Failed to refresh task ${id} after propagation`);
           }
         } catch (propError) {
           console.error("Error propagating dates:", propError);
+          console.error("Propagation error stack:", propError instanceof Error ? propError.stack : 'No stack trace');
           // Continue with original update even if propagation fails
+        }
+      } else if (estimatedHoursChanged && updated && !isCompleted && updated.startDate) {
+        // Fallback: If propagation didn't run but estimatedHours changed and task has startDate, recalculate endDate
+        try {
+          console.log(`[DEBUG] Fallback: Recalculating endDate for task ${id} after estimatedHours change`);
+          const assignments = await storage.getResourceAssignmentsByTask(id);
+          const resources = await Promise.all(
+            assignments.map(a => storage.getResource(a.resourceId))
+          );
+          const assignmentsWithResources = assignments.map((a, idx) => ({
+            ...a,
+            resource: resources[idx]!,
+          })).filter(a => a.resource);
+          
+          const workMode = ((updated as any).workMode as 'parallel' | 'sequential') || 'parallel';
+          const computedDuration = await schedulingService.calculateTaskDuration(
+            updated,
+            assignmentsWithResources,
+            workMode
+          );
+          
+          const primaryResource = assignmentsWithResources[0]?.resource || null;
+          const endDate = schedulingService.addCalendarDays(
+            new Date(updated.startDate),
+            computedDuration,
+            primaryResource
+          );
+          
+          const refreshed = await storage.updateTask(id, {
+            computedDuration,
+            endDate: endDate.toISOString(),
+          });
+          
+          if (refreshed) {
+            console.log(`[DEBUG] Task ${id} endDate recalculated - endDate: ${refreshed.endDate}, computedDuration: ${(refreshed as any).computedDuration}`);
+            wsManager.notifyProjectUpdate(task.projectId, "task-updated", refreshed, userId);
+            res.json(refreshed);
+            return;
+          }
+        } catch (recalcError) {
+          console.error("Error recalculating endDate:", recalcError);
         }
       }
 
@@ -497,6 +547,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error updating task:", error);
       res.status(400).json({ message: "Failed to update task" });
+    }
+  });
+
+  // Get resource leveling suggestions for a task with constraint conflict
+  app.get('/api/tasks/:id/resource-leveling', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid task ID" });
+      }
+
+      const task = await storage.getTask(id);
+      if (!task) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      if (!await checkProjectAccess(userId, task.projectId)) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      // Get resource assignments
+      const assignments = await storage.getResourceAssignmentsByTask(id);
+      const resources = await Promise.all(
+        assignments.map(a => storage.getResource(a.resourceId))
+      );
+      const assignmentsWithResources = assignments.map((a, idx) => ({
+        ...a,
+        resource: resources[idx]!,
+      })).filter(a => a.resource);
+
+      // Calculate current computed end date
+      const workMode = ((task as any).workMode as 'parallel' | 'sequential') || 'parallel';
+      const computedDuration = await schedulingService.calculateTaskDuration(
+        task,
+        assignmentsWithResources,
+        workMode
+      );
+      const startDate = task.startDate ? new Date(task.startDate) : null;
+      let computedEndDate: Date | null = null;
+      if (startDate) {
+        const primaryResource = assignmentsWithResources[0]?.resource || null;
+        computedEndDate = schedulingService.addCalendarDays(startDate, computedDuration, primaryResource);
+      }
+
+      // Detect constraint conflict
+      const conflict = await schedulingService.detectConstraintConflict(
+        task,
+        computedEndDate,
+        assignmentsWithResources
+      );
+
+      if (!conflict.hasConflict) {
+        return res.json({
+          hasConflict: false,
+          message: "No constraint conflict detected",
+          suggestions: [],
+        });
+      }
+
+      // Get resource leveling suggestions
+      const suggestions = await schedulingService.suggestResourceLeveling(
+        task,
+        assignmentsWithResources,
+        conflict.conflictDays!,
+        new Date(task.constraintDate!),
+        conflict.constraintType
+      );
+
+      res.json({
+        hasConflict: true,
+        conflict,
+        suggestions,
+      });
+    } catch (error: any) {
+      console.error("Error getting resource leveling suggestions:", error);
+      res.status(500).json({
+        message: error?.message || "Failed to get resource leveling suggestions",
+        error: process.env.NODE_ENV === 'development' ? error?.stack : undefined
+      });
     }
   });
 
