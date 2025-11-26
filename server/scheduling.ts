@@ -1,6 +1,6 @@
 import { db } from "./db";
 import { tasks, taskDependencies, resourceAssignments, resources } from "@shared/schema";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import type { Task, TaskDependency, Resource, ResourceAssignment } from "@shared/schema";
 
 interface ScheduleTask {
@@ -35,12 +35,179 @@ export class SchedulingService {
   /**
    * Calculate task duration in days based on estimated hours and resource capacity
    * Default: 8 hours per day if no resources assigned
+   * @deprecated Use calculateTaskDuration instead for calendar-aware calculation
    */
   calculateDuration(estimatedHours: number | null, hoursPerDay: number = 8): number {
     if (!estimatedHours || estimatedHours <= 0) {
       return 1; // Minimum 1 day duration
     }
     return Math.ceil(Number(estimatedHours) / hoursPerDay);
+  }
+
+  /**
+   * Check if a date is a working day for a resource
+   */
+  private isWorkingDay(date: Date, resource: Resource | null): boolean {
+    if (!resource) {
+      // Default: Monday-Friday
+      const dayOfWeek = date.getDay();
+      return dayOfWeek >= 1 && dayOfWeek <= 5;
+    }
+
+    const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const dayName = dayNames[date.getDay()];
+    const workingDays = (resource.workingDays as string[] | null) || ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'];
+    
+    if (!workingDays.includes(dayName)) {
+      return false;
+    }
+
+    // Check calendar exceptions (holidays, leave, etc.)
+    const exceptions = (resource.calendarExceptions as Array<{ date: string; type: string; note?: string }> | null) || [];
+    const dateStr = date.toISOString().split('T')[0];
+    return !exceptions.some(ex => ex.date === dateStr);
+  }
+
+  /**
+   * Get next working day for a resource
+   */
+  private getNextWorkingDay(date: Date, resource: Resource | null): Date {
+    let next = new Date(date);
+    next.setDate(next.getDate() + 1);
+    
+    while (!this.isWorkingDay(next, resource)) {
+      next.setDate(next.getDate() + 1);
+    }
+    
+    return next;
+  }
+
+  /**
+   * Calculate calendar-aware duration for a single resource assignment
+   * Returns duration in calendar days considering working days and calendar exceptions
+   */
+  private calculateResourceDuration(
+    effortHours: number,
+    resource: Resource,
+    allocation: number,
+    startDate: Date
+  ): number {
+    if (effortHours <= 0) return 1;
+
+    const maxHoursPerDay = resource.maxHoursPerDay || 8;
+    const maxHoursPerWeek = resource.maxHoursPerWeek || 40;
+    const effectiveHoursPerDay = (maxHoursPerDay * allocation) / 100;
+    
+    // Calculate how many calendar days needed
+    let remainingHours = effortHours;
+    let currentDate = new Date(startDate);
+    let calendarDays = 0;
+    let hoursThisWeek = 0;
+    const weekStart = new Date(currentDate);
+
+    while (remainingHours > 0) {
+      if (!this.isWorkingDay(currentDate, resource)) {
+        currentDate.setDate(currentDate.getDate() + 1);
+        calendarDays++;
+        continue;
+      }
+
+      // Check weekly limit
+      const daysSinceWeekStart = Math.floor((currentDate.getTime() - weekStart.getTime()) / (1000 * 60 * 60 * 24));
+      if (daysSinceWeekStart >= 7) {
+        hoursThisWeek = 0;
+        weekStart.setDate(weekStart.getDate() + 7);
+      }
+
+      const availableHoursToday = Math.min(
+        effectiveHoursPerDay,
+        maxHoursPerWeek - hoursThisWeek
+      );
+
+      if (availableHoursToday > 0) {
+        const hoursToUse = Math.min(remainingHours, availableHoursToday);
+        remainingHours -= hoursToUse;
+        hoursThisWeek += hoursToUse;
+      }
+
+      calendarDays++;
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+
+    return Math.max(1, calendarDays);
+  }
+
+  /**
+   * Calculate task duration considering all resource assignments and work mode
+   * PMI-compliant: effort hours ÷ (resource capacity × allocation) with calendar awareness
+   */
+  async calculateTaskDuration(
+    task: Task,
+    resourceAssignments: Array<ResourceAssignment & { resource: Resource }>,
+    workMode: 'parallel' | 'sequential' = 'parallel'
+  ): Promise<number> {
+    // Don't calculate duration for completed tasks
+    if (task.progress === 100) {
+      // Use actual duration if available, otherwise return existing computed duration
+      return task.actualDuration || task.computedDuration || 1;
+    }
+
+    const estimatedHours = task.estimatedHours ? Number(task.estimatedHours) : null;
+    
+    if (!estimatedHours || estimatedHours <= 0) {
+      return 1; // Minimum 1 day
+    }
+
+    if (resourceAssignments.length === 0) {
+      // No resources: default 8 hours per day, 5 days per week
+      return Math.ceil(estimatedHours / 8);
+    }
+
+    const startDate = task.startDate ? new Date(task.startDate) : new Date();
+    const resourceDurations: number[] = [];
+
+    for (const assignment of resourceAssignments) {
+      const resource = assignment.resource;
+      const allocation = assignment.allocation || 100;
+      
+      // Use assignment-specific effort hours if provided, otherwise use task total
+      const effortHours = assignment.effortHours 
+        ? Number(assignment.effortHours)
+        : estimatedHours / resourceAssignments.length; // Distribute evenly if not specified
+
+      const duration = this.calculateResourceDuration(
+        effortHours,
+        resource,
+        allocation,
+        startDate
+      );
+      
+      resourceDurations.push(duration);
+    }
+
+    if (workMode === 'parallel') {
+      // Task duration = max duration of all resources (slowest resource determines finish)
+      return Math.max(...resourceDurations, 1);
+    } else {
+      // Task duration = sum of all resource durations (resources work sequentially)
+      return resourceDurations.reduce((sum, d) => sum + d, 0);
+    }
+  }
+
+  /**
+   * Add calendar days to a date, respecting resource working calendar
+   * Skips non-working days and calendar exceptions
+   */
+  addCalendarDays(startDate: Date, days: number, resource: Resource | null = null): Date {
+    let result = new Date(startDate);
+    let remainingDays = days;
+    
+    while (remainingDays > 0) {
+      result = this.getNextWorkingDay(result, resource);
+      remainingDays--;
+    }
+    
+    return result;
   }
 
   /**
@@ -539,6 +706,185 @@ export class SchedulingService {
         estimatedHours: task.estimatedHours ? Number(task.estimatedHours) : null,
       };
     });
+  }
+
+  /**
+   * Propagate date changes to dependent tasks
+   * When a task's start date or effort hours change, recalculate all successor tasks
+   */
+  async propagateDates(projectId: number, changedTaskId: number): Promise<void> {
+    // Fetch all tasks and dependencies
+    const projectTasks = await db.select()
+      .from(tasks)
+      .where(eq(tasks.projectId, projectId));
+    
+    const dependencies = await db.select()
+      .from(taskDependencies)
+      .where(eq(taskDependencies.projectId, projectId));
+    
+    const taskIds = projectTasks.map(t => t.id);
+    const resourceAssignmentsList = taskIds.length > 0
+      ? await db.select()
+          .from(resourceAssignments)
+          .where(inArray(resourceAssignments.taskId, taskIds))
+      : [];
+    
+    const resourcesList = await db.select()
+      .from(resources)
+      .where(eq(resources.projectId, projectId));
+    
+    // Build maps for quick lookup
+    const taskMap = new Map(projectTasks.map(t => [t.id, t]));
+    const resourceMap = new Map(resourcesList.map(r => [r.id, r]));
+    const assignmentsByTask = new Map<number, Array<ResourceAssignment & { resource: Resource }>>();
+    
+    for (const assignment of resourceAssignmentsList) {
+      const resource = resourceMap.get(assignment.resourceId);
+      if (!resource) continue;
+      
+      if (!assignmentsByTask.has(assignment.taskId)) {
+        assignmentsByTask.set(assignment.taskId, []);
+      }
+      assignmentsByTask.get(assignment.taskId)!.push({ ...assignment, resource });
+    }
+    
+    // Build dependency graph
+    const successorsByTask = new Map<number, Array<{ taskId: number; type: string; lagDays: number }>>();
+    for (const dep of dependencies) {
+      if (!successorsByTask.has(dep.predecessorId)) {
+        successorsByTask.set(dep.predecessorId, []);
+      }
+      successorsByTask.get(dep.predecessorId)!.push({
+        taskId: dep.successorId,
+        type: dep.type,
+        lagDays: dep.lagDays,
+      });
+    }
+    
+    // Process changed task and propagate
+    const processed = new Set<number>();
+    const queue: number[] = [changedTaskId];
+    
+    while (queue.length > 0) {
+      const taskId = queue.shift()!;
+      if (processed.has(taskId)) continue;
+      processed.add(taskId);
+      
+      const task = taskMap.get(taskId);
+      if (!task) continue;
+      
+      // Skip calculations for completed tasks (100% progress)
+      if (task.progress === 100) {
+        console.log(`[DEBUG] Task ${taskId} is completed (100% progress) - skipping calculations, using actual dates`);
+        // Don't recalculate duration or dates for completed tasks
+        // Just process successors if needed
+        const successors = successorsByTask.get(taskId) || [];
+        for (const successor of successors) {
+          const successorTask = taskMap.get(successor.taskId);
+          if (successorTask && successorTask.progress !== 100) {
+            queue.push(successor.taskId);
+          }
+        }
+        continue;
+      }
+
+      // Recalculate this task's duration and end date
+      const assignments = assignmentsByTask.get(taskId) || [];
+      const workMode = (task.workMode as 'parallel' | 'sequential') || 'parallel';
+      
+      const computedDuration = await this.calculateTaskDuration(task, assignments, workMode);
+      
+      // Calculate end date from start date + duration
+      let endDate: Date | null = null;
+      if (task.startDate) {
+        // Use the first resource's calendar if available, otherwise default
+        const primaryResource = assignments.length > 0 ? assignments[0].resource : null;
+        endDate = this.addCalendarDays(new Date(task.startDate), computedDuration, primaryResource);
+      }
+      
+      // Update task in database
+      await db.update(tasks)
+        .set({
+          computedDuration,
+          endDate: endDate,
+          updatedAt: new Date(),
+        })
+        .where(eq(tasks.id, taskId));
+      
+      // Update task in map for subsequent calculations
+      taskMap.set(taskId, { ...task, computedDuration, endDate });
+      
+      // Process successors
+      const successors = successorsByTask.get(taskId) || [];
+      for (const successor of successors) {
+        const successorTask = taskMap.get(successor.taskId);
+        if (!successorTask) continue;
+        
+        // Calculate successor's early start based on dependency type
+        let earlyStart: Date | null = null;
+        
+        if (task.startDate && endDate) {
+          switch (successor.type) {
+            case 'FS': // Finish-to-Start
+              // Use successor's resource calendar for lag calculation
+              const fsSuccessorAssignments = assignmentsByTask.get(successor.taskId) || [];
+              earlyStart = this.addCalendarDays(endDate, successor.lagDays, fsSuccessorAssignments[0]?.resource || null);
+              break;
+            case 'SS': // Start-to-Start
+              // Use successor's resource calendar for lag calculation
+              const ssSuccessorAssignments = assignmentsByTask.get(successor.taskId) || [];
+              earlyStart = this.addCalendarDays(new Date(task.startDate), successor.lagDays, ssSuccessorAssignments[0]?.resource || null);
+              break;
+            case 'FF': // Finish-to-Finish
+              // Successor finish = predecessor finish + lag
+              // Calculate successor duration first, then work backwards
+              const successorAssignments = assignmentsByTask.get(successor.taskId) || [];
+              const successorWorkMode = (successorTask.workMode as 'parallel' | 'sequential') || 'parallel';
+              const successorDuration = await this.calculateTaskDuration(
+                successorTask,
+                successorAssignments,
+                successorWorkMode
+              );
+              // Successor start = predecessor finish + lag - successor duration
+              const ffTargetFinish = this.addCalendarDays(endDate, successor.lagDays, successorAssignments[0]?.resource || null);
+              earlyStart = this.subtractBusinessDays(ffTargetFinish, successorDuration);
+              break;
+            case 'SF': // Start-to-Finish (rare)
+              // Successor finish = predecessor start + lag
+              // Calculate successor duration first, then work backwards
+              const sfSuccessorAssignments = assignmentsByTask.get(successor.taskId) || [];
+              const sfSuccessorWorkMode = (successorTask.workMode as 'parallel' | 'sequential') || 'parallel';
+              const sfSuccessorDuration = await this.calculateTaskDuration(
+                successorTask,
+                sfSuccessorAssignments,
+                sfSuccessorWorkMode
+              );
+              // Successor start = predecessor start + lag - successor duration
+              const sfTargetFinish = this.addCalendarDays(new Date(task.startDate), successor.lagDays, sfSuccessorAssignments[0]?.resource || null);
+              earlyStart = this.subtractBusinessDays(sfTargetFinish, sfSuccessorDuration);
+              break;
+          }
+        }
+        
+        // Update successor's start date if early start is calculated
+        if (earlyStart && (!successorTask.startDate || new Date(successorTask.startDate) < earlyStart)) {
+          await db.update(tasks)
+            .set({
+              startDate: earlyStart,
+              updatedAt: new Date(),
+            })
+            .where(eq(tasks.id, successor.taskId));
+          
+          // Update in map
+          taskMap.set(successor.taskId, { ...successorTask, startDate: earlyStart });
+          
+          // Add to queue for further propagation
+          if (!processed.has(successor.taskId)) {
+            queue.push(successor.taskId);
+          }
+        }
+      }
+    }
   }
 }
 

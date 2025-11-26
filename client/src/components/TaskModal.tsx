@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useProject } from "@/contexts/ProjectContext";
@@ -17,9 +18,10 @@ import { useToast } from "@/hooks/use-toast";
 import { 
   Loader2, AlertTriangle, AlertCircle, User, Calendar, FileText, 
   ArrowRight, ArrowLeft, Clock, Activity, Plus, X, Link2, GitBranch,
-  Pencil, Check
+  Pencil, Check, Info, ChevronDown, ChevronUp
 } from "lucide-react";
 import type { Task, Risk, Issue, ResourceAssignment, Resource, Document, TaskDependency } from "@shared/schema";
+import { EditResourceModal } from "@/components/modals/EditResourceModal";
 
 type TaskStatus = "not-started" | "in-progress" | "review" | "completed" | "on-hold";
 type TaskPriority = "low" | "medium" | "high" | "critical";
@@ -64,12 +66,16 @@ interface TaskFormData {
   startDate: string;
   endDate: string;
   progress: number;
+  estimatedHours: string;
+  workMode: "parallel" | "sequential";
   discipline: string;
   areaCode: string;
   weightFactor: number;
   constraintType: string;
   baselineStart: string;
   baselineFinish: string;
+  actualStartDate: string;
+  actualFinishDate: string;
   responsibleContractor: string;
 }
 
@@ -100,6 +106,9 @@ export function TaskModal({
   const [predecessorType, setPredecessorType] = useState<DependencyType>("FS");
   const [successorType, setSuccessorType] = useState<DependencyType>("FS");
   const [editingDependency, setEditingDependency] = useState<number | null>(null);
+  const [showResourceCreation, setShowResourceCreation] = useState(false);
+  const [newlyCreatedResourceId, setNewlyCreatedResourceId] = useState<number | null>(null);
+  const [showPmiLegend, setShowPmiLegend] = useState(false);
   
   const getDefaultFormData = (): TaskFormData => ({
     name: "",
@@ -109,12 +118,16 @@ export function TaskModal({
     startDate: "",
     endDate: "",
     progress: 0,
+    estimatedHours: "",
+    workMode: "parallel",
     discipline: "",
     areaCode: "",
     weightFactor: 1.0,
     constraintType: "asap",
     baselineStart: "",
     baselineFinish: "",
+    actualStartDate: "",
+    actualFinishDate: "",
     responsibleContractor: "",
   });
 
@@ -201,12 +214,16 @@ export function TaskModal({
           startDate: task.startDate ? new Date(task.startDate).toISOString().split('T')[0] : "",
           endDate: task.endDate ? new Date(task.endDate).toISOString().split('T')[0] : "",
           progress: task.progress || 0,
+          estimatedHours: task.estimatedHours ? String(task.estimatedHours) : "",
+          workMode: ((task as any).workMode as "parallel" | "sequential") || "parallel",
           discipline: (task as any).discipline || "",
           areaCode: (task as any).areaCode || "",
           weightFactor: (task as any).weightFactor || 1.0,
           constraintType: (task as any).constraintType || "asap",
           baselineStart: (task as any).baselineStart ? new Date((task as any).baselineStart).toISOString().split('T')[0] : "",
           baselineFinish: (task as any).baselineFinish ? new Date((task as any).baselineFinish).toISOString().split('T')[0] : "",
+          actualStartDate: (task as any).actualStartDate ? new Date((task as any).actualStartDate).toISOString().split('T')[0] : "",
+          actualFinishDate: (task as any).actualFinishDate ? new Date((task as any).actualFinishDate).toISOString().split('T')[0] : "",
           responsibleContractor: (task as any).responsibleContractor || "",
         });
       } else {
@@ -446,6 +463,8 @@ export function TaskModal({
       startDate: formData.startDate ? new Date(formData.startDate).toISOString() : undefined,
       endDate: formData.endDate ? new Date(formData.endDate).toISOString() : undefined,
       progress: formData.progress,
+      estimatedHours: formData.estimatedHours ? parseFloat(formData.estimatedHours) : undefined,
+      workMode: formData.workMode,
       discipline: formData.discipline || undefined,
       areaCode: formData.areaCode || undefined,
       weightFactor: formData.weightFactor || undefined,
@@ -510,6 +529,49 @@ export function TaskModal({
   const isLoading = createMutation.isPending || updateMutation.isPending;
   const isEditing = !!task;
 
+  // Auto-assign newly created resource to task
+  useEffect(() => {
+    if (newlyCreatedResourceId && task) {
+      addResourceMutation.mutate(
+        { resourceId: newlyCreatedResourceId, allocation: 100 },
+        {
+          onSuccess: () => {
+            setNewlyCreatedResourceId(null);
+            toast({
+              title: "Resource Assigned",
+              description: "The newly created resource has been assigned to this task.",
+            });
+          },
+        }
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newlyCreatedResourceId, task]);
+
+  // If showing resource creation, render EditResourceModal instead
+  if (showResourceCreation) {
+    return (
+      <EditResourceModal
+        resource={null}
+        open={true}
+        onOpenChange={(isOpen) => {
+          if (!isOpen) {
+            setShowResourceCreation(false);
+          }
+        }}
+        onSuccess={(createdResource) => {
+          setShowResourceCreation(false);
+          // Store the newly created resource ID to auto-assign it
+          if (createdResource?.id) {
+            setNewlyCreatedResourceId(createdResource.id);
+          }
+          // Refresh resources list
+          queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/resources`] });
+        }}
+      />
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={(open) => {
       if (!open) handleClose();
@@ -569,7 +631,6 @@ export function TaskModal({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-4">
                     <h3 className="text-sm font-semibold text-muted-foreground">Basic Information</h3>
-                    
                     <div className="space-y-2">
                       <Label htmlFor="task-name">Task Name *</Label>
                       <Input
@@ -598,7 +659,23 @@ export function TaskModal({
                         <Label htmlFor="task-status">Status</Label>
                         <Select 
                           value={formData.status} 
-                          onValueChange={(value: TaskStatus) => setFormData({ ...formData, status: value })}
+                          onValueChange={(value: TaskStatus) => {
+                            const today = new Date().toISOString().split('T')[0];
+                            const updates: Partial<TaskFormData> = { status: value };
+                            
+                            // Auto-set actualStartDate when status changes to in-progress
+                            if (value === 'in-progress' && !formData.actualStartDate) {
+                              updates.actualStartDate = today;
+                            }
+                            
+                            // Auto-set actualFinishDate when status changes to completed
+                            if (value === 'completed' && !formData.actualFinishDate) {
+                              updates.actualFinishDate = today;
+                              updates.progress = 100;
+                            }
+                            
+                            setFormData({ ...formData, ...updates });
+                          }}
                         >
                           <SelectTrigger id="task-status" data-testid="select-task-status">
                             <SelectValue />
@@ -640,35 +717,293 @@ export function TaskModal({
                         min="0"
                         max="100"
                         value={formData.progress}
-                        onChange={(e) => setFormData({ ...formData, progress: parseInt(e.target.value) })}
+                        onChange={(e) => {
+                          const newProgress = parseInt(e.target.value);
+                          setFormData({ ...formData, progress: newProgress });
+                          
+                          // Auto-set actual dates based on progress/status
+                          const today = new Date().toISOString().split('T')[0];
+                          if (newProgress > 0 && newProgress < 100 && !formData.actualStartDate) {
+                            setFormData(prev => ({ ...prev, actualStartDate: today }));
+                          }
+                          if (newProgress === 100 && !formData.actualFinishDate) {
+                            setFormData(prev => ({ ...prev, actualFinishDate: today }));
+                          }
+                        }}
                         className="cursor-pointer"
                         data-testid="slider-task-progress"
                       />
+                      {formData.progress === 100 && (
+                        <p className="text-xs text-amber-600 dark:text-amber-400">
+                          Task completed - schedule calculations are disabled. Use actual dates for historical tracking.
+                        </p>
+                      )}
                     </div>
 
                     <div className="grid grid-cols-2 gap-4">
                       <div className="space-y-2">
-                        <Label htmlFor="start-date">Start Date</Label>
+                        <Label htmlFor="estimated-hours">Estimated Hours (Effort) *</Label>
                         <Input
-                          id="start-date"
-                          type="date"
-                          value={formData.startDate}
-                          onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
-                          data-testid="input-start-date"
+                          id="estimated-hours"
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          placeholder="e.g., 100"
+                          value={formData.estimatedHours}
+                          onChange={(e) => setFormData({ ...formData, estimatedHours: e.target.value })}
+                          data-testid="input-estimated-hours"
                         />
+                        <p className="text-xs text-muted-foreground">
+                          Base effort hours for duration calculation
+                        </p>
                       </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor="end-date">End Date</Label>
-                        <Input
-                          id="end-date"
-                          type="date"
-                          value={formData.endDate}
-                          onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
-                          data-testid="input-end-date"
-                        />
+                      {assignments.length > 1 && (
+                        <div className="space-y-2">
+                          <Label htmlFor="work-mode">Work Mode</Label>
+                          <Select 
+                            value={formData.workMode} 
+                            onValueChange={(value: "parallel" | "sequential") => setFormData({ ...formData, workMode: value })}
+                          >
+                            <SelectTrigger id="work-mode" data-testid="select-work-mode">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="parallel">Parallel (Max Duration)</SelectItem>
+                              <SelectItem value="sequential">Sequential (Sum Duration)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-muted-foreground">
+                            {formData.workMode === "parallel" 
+                              ? "Resources work together, task finishes when slowest completes"
+                              : "Resources work sequentially, durations are added"}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+
+                    {task && (
+                      <div className="space-y-3 p-4 bg-muted/30 rounded-lg border">
+                        <h4 className="text-sm font-semibold">Duration Information (PMI Standard)</h4>
+                        <div className="grid grid-cols-3 gap-4">
+                          <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground">Baseline Duration</Label>
+                            <p className="text-sm font-medium">
+                              {(task as any).baselineDuration 
+                                ? `${(task as any).baselineDuration} days` 
+                                : "Not set"}
+                            </p>
+                            <p className="text-xs text-muted-foreground">Original planned duration</p>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground">Computed Duration</Label>
+                            <p className="text-sm font-medium">
+                              {(task as any).computedDuration 
+                                ? `${(task as any).computedDuration} days` 
+                                : task.estimatedHours 
+                                  ? "Calculating..." 
+                                  : "Not calculated"}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              Effort ÷ (Resource Capacity × Allocation)
+                            </p>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs text-muted-foreground">Actual Duration</Label>
+                            <p className="text-sm font-medium">
+                              {(task as any).actualDuration 
+                                ? `${(task as any).actualDuration} days` 
+                                : task.status === "completed" && (task as any).actualStartDate && (task as any).actualFinishDate
+                                  ? `${Math.ceil((new Date((task as any).actualFinishDate).getTime() - new Date((task as any).actualStartDate).getTime()) / (1000 * 60 * 60 * 24))} days`
+                                  : "N/A"}
+                            </p>
+                            <p className="text-xs text-muted-foreground">Real duration from actual start to actual finish</p>
+                          </div>
+                        </div>
+                        {task.estimatedHours && assignments.length > 0 && (
+                          <div className="mt-3 pt-3 border-t">
+                            <p className="text-xs text-muted-foreground">
+                              <strong>Calculation:</strong> {Number(task.estimatedHours)} hours ÷ 
+                              {assignments.map((a, idx) => {
+                                const resource = resources.find(r => r.id === a.resourceId);
+                                const maxHoursPerDay = resource?.maxHoursPerDay || 8;
+                                const allocation = a.allocation || 100;
+                                const effectiveHours = (maxHoursPerDay * allocation) / 100;
+                                return ` ${effectiveHours}hr/day (${resource?.name || 'Resource'})`;
+                              }).join(formData.workMode === "parallel" ? " (max)" : " + ")}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Planned Dates Section */}
+                    <div className="space-y-3">
+                      <h4 className="text-sm font-semibold">Planned Dates</h4>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="start-date">Planned Start Date</Label>
+                          <Input
+                            id="start-date"
+                            type="date"
+                            value={formData.startDate}
+                            onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+                            data-testid="input-start-date"
+                            disabled={formData.progress === 100}
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            {formData.progress === 100 
+                              ? "Task completed - use actual dates"
+                              : "Setting this will recalculate dependent tasks"}
+                          </p>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="end-date">Planned End Date</Label>
+                          <Input
+                            id="end-date"
+                            type="date"
+                            value={formData.endDate}
+                            onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+                            data-testid="input-end-date"
+                            disabled={formData.progress === 100}
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            {formData.progress === 100 
+                              ? "Task completed - use actual dates"
+                              : "Calculated from start date + computed duration"}
+                          </p>
+                        </div>
                       </div>
                     </div>
+
+                    {/* Baseline Dates Section */}
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-sm font-semibold">Baseline Dates</h4>
+                        {task && !(task as any).baselineStart && (task as any).computedDuration && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={async () => {
+                              try {
+                                await apiRequest("PATCH", `/api/tasks/${task.id}`, {
+                                  baselineStart: task.startDate,
+                                  baselineFinish: task.endDate,
+                                  baselineDuration: (task as any).computedDuration,
+                                });
+                                toast({
+                                  title: "Baseline Set",
+                                  description: "Baseline dates set from computed schedule.",
+                                });
+                                queryClient.invalidateQueries({ queryKey: [`/api/tasks/${task.id}`] });
+                              } catch (error: any) {
+                                toast({
+                                  title: "Error",
+                                  description: "Failed to set baseline.",
+                                  variant: "destructive",
+                                });
+                              }
+                            }}
+                          >
+                            Set Baseline
+                          </Button>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="baseline-start">Baseline Start</Label>
+                          <Input
+                            id="baseline-start"
+                            type="date"
+                            value={formData.baselineStart}
+                            onChange={(e) => setFormData({ ...formData, baselineStart: e.target.value })}
+                            data-testid="input-baseline-start"
+                            disabled={!!(task as any)?.baselineStart}
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            {(task as any)?.baselineStart 
+                              ? "Baseline locked - snapshot for comparison"
+                              : "Original planned start (snapshot)"}
+                          </p>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="baseline-finish">Baseline Finish</Label>
+                          <Input
+                            id="baseline-finish"
+                            type="date"
+                            value={formData.baselineFinish}
+                            onChange={(e) => setFormData({ ...formData, baselineFinish: e.target.value })}
+                            data-testid="input-baseline-finish"
+                            disabled={!!(task as any)?.baselineFinish}
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            {(task as any)?.baselineFinish 
+                              ? "Baseline locked - snapshot for comparison"
+                              : "Original planned finish (snapshot)"}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Actual Dates Section */}
+                    {(formData.progress > 0 || task) && (
+                      <div className="space-y-3">
+                        <h4 className="text-sm font-semibold">Actual Dates</h4>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="actual-start-date">Actual Start Date</Label>
+                            <Input
+                              id="actual-start-date"
+                              type="date"
+                              value={formData.actualStartDate}
+                              onChange={(e) => setFormData({ ...formData, actualStartDate: e.target.value })}
+                              data-testid="input-actual-start-date"
+                              disabled={formData.progress === 0}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              When work actually started
+                            </p>
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label htmlFor="actual-finish-date">Actual Finish Date</Label>
+                            <Input
+                              id="actual-finish-date"
+                              type="date"
+                              value={formData.actualFinishDate}
+                              onChange={(e) => setFormData({ ...formData, actualFinishDate: e.target.value })}
+                              data-testid="input-actual-finish-date"
+                              disabled={formData.progress < 100}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              When work actually finished
+                            </p>
+                          </div>
+                        </div>
+                        {task && formData.actualStartDate && formData.actualFinishDate && (
+                          <div className="p-2 bg-muted/30 rounded text-xs space-y-1">
+                            {formData.baselineStart && (
+                              <p className="text-muted-foreground">
+                                <strong>Variance vs Baseline:</strong> {
+                                  Math.ceil((new Date(formData.actualFinishDate).getTime() - new Date(formData.baselineFinish || formData.baselineStart).getTime()) / (1000 * 60 * 60 * 24))
+                                } days {new Date(formData.actualFinishDate) > new Date(formData.baselineFinish || formData.baselineStart) ? 'behind' : 'ahead'}
+                              </p>
+                            )}
+                            {formData.startDate && (
+                              <p className="text-muted-foreground">
+                                <strong>Variance vs Planned:</strong> {
+                                  Math.ceil((new Date(formData.actualFinishDate).getTime() - new Date(formData.endDate || formData.startDate).getTime()) / (1000 * 60 * 60 * 24))
+                                } days {new Date(formData.actualFinishDate) > new Date(formData.endDate || formData.startDate) ? 'behind' : 'ahead'}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-4">
@@ -744,30 +1079,6 @@ export function TaskModal({
                           value={formData.weightFactor}
                           onChange={(e) => setFormData({ ...formData, weightFactor: parseFloat(e.target.value) || 0 })}
                           data-testid="input-weight-factor"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="baseline-start">Baseline Start</Label>
-                        <Input
-                          id="baseline-start"
-                          type="date"
-                          value={formData.baselineStart}
-                          onChange={(e) => setFormData({ ...formData, baselineStart: e.target.value })}
-                          data-testid="input-baseline-start"
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label htmlFor="baseline-finish">Baseline Finish</Label>
-                        <Input
-                          id="baseline-finish"
-                          type="date"
-                          value={formData.baselineFinish}
-                          onChange={(e) => setFormData({ ...formData, baselineFinish: e.target.value })}
-                          data-testid="input-baseline-finish"
                         />
                       </div>
                     </div>
@@ -1196,9 +1507,31 @@ export function TaskModal({
                   )}
 
                   <div className="space-y-2">
-                    <h4 className="text-sm font-semibold">Available Resources</h4>
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-semibold">Available Resources</h4>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowResourceCreation(true)}
+                        className="gap-2"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Create New Resource
+                      </Button>
+                    </div>
                     {resources.filter(r => !assignedResourceIds.includes(r.id)).length === 0 ? (
-                      <p className="text-sm text-muted-foreground py-4 text-center">All resources are already assigned</p>
+                      <div className="space-y-2">
+                        <p className="text-sm text-muted-foreground py-4 text-center">All resources are already assigned</p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowResourceCreation(true)}
+                          className="w-full gap-2"
+                        >
+                          <Plus className="h-4 w-4" />
+                          Create New Resource
+                        </Button>
+                      </div>
                     ) : (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                         {resources.filter(r => !assignedResourceIds.includes(r.id)).map((resource) => (
@@ -1507,6 +1840,49 @@ export function TaskModal({
           <Button variant="outline" onClick={handleClose} disabled={isLoading} data-testid="button-cancel">
             Cancel
           </Button>
+          {isEditing && task && (
+            <Button 
+              variant="outline" 
+              onClick={async () => {
+                try {
+                  const response = await apiRequest("POST", `/api/tasks/${task.id}/recalculate`);
+                  
+                  // Check if response is actually JSON
+                  const contentType = response.headers.get("content-type");
+                  if (!contentType || !contentType.includes("application/json")) {
+                    const text = await response.text();
+                    console.error("Non-JSON response received:", text.substring(0, 200));
+                    throw new Error(`Server returned ${response.status}: Expected JSON but got ${contentType}`);
+                  }
+                  
+                  const result = await response.json();
+                  toast({
+                    title: "Schedule Recalculated",
+                    description: result.message || "Task dates and dependent tasks have been recalculated.",
+                  });
+                  queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/tasks`] });
+                  // Refresh the current task data
+                  queryClient.invalidateQueries({ queryKey: [`/api/tasks/${task.id}`] });
+                } catch (error: any) {
+                  // Parse error message from the error string (format: "500: error message")
+                  const errorMatch = error?.message?.match(/^\d+:\s*(.+)$/);
+                  const errorMessage = errorMatch?.[1] || error?.message || "Failed to recalculate schedule. Please ensure the server has been restarted.";
+                  console.error("Recalculate schedule error:", error);
+                  toast({
+                    title: "Error",
+                    description: errorMessage,
+                    variant: "destructive",
+                  });
+                }
+              }}
+              disabled={isLoading || formData.progress === 100}
+              data-testid="button-recalculate-schedule"
+              title={formData.progress === 100 ? "Task completed - calculations disabled" : ""}
+            >
+              <Activity className="h-4 w-4 mr-2" />
+              Recalculate Schedule
+            </Button>
+          )}
           <Button onClick={handleSave} disabled={isLoading} data-testid="button-save-task">
             {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             {isEditing ? "Update Task" : "Create Task"}
@@ -1516,3 +1892,4 @@ export function TaskModal({
     </Dialog>
   );
 }
+

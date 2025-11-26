@@ -22,7 +22,8 @@ import {
   updateCostItemSchema,
   insertAiConversationSchema,
   insertEmailTemplateSchema,
-  updateEmailTemplateSchema
+  updateEmailTemplateSchema,
+  insertResourceSchema
 } from "@shared/schema";
 import { chatWithAssistant, type ChatMessage } from "./aiAssistant";
 import { z } from "zod";
@@ -40,6 +41,7 @@ import {
   getAvailablePlaceholders
 } from "./emailService";
 import { wsManager } from "./websocket";
+import { schedulingService } from "./scheduling";
 
 // Helper to get user ID from request
 function getUserId(req: any): string {
@@ -346,6 +348,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         createdBy: userId,
       });
 
+      // If task has startDate and estimatedHours, calculate duration and propagate dates
+      if (task.startDate && task.estimatedHours) {
+        try {
+          await schedulingService.propagateDates(task.projectId, task.id);
+          // Refresh task after propagation
+          const refreshed = await storage.getTask(task.id);
+          if (refreshed) {
+            wsManager.notifyProjectUpdate(task.projectId, "task-created", refreshed, userId);
+            res.json(refreshed);
+            return;
+          }
+        } catch (propError) {
+          console.error("Error propagating dates on task creation:", propError);
+          // Continue with original task even if propagation fails
+        }
+      }
+
       // Notify connected clients
       wsManager.notifyProjectUpdate(task.projectId, "task-created", task, userId);
 
@@ -390,9 +409,85 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if ('earlyFinish' in body) body.earlyFinish = normalizeDateField(body.earlyFinish);
       if ('lateStart' in body) body.lateStart = normalizeDateField(body.lateStart);
       if ('lateFinish' in body) body.lateFinish = normalizeDateField(body.lateFinish);
+      if ('baselineStart' in body) body.baselineStart = normalizeDateField(body.baselineStart);
+      if ('baselineFinish' in body) body.baselineFinish = normalizeDateField(body.baselineFinish);
+      if ('actualStartDate' in body) body.actualStartDate = normalizeDateField(body.actualStartDate);
+      if ('actualFinishDate' in body) body.actualFinishDate = normalizeDateField(body.actualFinishDate);
+
+      // Auto-set actual dates based on status/progress changes
+      const statusChanged = 'status' in body && body.status !== task.status;
+      const progressChanged = 'progress' in body && body.progress !== task.progress;
+      const today = new Date();
+      
+      if (statusChanged || progressChanged) {
+        const newStatus = body.status || task.status;
+        const newProgress = body.progress !== undefined ? body.progress : task.progress;
+        
+        // Auto-set actualStartDate when task becomes in-progress
+        if ((newStatus === 'in-progress' || newProgress > 0) && !body.actualStartDate && !task.actualStartDate) {
+          body.actualStartDate = today;
+        }
+        
+        // Auto-set actualFinishDate when task becomes completed
+        if ((newStatus === 'completed' || newProgress === 100) && !body.actualFinishDate && !task.actualFinishDate) {
+          body.actualFinishDate = today;
+        }
+      }
+      
+      // Calculate actualDuration from actualStartDate and actualFinishDate
+      if (body.actualStartDate && body.actualFinishDate) {
+        const actualStart = body.actualStartDate instanceof Date ? body.actualStartDate : new Date(body.actualStartDate);
+        const actualFinish = body.actualFinishDate instanceof Date ? body.actualFinishDate : new Date(body.actualFinishDate);
+        const diffTime = actualFinish.getTime() - actualStart.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        body.actualDuration = Math.max(1, diffDays);
+      } else if (task.actualStartDate && task.actualFinishDate && !body.actualStartDate && !body.actualFinishDate) {
+        // Keep existing calculation if dates haven't changed
+        const actualStart = task.actualStartDate instanceof Date ? task.actualStartDate : new Date(task.actualStartDate);
+        const actualFinish = task.actualFinishDate instanceof Date ? task.actualFinishDate : new Date(task.actualFinishDate);
+        const diffTime = actualFinish.getTime() - actualStart.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        body.actualDuration = Math.max(1, diffDays);
+      }
 
       const data = updateTaskSchema.parse(body);
+      
+      // Prevent date propagation for completed tasks
+      const isCompleted = data.progress === 100 || task.progress === 100;
+      
+      // Check if startDate or estimatedHours changed (triggers date propagation)
+      const startDateChanged = 'startDate' in data && 
+        ((!task.startDate && data.startDate) || 
+         (task.startDate && !data.startDate) ||
+         (task.startDate && data.startDate && new Date(task.startDate).getTime() !== new Date(data.startDate).getTime()));
+      
+      const estimatedHoursChanged = 'estimatedHours' in data &&
+        ((!task.estimatedHours && data.estimatedHours) ||
+         (task.estimatedHours && !data.estimatedHours) ||
+         (task.estimatedHours && data.estimatedHours && Number(task.estimatedHours) !== Number(data.estimatedHours)));
+      
+      const shouldPropagate = startDateChanged || estimatedHoursChanged;
+      
       const updated = await storage.updateTask(id, data);
+
+      // If start date or effort hours changed, propagate to dependent tasks
+      // Skip propagation for completed tasks (100% progress)
+      if (shouldPropagate && updated && !isCompleted) {
+        try {
+          await schedulingService.propagateDates(task.projectId, id);
+          // Refresh updated task after propagation
+          const refreshed = await storage.getTask(id);
+          if (refreshed) {
+            // Notify with refreshed data
+            wsManager.notifyProjectUpdate(task.projectId, "task-updated", refreshed, userId);
+            res.json(refreshed);
+            return;
+          }
+        } catch (propError) {
+          console.error("Error propagating dates:", propError);
+          // Continue with original update even if propagation fails
+        }
+      }
 
       // Notify connected clients
       wsManager.notifyProjectUpdate(task.projectId, "task-updated", updated, userId);
@@ -401,6 +496,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error updating task:", error);
       res.status(400).json({ message: "Failed to update task" });
+    }
+  });
+
+  // Recalculate task schedule (MUST be before other /api/tasks/:id routes to avoid conflicts)
+  // This route must be registered before app.get('/api/tasks/:id') to ensure proper matching
+  app.post('/api/tasks/:id/recalculate', isAuthenticated, async (req: any, res) => {
+    // Set content type explicitly
+    res.setHeader('Content-Type', 'application/json');
+    try {
+      console.log(`[DEBUG] Recalculate route hit: POST /api/tasks/${req.params.id}/recalculate`);
+      console.log(`[DEBUG] Request method: ${req.method}, URL: ${req.url}, Path: ${req.path}`);
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid task ID" });
+      }
+
+      const task = await storage.getTask(id);
+      if (!task) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      // Check access
+      if (!await checkProjectAccess(userId, task.projectId)) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      // Recalculate this task and propagate to dependent tasks
+      await schedulingService.propagateDates(task.projectId, id);
+      
+      // Refresh task after recalculation
+      const refreshed = await storage.getTask(id);
+      if (!refreshed) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      // Notify connected clients
+      wsManager.notifyProjectUpdate(task.projectId, "task-updated", refreshed, userId);
+
+      res.json({ 
+        success: true, 
+        task: refreshed,
+        message: "Schedule recalculated successfully" 
+      });
+    } catch (error: any) {
+      console.error("Error recalculating task schedule:", error);
+      const errorMessage = error?.message || "Failed to recalculate schedule";
+      res.status(500).json({ 
+        message: errorMessage,
+        error: process.env.NODE_ENV === 'development' ? error?.stack : undefined
+      });
     }
   });
 
@@ -1635,18 +1782,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/resources', isAuthenticated, async (req: any, res) => {
     try {
       const userId = getUserId(req);
-      const data = req.body;
+      const body = req.body;
 
       // Check access to project
-      if (!await checkProjectAccess(userId, data.projectId)) {
+      if (!await checkProjectAccess(userId, body.projectId)) {
         return res.status(403).json({ message: "Access denied" });
       }
 
+      // Normalize date fields - convert empty strings to null, ISO strings to Date objects
+      const normalizeDateField = (value: any): Date | null | undefined => {
+        if (value === null || value === undefined) return value;
+        if (typeof value === 'string') {
+          if (value.trim() === '') return null;
+          return new Date(value);
+        }
+        return value;
+      };
+
+      if ('contractStartDate' in body) body.contractStartDate = normalizeDateField(body.contractStartDate);
+      if ('contractEndDate' in body) body.contractEndDate = normalizeDateField(body.contractEndDate);
+
+      // Validate with Zod schema
+      const data = insertResourceSchema.parse(body);
+
       const resource = await storage.createResource(data);
       res.json(resource);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error creating resource:", error);
-      res.status(400).json({ message: "Failed to create resource" });
+      
+      // Return specific validation errors if it's a Zod error
+      if (error.name === 'ZodError') {
+        const errorMessages = error.errors.map((e: any) => `${e.path.join('.')}: ${e.message}`).join(', ');
+        return res.status(400).json({ 
+          message: "Validation failed",
+          errors: error.errors,
+          details: errorMessages
+        });
+      }
+      
+      const errorMessage = error?.message || "Failed to create resource";
+      res.status(400).json({ 
+        message: errorMessage,
+        error: process.env.NODE_ENV === 'development' ? error?.stack : undefined
+      });
     }
   });
 

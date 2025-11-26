@@ -25,7 +25,7 @@ interface EditResourceModalProps {
   resource: Resource | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSuccess?: () => void;
+  onSuccess?: (createdResource?: Resource) => void;
 }
 
 interface PricingModel {
@@ -239,16 +239,17 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
 
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
-      return await apiRequest("POST", "/api/resources", {
+      const response = await apiRequest("POST", "/api/resources", {
         ...data,
         projectId: selectedProjectId,
       });
+      return await response.json();
     },
-    onSuccess: () => {
+    onSuccess: (createdResource: Resource) => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", selectedProjectId, "resources"] });
       toast({ title: "Success", description: "Resource created successfully" });
       onOpenChange(false);
-      onSuccess?.();
+      onSuccess?.(createdResource);
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message || "Failed to create resource", variant: "destructive" });
@@ -327,29 +328,49 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
       return;
     }
 
+    // Helper to convert date string to ISO or null
+    const normalizeDate = (dateStr: string): string | null => {
+      if (!dateStr || dateStr.trim() === '') return null;
+      // If it's already in ISO format, return as is, otherwise convert
+      try {
+        const date = new Date(dateStr);
+        if (isNaN(date.getTime())) return null;
+        return date.toISOString();
+      } catch {
+        return null;
+      }
+    };
+
+    // Helper to convert string to number or null
+    const normalizeNumber = (value: string | number | null | undefined): number | null => {
+      if (value === null || value === undefined || value === '') return null;
+      const num = typeof value === 'string' ? parseFloat(value) : value;
+      return isNaN(num) ? null : num;
+    };
+
     const data = {
       name: formData.name,
       type: formData.type,
       discipline: formData.discipline,
       availability: formData.availability,
       availabilityStatus: formData.availabilityStatus,
-      rate: formData.rate || null,
+      rate: normalizeNumber(formData.rate),
       rateType: formData.rateType,
       unitType: formData.unitType,
       currency: formData.currency,
-      description: formData.description || null,
-      notes: formData.notes || null,
+      description: formData.description?.trim() || null,
+      notes: formData.notes?.trim() || null,
       contractType: formData.contractType || null,
-      vendorName: formData.vendorName || null,
-      vendorContactEmail: formData.vendorContactEmail || null,
-      vendorContactPhone: formData.vendorContactPhone || null,
-      contractStartDate: formData.contractStartDate || null,
-      contractEndDate: formData.contractEndDate || null,
-      contractReference: formData.contractReference || null,
-      maxHoursPerDay: formData.maxHoursPerDay,
-      maxHoursPerWeek: formData.maxHoursPerWeek,
-      efficiencyRating: formData.efficiencyRating,
-      productivityFactor: formData.productivityFactor,
+      vendorName: formData.vendorName?.trim() || null,
+      vendorContactEmail: formData.vendorContactEmail?.trim() || null,
+      vendorContactPhone: formData.vendorContactPhone?.trim() || null,
+      contractStartDate: normalizeDate(formData.contractStartDate),
+      contractEndDate: normalizeDate(formData.contractEndDate),
+      contractReference: formData.contractReference?.trim() || null,
+      maxHoursPerDay: formData.maxHoursPerDay || null,
+      maxHoursPerWeek: formData.maxHoursPerWeek || null,
+      efficiencyRating: normalizeNumber(formData.efficiencyRating) || null,
+      productivityFactor: normalizeNumber(formData.productivityFactor) || null,
       qualityScore: formData.qualityScore ? parseInt(formData.qualityScore) : null,
       skillsArray: skills.length > 0 ? skills : null,
       skills: skills.length > 0 ? skills.join(", ") : null,

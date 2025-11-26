@@ -7,6 +7,7 @@ import { z } from "zod";
 export const taskStatusEnum = pgEnum("task_status", ["not-started", "in-progress", "review", "completed", "on-hold"]);
 export const taskPriorityEnum = pgEnum("task_priority", ["low", "medium", "high", "critical"]);
 export const dependencyTypeEnum = pgEnum("dependency_type", ["FS", "SS", "FF", "SF"]); // Finish-Start, Start-Start, Finish-Finish, Start-Finish
+export const workModeEnum = pgEnum("work_mode", ["parallel", "sequential"]); // How multiple resources work together
 export const riskStatusEnum = pgEnum("risk_status", ["identified", "assessed", "mitigating", "closed"]);
 export const riskImpactEnum = pgEnum("risk_impact", ["low", "medium", "high", "critical"]);
 export const issueStatusEnum = pgEnum("issue_status", ["open", "in-progress", "resolved", "closed"]);
@@ -205,7 +206,13 @@ export const tasks = pgTable("tasks", {
   responsibleContractor: text("responsible_contractor"), // Subcontractor name
   float: integer("float"), // Total float days (calculated from CPM)
   freeFloat: integer("free_float"), // Free float days (slack before affecting successors)
-  duration: integer("duration"), // Duration in days (calculated from effort/capacity)
+  duration: integer("duration"), // Duration in days (calculated from effort/capacity) - legacy, use computedDuration
+  baselineDuration: integer("baseline_duration"), // Original planned duration in days (snapshot at baseline)
+  computedDuration: integer("computed_duration"), // Calculated duration in days (from effort hours + resource capacity + calendar)
+  actualDuration: integer("actual_duration"), // Actual duration in days (after task completion)
+  actualStartDate: timestamp("actual_start_date"), // Actual date when work started
+  actualFinishDate: timestamp("actual_finish_date"), // Actual date when work finished
+  workMode: workModeEnum("work_mode").default("parallel"), // How multiple resources work: parallel (max) or sequential (sum)
   earlyStart: timestamp("early_start"), // Earliest possible start (CPM Forward Pass)
   earlyFinish: timestamp("early_finish"), // Earliest possible finish (CPM Forward Pass)
   lateStart: timestamp("late_start"), // Latest possible start (CPM Backward Pass)
@@ -456,7 +463,9 @@ export const resourceAssignments = pgTable("resource_assignments", {
   id: serial("id").primaryKey(),
   taskId: integer("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
   resourceId: integer("resource_id").notNull().references(() => resources.id, { onDelete: "cascade" }),
-  allocation: integer("allocation").notNull().default(100), // percentage
+  allocation: integer("allocation").notNull().default(100), // percentage (100% = full-time, 200% = double capacity)
+  effortHours: decimal("effort_hours", { precision: 10, scale: 2 }), // Effort hours for THIS resource on THIS task (if different from task total)
+  workMode: workModeEnum("work_mode"), // Optional override per assignment (if null, use task workMode)
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
