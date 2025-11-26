@@ -11,12 +11,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SCurveChart, PerformanceGauges, DisciplineProgress, RiskExposureSummary } from "@/components/epc";
 import type { Task, Risk, Issue, CostItem, Project } from "@shared/schema";
 
-interface WBSItem {
-  code: string;
-  name: string;
-  level: number;
-}
-
 interface DashboardStats {
   totalTasks: number;
   completedTasks: number;
@@ -70,44 +64,35 @@ function formatCurrency(value: number): string {
   return `$${value.toFixed(0)}`;
 }
 
-interface WBSProgress {
-  wbsCode: string;
-  name: string;
-  progress: number;
-  taskCount: number;
+/**
+ * Extracts the level-1 WBS code number from a WBS code string.
+ * Examples: "1.2.3" → "1", "2.0" → "2", "1" → "1"
+ */
+function extractLevel1WbsCode(wbsCode: string): string {
+  const parts = wbsCode.split('.');
+  return parts[0];
 }
 
-function calculateWBSProgress(tasks: Task[], wbsItems: WBSItem[]): WBSProgress[] {
-  const wbsMap = new Map<string, WBSItem>();
-  wbsItems.forEach(item => wbsMap.set(item.code, item));
-  
-  const level1Groups = new Map<string, { wbs: WBSItem | null; tasks: Task[] }>();
-  
-  tasks.forEach(task => {
-    const parts = task.wbsCode.split('.');
-    const level1Code = parts[0];
-    
-    if (!level1Groups.has(level1Code)) {
-      const wbsItem = wbsItems.find(w => w.code === level1Code && w.level === 1);
-      level1Groups.set(level1Code, { wbs: wbsItem || null, tasks: [] });
-    }
-    level1Groups.get(level1Code)!.tasks.push(task);
-  });
-  
-  return Array.from(level1Groups.entries())
-    .map(([code, data]) => {
-      const avgProgress = data.tasks.length > 0
-        ? data.tasks.reduce((sum, t) => sum + (t.progress || 0), 0) / data.tasks.length
-        : 0;
-      return {
-        wbsCode: code,
-        name: data.wbs?.name || `WBS ${code}`,
-        progress: Math.round(avgProgress),
-        taskCount: data.tasks.length
-      };
+/**
+ * Filters tasks to get top-level tasks (tasks where parentId is null or wbsCode is level-1).
+ * Returns tasks sorted by wbsCode (numeric sort).
+ */
+function getTopLevelTasks(tasks: Task[]): Task[] {
+  return tasks
+    .filter(task => {
+      // Top-level task: either has no parent OR wbsCode is level-1 (single number or "X.0")
+      if (task.parentId === null) return true;
+      
+      const parts = task.wbsCode.split('.');
+      // Level-1 pattern: single number or "X.0"
+      return parts.length === 1 || (parts.length === 2 && parts[1] === '0');
     })
-    .sort((a, b) => a.wbsCode.localeCompare(b.wbsCode, undefined, { numeric: true }))
-    .slice(0, 5);
+    .sort((a, b) => {
+      // Numeric sort on level-1 WBS code
+      const aLevel1 = extractLevel1WbsCode(a.wbsCode);
+      const bLevel1 = extractLevel1WbsCode(b.wbsCode);
+      return aLevel1.localeCompare(bLevel1, undefined, { numeric: true });
+    });
 }
 
 function safeDate(dateValue: string | Date | null | undefined): Date | null {
@@ -149,17 +134,6 @@ export default function Dashboard() {
     }
   });
 
-  const { data: wbsItems = [] } = useQuery<WBSItem[]>({
-    queryKey: ['/api/projects', projectId, 'wbs'],
-    enabled: !!projectId,
-    retry: 1,
-    queryFn: async () => {
-      const res = await fetch(`/api/projects/${projectId}/wbs`, { credentials: 'include' });
-      if (res.status === 401) return [];
-      if (!res.ok) throw new Error('Failed to fetch WBS');
-      return res.json();
-    }
-  });
 
   const { data: risks = [], isLoading: risksLoading } = useQuery<Risk[]>({
     queryKey: ['/api/projects', projectId, 'risks'],
@@ -198,6 +172,8 @@ export default function Dashboard() {
   });
 
   const isLoading = tasksLoading || risksLoading || issuesLoading || costsLoading;
+  
+  const topLevelTasks = getTopLevelTasks(tasks);
 
   if (!selectedProject) {
     return (
@@ -213,7 +189,6 @@ export default function Dashboard() {
   }
 
   const stats = calculateDashboardStats(tasks, risks, issues, costItems);
-  const wbsProgress = calculateWBSProgress(tasks, wbsItems);
   
   const recentItems: Array<{ id: string; type: 'risk' | 'issue'; title: string; date: Date | null }> = [
     ...risks.map(r => ({
@@ -315,22 +290,27 @@ export default function Dashboard() {
                 <Skeleton className="h-12" />
                 <Skeleton className="h-12" />
               </div>
-            ) : wbsProgress.length > 0 ? (
-              wbsProgress.map((wbs) => (
-                <div key={wbs.wbsCode}>
-                  <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium">{wbs.name}</span>
-                      <Badge variant="secondary">WBS {wbs.wbsCode}</Badge>
+            ) : topLevelTasks.length > 0 ? (
+              topLevelTasks.map((task) => {
+                const level1Code = extractLevel1WbsCode(task.wbsCode);
+                return (
+                  <div key={task.id}>
+                    <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium truncate">
+                          {task.name}
+                        </span>
+                        <Badge variant="outline" className="font-mono">{level1Code}</Badge>
+                      </div>
+                      <span className="text-sm font-semibold">{task.progress}%</span>
                     </div>
-                    <span className="text-sm font-semibold">{wbs.progress}%</span>
+                    <Progress value={task.progress} className="h-2" />
                   </div>
-                  <Progress value={wbs.progress} className="h-2" />
-                </div>
-              ))
+                );
+              })
             ) : (
               <p className="text-sm text-muted-foreground text-center py-4">
-                No WBS items found. Add tasks to see progress.
+                No top-level tasks found. Add tasks to see progress.
               </p>
             )}
           </CardContent>
