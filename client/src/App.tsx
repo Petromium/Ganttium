@@ -1,5 +1,5 @@
 import { Switch, Route } from "wouter";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -8,6 +8,8 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { TopBar } from "@/components/TopBar";
 import { ContextAwareRightRail } from "@/components/widgets/ContextAwareRightRail";
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
+import type { ImperativePanelHandle } from "react-resizable-panels";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { ProjectProvider } from "@/contexts/ProjectContext";
 import { PageProvider } from "@/contexts/PageContext";
@@ -86,6 +88,25 @@ function AuthenticatedApp() {
     "--sidebar-width-icon": "3rem",
   } as React.CSSProperties;
 
+  const rightPanelRef = useRef<ImperativePanelHandle | null>(null);
+  const [isRightCollapsed, setIsRightCollapsed] = useState(false);
+  const [rightSize, setRightSize] = useState(30);
+  const [previousRightSize, setPreviousRightSize] = useState(30);
+  const COLLAPSED_SIZE = 2;
+
+  const handleCollapseRight = () => {
+    setPreviousRightSize(rightSize);
+    setIsRightCollapsed(true);
+    // Shrink the right panel to a compact size (~1/3 of the previous 10% collapsed width)
+    rightPanelRef.current?.resize(COLLAPSED_SIZE);
+  };
+
+  const handleExpandRight = () => {
+    setIsRightCollapsed(false);
+    // Restore to the previous size (or a sensible default)
+    rightPanelRef.current?.resize(previousRightSize || 30);
+  };
+
   return (
     <ProjectProvider>
       <PageProvider>
@@ -96,12 +117,32 @@ function AuthenticatedApp() {
               <div className="flex flex-col flex-1 overflow-hidden min-w-0">
                 <TopBar />
                 <div className="flex flex-1 overflow-hidden">
-                  <main className="flex-1 overflow-y-auto bg-background">
-                    <Router />
-                  </main>
-                  <div className="hidden lg:block">
-                    <ContextAwareRightRail />
-                  </div>
+                  <ResizablePanelGroup
+                    direction="horizontal"
+                    className="flex flex-1 overflow-hidden"
+                  >
+                    <ResizablePanel defaultSize={70} minSize={55}>
+                      <main className="flex-1 h-full overflow-y-auto bg-background">
+                        <Router />
+                      </main>
+                    </ResizablePanel>
+                    <ResizableHandle withHandle className="hidden lg:flex" />
+                    <ResizablePanel
+                      ref={rightPanelRef}
+                      defaultSize={30}
+                      minSize={COLLAPSED_SIZE}
+                      maxSize={40}
+                      className="hidden lg:flex"
+                      onResize={(size) => setRightSize(size)}
+                    >
+                      <ContextAwareRightRail
+                        className="h-full"
+                        isCollapsed={isRightCollapsed}
+                        onCollapse={handleCollapseRight}
+                        onExpand={handleExpandRight}
+                      />
+                    </ResizablePanel>
+                  </ResizablePanelGroup>
                 </div>
               </div>
             </div>

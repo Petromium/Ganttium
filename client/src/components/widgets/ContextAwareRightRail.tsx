@@ -1,14 +1,10 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { 
-  ChevronLeft, ChevronRight, PanelRightClose, 
-  PanelRight, Maximize2, Minimize2 
-} from "lucide-react";
+import { PanelRightClose, PanelRight } from "lucide-react";
 import { usePage } from "@/contexts/PageContext";
 import { useProject } from "@/contexts/ProjectContext";
-import { useIsMobile } from "@/hooks/use-mobile";
 
 import { PortfolioSignals } from "./PortfolioSignals";
 import { UpcomingEvents, EventLegend } from "./UpcomingEvents";
@@ -23,9 +19,17 @@ import { DocumentDetails } from "./DocumentDetails";
 
 interface ContextAwareRightRailProps {
   className?: string;
+  isCollapsed?: boolean;
+  onCollapse?: () => void;
+  onExpand?: () => void;
 }
 
-export function ContextAwareRightRail({ className }: ContextAwareRightRailProps) {
+export function ContextAwareRightRail({
+  className,
+  isCollapsed = false,
+  onCollapse,
+  onExpand,
+}: ContextAwareRightRailProps) {
   const { selectedProjectId } = useProject();
   const {
     currentPage,
@@ -40,16 +44,6 @@ export function ContextAwareRightRail({ className }: ContextAwareRightRailProps)
     showDocumentStats,
     showDocumentDetails,
   } = usePage();
-
-  const isMobile = useIsMobile();
-  const [isCollapsed, setIsCollapsed] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(false);
-
-  useEffect(() => {
-    if (isMobile) {
-      setIsCollapsed(true);
-    }
-  }, [isMobile]);
 
   if (!selectedProjectId) {
     return (
@@ -77,7 +71,7 @@ export function ContextAwareRightRail({ className }: ContextAwareRightRailProps)
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => setIsCollapsed(false)}
+          onClick={onExpand}
           className="mb-4"
           aria-label="Expand sidebar"
           data-testid="button-expand-sidebar"
@@ -88,13 +82,8 @@ export function ContextAwareRightRail({ className }: ContextAwareRightRailProps)
     );
   }
 
-  const railWidth = isExpanded ? "w-96" : "w-80";
-
   return (
     <motion.aside
-      initial={{ width: 320 }}
-      animate={{ width: isExpanded ? 384 : 320 }}
-      transition={{ duration: 0.2 }}
       className={`border-l bg-background flex flex-col ${className}`}
       data-testid="sidebar-right"
       aria-label="Context sidebar"
@@ -108,17 +97,7 @@ export function ContextAwareRightRail({ className }: ContextAwareRightRailProps)
             variant="ghost"
             size="icon"
             className="h-7 w-7"
-            onClick={() => setIsExpanded(!isExpanded)}
-            aria-label={isExpanded ? "Minimize sidebar" : "Maximize sidebar"}
-            data-testid="button-toggle-sidebar-size"
-          >
-            {isExpanded ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={() => setIsCollapsed(true)}
+            onClick={onCollapse}
             aria-label="Collapse sidebar"
             data-testid="button-collapse-sidebar"
           >
