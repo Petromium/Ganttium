@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { TableRowCard } from "@/components/TableRowCard";
 import { Button } from "@/components/ui/button";
@@ -7,7 +7,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
   Search, Filter, LayoutGrid, List, Calendar as CalendarIcon, 
   GanttChartSquare, AlertCircle, Plus, Clock, AlertTriangle, 
-  Loader2, ZoomIn, ZoomOut, Maximize2, ChevronLeft, ChevronRight, X
+  Loader2, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, X,
+  Link2, CheckCircle2, Percent, Users, FileText, AlertOctagon, Trash2, ChevronDown
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -21,8 +22,27 @@ import { useProject } from "@/contexts/ProjectContext";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+  DropdownMenuCheckboxItem,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import type { Task, TaskDependency } from "@shared/schema";
+import type { Task, TaskDependency, Resource, Risk, Issue, Document } from "@shared/schema";
 
 type TaskStatus = "not-started" | "in-progress" | "review" | "completed" | "on-hold";
 type ViewMode = "list" | "kanban" | "gantt" | "calendar";
@@ -47,6 +67,7 @@ export default function WBSPage() {
   const { selectedProjectId } = useProject();
   const { toast } = useToast();
   const [selectedTasks, setSelectedTasks] = useState<number[]>([]);
+  const [lastClickedTaskId, setLastClickedTaskId] = useState<number | null>(null);
   const [expandedTasks, setExpandedTasks] = useState<number[]>([]);
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | undefined>();
@@ -62,6 +83,10 @@ export default function WBSPage() {
   const [disciplineFilters, setDisciplineFilters] = useState<string[]>([]);
   const [dateRangeStart, setDateRangeStart] = useState<string>("");
   const [dateRangeEnd, setDateRangeEnd] = useState<string>("");
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [selectedResources, setSelectedResources] = useState<number[]>([]);
+  const [selectedRisks, setSelectedRisks] = useState<number[]>([]);
+  const [selectedIssues, setSelectedIssues] = useState<number[]>([]);
 
   const { 
     data: tasks = [], 
@@ -77,6 +102,26 @@ export default function WBSPage() {
   const { data: dependencies = [] } = useQuery<TaskDependency[]>({
     queryKey: [`/api/projects/${selectedProjectId}/dependencies`],
     enabled: !!selectedProjectId && viewMode === "gantt",
+  });
+
+  const { data: resources = [] } = useQuery<Resource[]>({
+    queryKey: [`/api/projects/${selectedProjectId}/resources`],
+    enabled: !!selectedProjectId,
+  });
+
+  const { data: risks = [] } = useQuery<Risk[]>({
+    queryKey: [`/api/projects/${selectedProjectId}/risks`],
+    enabled: !!selectedProjectId,
+  });
+
+  const { data: issues = [] } = useQuery<Issue[]>({
+    queryKey: [`/api/projects/${selectedProjectId}/issues`],
+    enabled: !!selectedProjectId,
+  });
+
+  const { data: documents = [] } = useQuery<Document[]>({
+    queryKey: [`/api/projects/${selectedProjectId}/documents`],
+    enabled: !!selectedProjectId,
   });
 
   const deleteMutation = useMutation({
@@ -101,6 +146,103 @@ export default function WBSPage() {
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message || "Failed to update task status", variant: "destructive" });
+    },
+  });
+
+  const bulkUpdateMutation = useMutation({
+    mutationFn: async ({ taskIds, updates }: { taskIds: number[]; updates: { status?: TaskStatus; progress?: number } }) => {
+      await apiRequest("POST", `/api/bulk/tasks/update`, { taskIds, updates });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/tasks`] });
+      setSelectedTasks([]);
+      toast({ title: "Success", description: "Tasks updated successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message || "Failed to update tasks", variant: "destructive" });
+    },
+  });
+
+  const bulkDeleteMutation = useMutation({
+    mutationFn: async (taskIds: number[]) => {
+      await apiRequest("POST", `/api/bulk/tasks/delete`, { taskIds });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/tasks`] });
+      setSelectedTasks([]);
+      setDeleteDialogOpen(false);
+      toast({ title: "Success", description: "Tasks deleted successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message || "Failed to delete tasks", variant: "destructive" });
+    },
+  });
+
+  const bulkDependencyMutation = useMutation({
+    mutationFn: async ({ taskIds, action }: { taskIds: number[]; action: "chain-fs" | "set-ss" | "set-ff" | "clear" }) => {
+      if (action === "clear") {
+        await apiRequest("POST", `/api/bulk/dependencies/clear`, { taskIds });
+      } else if (action === "chain-fs") {
+        await apiRequest("POST", `/api/bulk/dependencies/chain`, { taskIds, type: "FS" });
+      } else if (action === "set-ss") {
+        await apiRequest("POST", `/api/bulk/dependencies/set-parallel`, { taskIds, type: "SS" });
+      } else if (action === "set-ff") {
+        await apiRequest("POST", `/api/bulk/dependencies/set-parallel`, { taskIds, type: "FF" });
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/dependencies`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/tasks`] });
+      setSelectedTasks([]);
+      toast({ title: "Success", description: "Dependencies updated successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message || "Failed to update dependencies", variant: "destructive" });
+    },
+  });
+
+  const bulkResourceAssignMutation = useMutation({
+    mutationFn: async ({ taskIds, resourceIds }: { taskIds: number[]; resourceIds: number[] }) => {
+      await apiRequest("POST", `/api/bulk/resource-assignments`, { taskIds, resourceIds });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/tasks`] });
+      setSelectedTasks([]);
+      setSelectedResources([]);
+      toast({ title: "Success", description: "Resources assigned successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message || "Failed to assign resources", variant: "destructive" });
+    },
+  });
+
+  const bulkRiskLinkMutation = useMutation({
+    mutationFn: async ({ taskIds, riskIds }: { taskIds: number[]; riskIds: number[] }) => {
+      await apiRequest("POST", `/api/bulk/task-risks`, { taskIds, riskIds });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/tasks`] });
+      setSelectedTasks([]);
+      setSelectedRisks([]);
+      toast({ title: "Success", description: "Risks linked successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message || "Failed to link risks", variant: "destructive" });
+    },
+  });
+
+  const bulkIssueLinkMutation = useMutation({
+    mutationFn: async ({ taskIds, issueIds }: { taskIds: number[]; issueIds: number[] }) => {
+      await apiRequest("POST", `/api/bulk/task-issues`, { taskIds, issueIds });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/tasks`] });
+      setSelectedTasks([]);
+      setSelectedIssues([]);
+      toast({ title: "Success", description: "Issues linked successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message || "Failed to link issues", variant: "destructive" });
     },
   });
 
@@ -184,8 +326,50 @@ export default function WBSPage() {
     );
   };
 
-  const handleSelectTask = (id: number, selected: boolean) => {
+  const flattenedTaskIds = useMemo(() => {
+    const result: number[] = [];
+    const flatten = (parentId: number | null) => {
+      const children = filteredTasks.filter(t => t.parentId === parentId);
+      children.sort((a, b) => (a.wbsCode || "").localeCompare(b.wbsCode || ""));
+      children.forEach(task => {
+        result.push(task.id);
+        if (expandedTasks.includes(task.id)) {
+          flatten(task.id);
+        }
+      });
+    };
+    flatten(null);
+    return result;
+  }, [filteredTasks, expandedTasks]);
+
+  const handleSelectTask = (id: number, selected: boolean, shiftKey?: boolean) => {
+    if (shiftKey && lastClickedTaskId !== null && lastClickedTaskId !== id) {
+      const lastIndex = flattenedTaskIds.indexOf(lastClickedTaskId);
+      const currentIndex = flattenedTaskIds.indexOf(id);
+      if (lastIndex !== -1 && currentIndex !== -1) {
+        const start = Math.min(lastIndex, currentIndex);
+        const end = Math.max(lastIndex, currentIndex);
+        const rangeIds = flattenedTaskIds.slice(start, end + 1);
+        setSelectedTasks(prev => {
+          const newSelection = new Set(prev);
+          rangeIds.forEach(taskId => newSelection.add(taskId));
+          return Array.from(newSelection);
+        });
+        setLastClickedTaskId(id);
+        return;
+      }
+    }
+    
     setSelectedTasks(prev => selected ? [...prev, id] : prev.filter(t => t !== id));
+    setLastClickedTaskId(id);
+  };
+
+  const handleSelectAll = () => {
+    if (selectedTasks.length === flattenedTaskIds.length) {
+      setSelectedTasks([]);
+    } else {
+      setSelectedTasks([...flattenedTaskIds]);
+    }
   };
 
   const handleToggleExpand = (id: number) => {
@@ -260,7 +444,7 @@ export default function WBSPage() {
           <TableRowCard
             id={task.id.toString()}
             selected={selectedTasks.includes(task.id)}
-            onSelect={(selected) => handleSelectTask(task.id, selected)}
+            onSelect={(selected, shiftKey) => handleSelectTask(task.id, selected, shiftKey)}
             expanded={isExpanded}
             onToggleExpand={hasChildren ? () => handleToggleExpand(task.id) : undefined}
             expandable={hasChildren}
@@ -664,13 +848,335 @@ export default function WBSPage() {
         </Popover>
       </div>
 
-      {selectedTasks.length > 0 && (
-        <div className="flex items-center gap-2 p-3 bg-muted rounded-lg">
-          <span className="text-sm font-medium">{selectedTasks.length} selected</span>
-          <Button variant="outline" size="sm" data-testid="button-bulk-edit">Bulk Edit</Button>
-          <Button variant="outline" size="sm" data-testid="button-bulk-delete">Delete</Button>
+      {/* Selection Toolbar - Always visible */}
+      <div className={cn(
+        "flex items-center gap-2 p-3 bg-muted rounded-lg flex-wrap",
+        selectedTasks.length === 0 && "opacity-60"
+      )}>
+        <div className="flex items-center gap-2 mr-2">
+          <Checkbox 
+            checked={selectedTasks.length > 0 && selectedTasks.length === flattenedTaskIds.length}
+            onCheckedChange={handleSelectAll}
+            data-testid="checkbox-select-all"
+          />
+          <span className="text-sm font-medium min-w-[80px]" data-testid="text-selection-count">
+            {selectedTasks.length > 0 ? `${selectedTasks.length} selected` : "Select tasks"}
+          </span>
         </div>
-      )}
+        
+        {/* Dependencies Dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              disabled={selectedTasks.length < 2}
+              data-testid="dropdown-dependencies"
+            >
+              <Link2 className="h-4 w-4 mr-1" />
+              Dependencies
+              <ChevronDown className="h-3 w-3 ml-1" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuLabel>Link Selected Tasks</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem 
+              onClick={() => bulkDependencyMutation.mutate({ taskIds: selectedTasks, action: "chain-fs" })}
+              data-testid="menu-chain-fs"
+            >
+              Chain FS (Waterfall)
+            </DropdownMenuItem>
+            <DropdownMenuItem 
+              onClick={() => bulkDependencyMutation.mutate({ taskIds: selectedTasks, action: "set-ss" })}
+              data-testid="menu-set-ss"
+            >
+              Set SS (Start Together)
+            </DropdownMenuItem>
+            <DropdownMenuItem 
+              onClick={() => bulkDependencyMutation.mutate({ taskIds: selectedTasks, action: "set-ff" })}
+              data-testid="menu-set-ff"
+            >
+              Set FF (Finish Together)
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem 
+              onClick={() => bulkDependencyMutation.mutate({ taskIds: selectedTasks, action: "clear" })}
+              className="text-destructive"
+              data-testid="menu-clear-deps"
+            >
+              Clear Dependencies
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Status Dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              disabled={selectedTasks.length === 0}
+              data-testid="dropdown-status"
+            >
+              <CheckCircle2 className="h-4 w-4 mr-1" />
+              Status
+              <ChevronDown className="h-3 w-3 ml-1" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuLabel>Set Status</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem 
+              onClick={() => bulkUpdateMutation.mutate({ taskIds: selectedTasks, updates: { status: "not-started" } })}
+              data-testid="menu-status-not-started"
+            >
+              Not Started
+            </DropdownMenuItem>
+            <DropdownMenuItem 
+              onClick={() => bulkUpdateMutation.mutate({ taskIds: selectedTasks, updates: { status: "in-progress" } })}
+              data-testid="menu-status-in-progress"
+            >
+              In Progress
+            </DropdownMenuItem>
+            <DropdownMenuItem 
+              onClick={() => bulkUpdateMutation.mutate({ taskIds: selectedTasks, updates: { status: "on-hold" } })}
+              data-testid="menu-status-on-hold"
+            >
+              On Hold
+            </DropdownMenuItem>
+            <DropdownMenuItem 
+              onClick={() => bulkUpdateMutation.mutate({ taskIds: selectedTasks, updates: { status: "completed" } })}
+              data-testid="menu-status-completed"
+            >
+              Completed
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Progress Dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              disabled={selectedTasks.length === 0}
+              data-testid="dropdown-progress"
+            >
+              <Percent className="h-4 w-4 mr-1" />
+              Progress
+              <ChevronDown className="h-3 w-3 ml-1" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuLabel>Set Progress</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {[0, 25, 50, 75, 100].map(value => (
+              <DropdownMenuItem 
+                key={value}
+                onClick={() => bulkUpdateMutation.mutate({ taskIds: selectedTasks, updates: { progress: value } })}
+                data-testid={`menu-progress-${value}`}
+              >
+                {value}%
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Resources Dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              disabled={selectedTasks.length === 0}
+              data-testid="dropdown-resources"
+            >
+              <Users className="h-4 w-4 mr-1" />
+              Resources
+              <ChevronDown className="h-3 w-3 ml-1" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="max-h-64 overflow-y-auto">
+            <DropdownMenuLabel>Assign Resources</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {resources.length === 0 ? (
+              <div className="px-2 py-1.5 text-sm text-muted-foreground">No resources available</div>
+            ) : (
+              <>
+                {resources.map(resource => (
+                  <DropdownMenuCheckboxItem
+                    key={resource.id}
+                    checked={selectedResources.includes(resource.id)}
+                    onCheckedChange={(checked) => {
+                      setSelectedResources(prev => 
+                        checked ? [...prev, resource.id] : prev.filter(id => id !== resource.id)
+                      );
+                    }}
+                    data-testid={`menu-resource-${resource.id}`}
+                  >
+                    {resource.name}
+                  </DropdownMenuCheckboxItem>
+                ))}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={selectedResources.length === 0}
+                  onClick={() => bulkResourceAssignMutation.mutate({ taskIds: selectedTasks, resourceIds: selectedResources })}
+                  className="font-medium"
+                  data-testid="menu-apply-resources"
+                >
+                  Apply ({selectedResources.length} selected)
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Risks Dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              disabled={selectedTasks.length === 0}
+              data-testid="dropdown-risks"
+            >
+              <AlertTriangle className="h-4 w-4 mr-1" />
+              Risks
+              <ChevronDown className="h-3 w-3 ml-1" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="max-h-64 overflow-y-auto">
+            <DropdownMenuLabel>Link Risks</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {risks.length === 0 ? (
+              <div className="px-2 py-1.5 text-sm text-muted-foreground">No risks available</div>
+            ) : (
+              <>
+                {risks.map(risk => (
+                  <DropdownMenuCheckboxItem
+                    key={risk.id}
+                    checked={selectedRisks.includes(risk.id)}
+                    onCheckedChange={(checked) => {
+                      setSelectedRisks(prev => 
+                        checked ? [...prev, risk.id] : prev.filter(id => id !== risk.id)
+                      );
+                    }}
+                    data-testid={`menu-risk-${risk.id}`}
+                  >
+                    {risk.code}: {risk.title}
+                  </DropdownMenuCheckboxItem>
+                ))}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={selectedRisks.length === 0}
+                  onClick={() => bulkRiskLinkMutation.mutate({ taskIds: selectedTasks, riskIds: selectedRisks })}
+                  className="font-medium"
+                  data-testid="menu-apply-risks"
+                >
+                  Apply ({selectedRisks.length} selected)
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Issues Dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              disabled={selectedTasks.length === 0}
+              data-testid="dropdown-issues"
+            >
+              <AlertOctagon className="h-4 w-4 mr-1" />
+              Issues
+              <ChevronDown className="h-3 w-3 ml-1" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="max-h-64 overflow-y-auto">
+            <DropdownMenuLabel>Link Issues</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {issues.length === 0 ? (
+              <div className="px-2 py-1.5 text-sm text-muted-foreground">No issues available</div>
+            ) : (
+              <>
+                {issues.map(issue => (
+                  <DropdownMenuCheckboxItem
+                    key={issue.id}
+                    checked={selectedIssues.includes(issue.id)}
+                    onCheckedChange={(checked) => {
+                      setSelectedIssues(prev => 
+                        checked ? [...prev, issue.id] : prev.filter(id => id !== issue.id)
+                      );
+                    }}
+                    data-testid={`menu-issue-${issue.id}`}
+                  >
+                    {issue.code}: {issue.title}
+                  </DropdownMenuCheckboxItem>
+                ))}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={selectedIssues.length === 0}
+                  onClick={() => bulkIssueLinkMutation.mutate({ taskIds: selectedTasks, issueIds: selectedIssues })}
+                  className="font-medium"
+                  data-testid="menu-apply-issues"
+                >
+                  Apply ({selectedIssues.length} selected)
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Delete Button */}
+        <Button 
+          variant="outline" 
+          size="sm" 
+          disabled={selectedTasks.length === 0}
+          onClick={() => setDeleteDialogOpen(true)}
+          className="text-destructive hover:text-destructive"
+          data-testid="button-bulk-delete"
+        >
+          <Trash2 className="h-4 w-4 mr-1" />
+          Delete
+        </Button>
+
+        {/* Clear Selection */}
+        {selectedTasks.length > 0 && (
+          <Button 
+            variant="ghost" 
+            size="sm"
+            onClick={() => setSelectedTasks([])}
+            data-testid="button-clear-selection"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {selectedTasks.length} tasks?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. This will permanently delete the selected tasks and all their subtasks.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => bulkDeleteMutation.mutate(selectedTasks)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete"
+            >
+              {bulkDeleteMutation.isPending ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {viewMode === "list" && (
         filteredTasks.length === 0 ? (

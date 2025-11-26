@@ -527,6 +527,502 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== Bulk Operations Routes =====
+  
+  // Chain tasks with Finish-to-Start dependencies (waterfall)
+  app.post('/api/bulk/dependencies/chain', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const { taskIds, type = "FS" } = req.body;
+      
+      if (!Array.isArray(taskIds) || taskIds.length < 2) {
+        return res.status(400).json({ message: "At least 2 tasks required" });
+      }
+      
+      // Fetch all tasks and verify they exist and belong to the same project
+      const tasks = await Promise.all(taskIds.map((id: number) => storage.getTask(id)));
+      const validTasks = tasks.filter(t => t !== null);
+      
+      if (validTasks.length < 2) {
+        return res.status(404).json({ message: "At least 2 valid tasks required" });
+      }
+      
+      // Verify all tasks belong to the same project
+      const projectId = validTasks[0]!.projectId;
+      const allSameProject = validTasks.every(t => t!.projectId === projectId);
+      if (!allSameProject) {
+        return res.status(400).json({ message: "All tasks must belong to the same project" });
+      }
+      
+      // Check user has access to this project
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      // Sort tasks by WBS code to chain in correct order
+      const sortedTasks = validTasks.sort((a, b) => 
+        (a!.wbsCode || "").localeCompare(b!.wbsCode || "")
+      );
+      
+      // Create chain of dependencies
+      const createdDeps = [];
+      for (let i = 0; i < sortedTasks.length - 1; i++) {
+        const predecessor = sortedTasks[i]!;
+        const successor = sortedTasks[i + 1]!;
+        
+        // Skip self-dependencies
+        if (predecessor.id === successor.id) continue;
+        
+        // Check if dependency already exists
+        const existingDeps = await storage.getTaskDependencies(successor.id);
+        const exists = existingDeps.some(d => d.predecessorId === predecessor.id);
+        
+        if (!exists) {
+          const dep = await storage.createTaskDependency({
+            projectId: projectId,
+            predecessorId: predecessor.id,
+            successorId: successor.id,
+            type: type as "FS" | "SS" | "FF" | "SF",
+            lagDays: 0
+          });
+          createdDeps.push(dep);
+        }
+      }
+      
+      // Notify connected clients
+      wsManager.notifyProjectUpdate(projectId, "dependency-created", { count: createdDeps.length }, userId);
+      
+      res.json({ success: true, created: createdDeps.length });
+    } catch (error) {
+      console.error("Error chaining dependencies:", error);
+      res.status(500).json({ message: "Failed to chain dependencies" });
+    }
+  });
+
+  // Set parallel dependencies (SS or FF) - all selected tasks start/finish together
+  app.post('/api/bulk/dependencies/set-parallel', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const { taskIds, type } = req.body;
+      
+      if (!Array.isArray(taskIds) || taskIds.length < 2) {
+        return res.status(400).json({ message: "At least 2 tasks required" });
+      }
+      
+      if (!["SS", "FF"].includes(type)) {
+        return res.status(400).json({ message: "Type must be SS or FF" });
+      }
+      
+      // Fetch all tasks and verify they exist and belong to the same project
+      const tasks = await Promise.all(taskIds.map((id: number) => storage.getTask(id)));
+      const validTasks = tasks.filter(t => t !== null);
+      
+      if (validTasks.length < 2) {
+        return res.status(404).json({ message: "At least 2 valid tasks required" });
+      }
+      
+      // Verify all tasks belong to the same project
+      const projectId = validTasks[0]!.projectId;
+      const allSameProject = validTasks.every(t => t!.projectId === projectId);
+      if (!allSameProject) {
+        return res.status(400).json({ message: "All tasks must belong to the same project" });
+      }
+      
+      // Check user has access to this project
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      // Sort tasks by WBS code - first task becomes the anchor
+      const sortedTasks = validTasks.sort((a, b) => 
+        (a!.wbsCode || "").localeCompare(b!.wbsCode || "")
+      );
+      
+      const anchorTask = sortedTasks[0]!;
+      
+      // Create dependencies from anchor to all other tasks
+      const createdDeps = [];
+      for (let i = 1; i < sortedTasks.length; i++) {
+        const successor = sortedTasks[i]!;
+        
+        // Skip self-dependencies
+        if (anchorTask.id === successor.id) continue;
+        
+        // Check if dependency already exists
+        const existingDeps = await storage.getTaskDependencies(successor.id);
+        const exists = existingDeps.some(d => d.predecessorId === anchorTask.id && d.type === type);
+        
+        if (!exists) {
+          const dep = await storage.createTaskDependency({
+            projectId: projectId,
+            predecessorId: anchorTask.id,
+            successorId: successor.id,
+            type: type as "SS" | "FF",
+            lagDays: 0
+          });
+          createdDeps.push(dep);
+        }
+      }
+      
+      // Notify connected clients
+      wsManager.notifyProjectUpdate(projectId, "dependency-created", { count: createdDeps.length }, userId);
+      
+      res.json({ success: true, created: createdDeps.length });
+    } catch (error) {
+      console.error("Error setting parallel dependencies:", error);
+      res.status(500).json({ message: "Failed to set parallel dependencies" });
+    }
+  });
+
+  // Clear all dependencies for selected tasks
+  app.post('/api/bulk/dependencies/clear', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const { taskIds } = req.body;
+      
+      if (!Array.isArray(taskIds) || taskIds.length === 0) {
+        return res.status(400).json({ message: "At least 1 task required" });
+      }
+      
+      // Fetch all tasks and verify they exist and belong to the same project
+      const tasks = await Promise.all(taskIds.map((id: number) => storage.getTask(id)));
+      const validTasks = tasks.filter(t => t !== null);
+      
+      if (validTasks.length === 0) {
+        return res.status(404).json({ message: "No valid tasks found" });
+      }
+      
+      // Verify all tasks belong to the same project
+      const projectId = validTasks[0]!.projectId;
+      const allSameProject = validTasks.every(t => t!.projectId === projectId);
+      if (!allSameProject) {
+        return res.status(400).json({ message: "All tasks must belong to the same project" });
+      }
+      
+      // Check user has access to this project
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      // Delete all dependencies where any of these validated tasks is successor
+      let deletedCount = 0;
+      for (const task of validTasks) {
+        const deps = await storage.getTaskDependencies(task!.id);
+        for (const dep of deps) {
+          await storage.deleteTaskDependency(dep.id);
+          deletedCount++;
+        }
+      }
+      
+      // Notify connected clients
+      wsManager.notifyProjectUpdate(projectId, "dependency-deleted", { count: deletedCount }, userId);
+      
+      res.json({ success: true, deleted: deletedCount });
+    } catch (error) {
+      console.error("Error clearing dependencies:", error);
+      res.status(500).json({ message: "Failed to clear dependencies" });
+    }
+  });
+
+  // Bulk assign resources to tasks
+  app.post('/api/bulk/resource-assignments', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const { taskIds, resourceIds } = req.body;
+      
+      if (!Array.isArray(taskIds) || taskIds.length === 0) {
+        return res.status(400).json({ message: "At least 1 task required" });
+      }
+      
+      if (!Array.isArray(resourceIds) || resourceIds.length === 0) {
+        return res.status(400).json({ message: "At least 1 resource required" });
+      }
+      
+      // Fetch all tasks and verify they exist and belong to the same project
+      const tasks = await Promise.all(taskIds.map((id: number) => storage.getTask(id)));
+      const validTasks = tasks.filter(t => t !== null);
+      
+      if (validTasks.length === 0) {
+        return res.status(404).json({ message: "No valid tasks found" });
+      }
+      
+      // Verify all tasks belong to the same project
+      const projectId = validTasks[0]!.projectId;
+      const allSameProject = validTasks.every(t => t!.projectId === projectId);
+      if (!allSameProject) {
+        return res.status(400).json({ message: "All tasks must belong to the same project" });
+      }
+      
+      // Check user has access to this project
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      // Fetch and validate all resources belong to the same project
+      const resources = await Promise.all(resourceIds.map((id: number) => storage.getResource(id)));
+      const validResources = resources.filter(r => r !== null && r.projectId === projectId);
+      
+      if (validResources.length === 0) {
+        return res.status(400).json({ message: "No valid resources found for this project" });
+      }
+      
+      // Create resource assignments for each validated task-resource combination
+      let createdCount = 0;
+      for (const task of validTasks) {
+        for (const resource of validResources) {
+          try {
+            // Check if assignment already exists
+            const existingAssignments = await storage.getResourceAssignmentsByTask(task!.id);
+            const exists = existingAssignments.some(a => a.resourceId === resource!.id);
+            
+            if (!exists) {
+              await storage.createResourceAssignment({
+                projectId: projectId,
+                taskId: task!.id,
+                resourceId: resource!.id,
+                allocationPercent: 100,
+                plannedHours: 8
+              });
+              createdCount++;
+            }
+          } catch (e) {
+            // Skip if already exists (constraint violation)
+          }
+        }
+      }
+      
+      // Notify connected clients
+      wsManager.notifyProjectUpdate(projectId, "resource-assignment-created", { count: createdCount }, userId);
+      
+      res.json({ success: true, created: createdCount });
+    } catch (error) {
+      console.error("Error bulk assigning resources:", error);
+      res.status(500).json({ message: "Failed to assign resources" });
+    }
+  });
+
+  // Bulk link risks to tasks
+  app.post('/api/bulk/task-risks', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const { taskIds, riskIds } = req.body;
+      
+      if (!Array.isArray(taskIds) || taskIds.length === 0) {
+        return res.status(400).json({ message: "At least 1 task required" });
+      }
+      
+      if (!Array.isArray(riskIds) || riskIds.length === 0) {
+        return res.status(400).json({ message: "At least 1 risk required" });
+      }
+      
+      // Fetch all tasks and verify they exist and belong to the same project
+      const tasks = await Promise.all(taskIds.map((id: number) => storage.getTask(id)));
+      const validTasks = tasks.filter(t => t !== null);
+      
+      if (validTasks.length === 0) {
+        return res.status(404).json({ message: "No valid tasks found" });
+      }
+      
+      // Verify all tasks belong to the same project
+      const projectId = validTasks[0]!.projectId;
+      const allSameProject = validTasks.every(t => t!.projectId === projectId);
+      if (!allSameProject) {
+        return res.status(400).json({ message: "All tasks must belong to the same project" });
+      }
+      
+      // Check user has access to this project
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      // Fetch and validate all risks belong to the same project
+      const risks = await Promise.all(riskIds.map((id: number) => storage.getRisk(id)));
+      const validRisks = risks.filter(r => r !== null && r.projectId === projectId);
+      
+      if (validRisks.length === 0) {
+        return res.status(400).json({ message: "No valid risks found for this project" });
+      }
+      
+      // Create task-risk links for validated tasks and risks
+      let createdCount = 0;
+      for (const task of validTasks) {
+        for (const risk of validRisks) {
+          try {
+            await storage.createTaskRisk({ taskId: task!.id, riskId: risk!.id });
+            createdCount++;
+          } catch (e) {
+            // Skip if already exists (constraint violation)
+          }
+        }
+      }
+      
+      res.json({ success: true, created: createdCount });
+    } catch (error) {
+      console.error("Error bulk linking risks:", error);
+      res.status(500).json({ message: "Failed to link risks" });
+    }
+  });
+
+  // Bulk link issues to tasks
+  app.post('/api/bulk/task-issues', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const { taskIds, issueIds } = req.body;
+      
+      if (!Array.isArray(taskIds) || taskIds.length === 0) {
+        return res.status(400).json({ message: "At least 1 task required" });
+      }
+      
+      if (!Array.isArray(issueIds) || issueIds.length === 0) {
+        return res.status(400).json({ message: "At least 1 issue required" });
+      }
+      
+      // Fetch all tasks and verify they exist and belong to the same project
+      const tasks = await Promise.all(taskIds.map((id: number) => storage.getTask(id)));
+      const validTasks = tasks.filter(t => t !== null);
+      
+      if (validTasks.length === 0) {
+        return res.status(404).json({ message: "No valid tasks found" });
+      }
+      
+      // Verify all tasks belong to the same project
+      const projectId = validTasks[0]!.projectId;
+      const allSameProject = validTasks.every(t => t!.projectId === projectId);
+      if (!allSameProject) {
+        return res.status(400).json({ message: "All tasks must belong to the same project" });
+      }
+      
+      // Check user has access to this project
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      // Fetch and validate all issues belong to the same project
+      const issues = await Promise.all(issueIds.map((id: number) => storage.getIssue(id)));
+      const validIssues = issues.filter(i => i !== null && i.projectId === projectId);
+      
+      if (validIssues.length === 0) {
+        return res.status(400).json({ message: "No valid issues found for this project" });
+      }
+      
+      // Create task-issue links for validated tasks and issues
+      let createdCount = 0;
+      for (const task of validTasks) {
+        for (const issue of validIssues) {
+          try {
+            await storage.createTaskIssue({ taskId: task!.id, issueId: issue!.id });
+            createdCount++;
+          } catch (e) {
+            // Skip if already exists (constraint violation)
+          }
+        }
+      }
+      
+      res.json({ success: true, created: createdCount });
+    } catch (error) {
+      console.error("Error bulk linking issues:", error);
+      res.status(500).json({ message: "Failed to link issues" });
+    }
+  });
+
+  // Bulk update task status/progress
+  app.post('/api/bulk/tasks/update', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const { taskIds, updates } = req.body;
+      
+      if (!Array.isArray(taskIds) || taskIds.length === 0) {
+        return res.status(400).json({ message: "At least 1 task required" });
+      }
+      
+      if (!updates || (updates.status === undefined && updates.progress === undefined)) {
+        return res.status(400).json({ message: "At least one update field required" });
+      }
+      
+      // Fetch all tasks and verify they exist and belong to the same project
+      const tasks = await Promise.all(taskIds.map((id: number) => storage.getTask(id)));
+      const validTasks = tasks.filter(t => t !== null);
+      
+      if (validTasks.length === 0) {
+        return res.status(404).json({ message: "No valid tasks found" });
+      }
+      
+      // Verify all tasks belong to the same project
+      const projectId = validTasks[0]!.projectId;
+      const allSameProject = validTasks.every(t => t!.projectId === projectId);
+      if (!allSameProject) {
+        return res.status(400).json({ message: "All tasks must belong to the same project" });
+      }
+      
+      // Check user has access to this project
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      // Update all validated tasks
+      let updatedCount = 0;
+      for (const task of validTasks) {
+        await storage.updateTask(task!.id, updates);
+        updatedCount++;
+      }
+      
+      // Notify connected clients
+      wsManager.notifyProjectUpdate(projectId, "task-updated", { count: updatedCount }, userId);
+      
+      res.json({ success: true, updated: updatedCount });
+    } catch (error) {
+      console.error("Error bulk updating tasks:", error);
+      res.status(500).json({ message: "Failed to update tasks" });
+    }
+  });
+
+  // Bulk delete tasks
+  app.post('/api/bulk/tasks/delete', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const { taskIds } = req.body;
+      
+      if (!Array.isArray(taskIds) || taskIds.length === 0) {
+        return res.status(400).json({ message: "At least 1 task required" });
+      }
+      
+      // Fetch all tasks and verify they exist and belong to the same project
+      const tasks = await Promise.all(taskIds.map((id: number) => storage.getTask(id)));
+      const validTasks = tasks.filter(t => t !== null);
+      
+      if (validTasks.length === 0) {
+        return res.status(404).json({ message: "No valid tasks found" });
+      }
+      
+      // Verify all tasks belong to the same project
+      const projectId = validTasks[0]!.projectId;
+      const allSameProject = validTasks.every(t => t!.projectId === projectId);
+      if (!allSameProject) {
+        return res.status(400).json({ message: "All tasks must belong to the same project" });
+      }
+      
+      // Check user has access to this project
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+      
+      // Delete all validated tasks
+      let deletedCount = 0;
+      for (const task of validTasks) {
+        await storage.deleteTask(task!.id);
+        deletedCount++;
+      }
+      
+      // Notify connected clients
+      wsManager.notifyProjectUpdate(projectId, "task-deleted", { count: deletedCount }, userId);
+      
+      res.json({ success: true, deleted: deletedCount });
+    } catch (error) {
+      console.error("Error bulk deleting tasks:", error);
+      res.status(500).json({ message: "Failed to delete tasks" });
+    }
+  });
+
   // ===== Stakeholder Routes =====
   app.get('/api/projects/:projectId/stakeholders', isAuthenticated, async (req: any, res) => {
     try {
