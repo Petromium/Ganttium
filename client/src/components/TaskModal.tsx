@@ -979,7 +979,7 @@ export function TaskModal({
 
 
                     {task && (
-                      <div className="space-y-3 p-4 bg-muted/30 rounded-lg border">
+                      <div className="space-y-3 p-4 bg-accent/5 border border-accent/20 rounded-lg">
                         <h4 className="text-sm font-semibold">Duration Information (PMI Standard)</h4>
                         <div className="grid grid-cols-3 gap-4">
                           <div className="space-y-1">
@@ -1149,7 +1149,7 @@ export function TaskModal({
                           </div>
                         </div>
                         {task && formData.actualStartDate && formData.actualFinishDate && (
-                          <div className="p-2 bg-muted/30 rounded text-xs space-y-1">
+                          <div className="p-2 bg-accent/5 border border-accent/20 rounded text-xs space-y-1">
                             {formData.baselineStart && (
                               <p className="text-muted-foreground">
                                 <strong>Variance vs Baseline:</strong> {
@@ -1266,7 +1266,7 @@ export function TaskModal({
 
               <TabsContent value="dependencies" className="space-y-4 mt-0">
                 <div className="space-y-4">
-                  <div className="flex items-center gap-2 p-4 bg-muted/50 rounded-lg">
+                  <div className="flex items-center gap-2 p-4 bg-accent/5 border border-accent/20 rounded-lg">
                     <GitBranch className="h-5 w-5 text-muted-foreground" />
                     <div>
                       <p className="text-sm font-medium">Task Dependencies</p>
@@ -1288,7 +1288,7 @@ export function TaskModal({
                       
                       <p className="text-xs text-muted-foreground">Tasks that must complete before this task can start</p>
                       
-                      <div className="space-y-3 p-3 bg-muted/30 rounded-lg">
+                      <div className="space-y-3 p-3 bg-accent/5 border border-accent/20 rounded-lg">
                         <div className="space-y-2">
                           <Label className="text-xs font-medium">Add Predecessor</Label>
                           <Select value={selectedPredecessor} onValueChange={setSelectedPredecessor}>
@@ -1456,7 +1456,7 @@ export function TaskModal({
 
                       <p className="text-xs text-muted-foreground">Tasks that wait for this task to complete</p>
                       
-                      <div className="space-y-3 p-3 bg-muted/30 rounded-lg">
+                      <div className="space-y-3 p-3 bg-accent/5 border border-accent/20 rounded-lg">
                         <div className="space-y-2">
                           <Label className="text-xs font-medium">Add Successor</Label>
                           <Select value={selectedSuccessor} onValueChange={setSelectedSuccessor}>
@@ -1618,7 +1618,7 @@ export function TaskModal({
 
               <TabsContent value="resources" className="space-y-4 mt-0">
                 <div className="space-y-4">
-                  <div className="flex items-center gap-2 p-4 bg-muted/50 rounded-lg">
+                  <div className="flex items-center gap-2 p-4 bg-accent/5 border border-accent/20 rounded-lg">
                     <User className="h-5 w-5 text-muted-foreground" />
                     <div>
                       <p className="text-sm font-medium">Resource Assignments</p>
@@ -1734,7 +1734,7 @@ export function TaskModal({
 
               <TabsContent value="documents" className="space-y-4 mt-0">
                 <div className="space-y-4">
-                  <div className="flex items-center gap-2 p-4 bg-muted/50 rounded-lg">
+                  <div className="flex items-center gap-2 p-4 bg-accent/5 border border-accent/20 rounded-lg">
                     <FileText className="h-5 w-5 text-muted-foreground" />
                     <div>
                       <p className="text-sm font-medium">Linked Documents</p>
@@ -1821,7 +1821,7 @@ export function TaskModal({
 
               <TabsContent value="risks" className="space-y-4 mt-0">
                 <div className="space-y-4">
-                  <div className="flex items-center gap-2 p-4 bg-muted/50 rounded-lg">
+                  <div className="flex items-center gap-2 p-4 bg-accent/5 border border-accent/20 rounded-lg">
                     <AlertTriangle className="h-5 w-5 text-amber-500" />
                     <div>
                       <p className="text-sm font-medium">Linked Risks</p>
@@ -1917,7 +1917,7 @@ export function TaskModal({
 
               <TabsContent value="issues" className="space-y-4 mt-0">
                 <div className="space-y-4">
-                  <div className="flex items-center gap-2 p-4 bg-muted/50 rounded-lg">
+                  <div className="flex items-center gap-2 p-4 bg-accent/5 border border-accent/20 rounded-lg">
                     <AlertCircle className="h-5 w-5 text-red-500" />
                     <div>
                       <p className="text-sm font-medium">Linked Issues</p>

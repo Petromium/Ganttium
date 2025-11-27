@@ -46,7 +46,7 @@ import type { Task, TaskDependency, Resource, Risk, Issue, Document } from "@sha
 
 type TaskStatus = "not-started" | "in-progress" | "review" | "completed" | "on-hold";
 type ViewMode = "list" | "kanban" | "gantt" | "calendar";
-type ZoomLevel = "week" | "month" | "quarter";
+type ZoomLevel = "day" | "week" | "month" | "quarter";
 
 const KANBAN_COLUMNS: { id: TaskStatus; title: string }[] = [
   { id: "not-started", title: "Not Started" },
@@ -56,6 +56,7 @@ const KANBAN_COLUMNS: { id: TaskStatus; title: string }[] = [
 ];
 
 const ZOOM_CONFIGS: Record<ZoomLevel, { daysPerUnit: number; unitLabel: string }> = {
+  day: { daysPerUnit: 1, unitLabel: "Day" },
   week: { daysPerUnit: 7, unitLabel: "Week" },
   month: { daysPerUnit: 30, unitLabel: "Month" },
   quarter: { daysPerUnit: 90, unitLabel: "Quarter" },
@@ -496,7 +497,7 @@ export default function WBSPage() {
                 {task.status.replace("-", " ")}
               </Badge>
               <div className="flex items-center gap-2">
-                <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                <div className="flex-1 h-2 bg-accent/10 rounded-full overflow-hidden">
                   <div className="h-full bg-primary" style={{ width: `${task.progress}%` }} />
                 </div>
                 <span className="text-sm text-muted-foreground w-12 text-right">{task.progress}%</span>
@@ -596,43 +597,90 @@ export default function WBSPage() {
     const { daysPerUnit, unitLabel } = ZOOM_CONFIGS[zoom];
     for (let i = 0; i < units; i++) {
       const unitDate = new Date(minDate.getTime() + i * daysPerUnit * 24 * 60 * 60 * 1000);
-      if (zoom === "week") labels.push(`${unitLabel} ${i + 1}`);
-      else if (zoom === "month") labels.push(unitDate.toLocaleDateString("en-US", { month: "short", year: "2-digit" }));
-      else labels.push(`Q${Math.floor(unitDate.getMonth() / 3) + 1} ${unitDate.getFullYear()}`);
+      if (zoom === "day") {
+        labels.push(unitDate.toLocaleDateString("en-US", { month: "short", day: "numeric" }));
+      } else if (zoom === "week") {
+        labels.push(`${unitLabel} ${i + 1}`);
+      } else if (zoom === "month") {
+        labels.push(unitDate.toLocaleDateString("en-US", { month: "short", year: "2-digit" }));
+      } else {
+        labels.push(`Q${Math.floor(unitDate.getMonth() / 3) + 1} ${unitDate.getFullYear()}`);
+      }
     }
     return labels;
   };
 
-  const handleZoomIn = () => { if (zoom === "quarter") setZoom("month"); else if (zoom === "month") setZoom("week"); };
-  const handleZoomOut = () => { if (zoom === "week") setZoom("month"); else if (zoom === "month") setZoom("quarter"); };
+  const handleZoomIn = () => { 
+    if (zoom === "quarter") setZoom("month"); 
+    else if (zoom === "month") setZoom("week"); 
+    else if (zoom === "week") setZoom("day");
+  };
+  const handleZoomOut = () => { 
+    if (zoom === "day") setZoom("week"); 
+    else if (zoom === "week") setZoom("month"); 
+    else if (zoom === "month") setZoom("quarter"); 
+  };
 
   const renderGanttTask = (task: Task, level = 0): JSX.Element[] => {
     const children = getChildren(task.id);
     const { left, width } = getTaskPosition(task);
     const hasValidDates = task.startDate && task.endDate;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const priorityClass = task.priority === "critical" ? "border-l-4 border-l-red-500" : task.priority === "high" ? "border-l-4 border-l-orange-500" : "";
+    
     const elements: JSX.Element[] = [
       <div
         key={task.id}
-        className={`grid grid-cols-12 gap-px items-center ${task.priority === "critical" ? "border-l-4 border-l-red-500" : task.priority === "high" ? "border-l-4 border-l-orange-500" : ""}`}
+        className={`grid grid-cols-12 items-center border-b border-border ${priorityClass}`}
         style={{ paddingLeft: `${level * 1.5}rem` }}
       >
-        <div className="col-span-3 flex items-center gap-2 py-2 pr-2">
+        <div className="col-span-3 flex items-center gap-2 py-2 pr-2 border-r border-border bg-card">
           <Badge variant="outline" className="font-mono text-xs shrink-0">{task.wbsCode || `#${task.id}`}</Badge>
           <span className="text-sm font-medium truncate">{task.name}</span>
         </div>
-        <div className="col-span-9 relative h-10 bg-muted/30 rounded">
+        <div className="col-span-9 relative h-10 bg-white dark:bg-gray-900 border-r border-border">
+          {/* Vertical grid lines for days/weeks */}
+          <div className="absolute inset-0 flex">
+            {Array.from({ length: totalDays }).map((_, dayIndex) => {
+              const dayDate = new Date(minDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+              dayDate.setHours(0, 0, 0, 0);
+              const isWeekend = dayDate.getDay() === 0 || dayDate.getDay() === 6;
+              const isToday = dayDate.getTime() === today.getTime();
+              const { daysPerUnit } = ZOOM_CONFIGS[zoom];
+              const isUnitBoundary = dayIndex % daysPerUnit === 0;
+              
+              return (
+                <div
+                  key={dayIndex}
+                  className={cn(
+                    "border-l",
+                    isUnitBoundary ? "border-border" : "border-border/30",
+                    isWeekend && "bg-muted/10",
+                    isToday && "bg-primary/5"
+                  )}
+                  style={{ width: `${100 / totalDays}%` }}
+                >
+                  {isToday && (
+                    <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-primary z-10" />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          
           {hasValidDates ? (
             <div
-              className={`absolute top-1/2 -translate-y-1/2 h-6 rounded ${getStatusBgColor(task.status)} flex items-center px-2 text-white text-xs font-semibold shadow hover-elevate cursor-pointer transition-shadow overflow-hidden`}
+              className={`absolute top-1/2 -translate-y-1/2 h-6 rounded-md ${getStatusBgColor(task.status)} flex items-center px-2 text-white text-xs font-semibold shadow-md hover:shadow-lg cursor-pointer transition-all overflow-hidden z-20`}
               style={{ left: `${left}%`, width: `${width}%`, minWidth: "40px" }}
               onClick={() => handleEditTask(task)}
               data-testid={`gantt-bar-${task.id}`}
             >
               <div className="flex items-center justify-between w-full"><span className="truncate">{task.progress || 0}%</span></div>
-              <div className="absolute inset-0 bg-white/20 rounded pointer-events-none" style={{ width: `${task.progress || 0}%` }} />
+              <div className="absolute inset-0 bg-white/20 rounded-md pointer-events-none" style={{ width: `${task.progress || 0}%` }} />
             </div>
           ) : (
-            <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">No dates set</div>
+            <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground z-10">No dates set</div>
           )}
         </div>
       </div>
@@ -749,7 +797,7 @@ export default function WBSPage() {
 
         {viewMode === "gantt" && (
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" onClick={handleZoomIn} disabled={zoom === "week"} data-testid="button-zoom-in"><ZoomIn className="h-4 w-4" /></Button>
+            <Button variant="outline" size="icon" onClick={handleZoomIn} disabled={zoom === "day"} data-testid="button-zoom-in"><ZoomIn className="h-4 w-4" /></Button>
             <Badge variant="secondary" className="px-3">{ZOOM_CONFIGS[zoom].unitLabel}</Badge>
             <Button variant="outline" size="icon" onClick={handleZoomOut} disabled={zoom === "quarter"} data-testid="button-zoom-out"><ZoomOut className="h-4 w-4" /></Button>
           </div>
@@ -884,7 +932,7 @@ export default function WBSPage() {
 
       {/* Selection Toolbar - Always visible */}
       <div className={cn(
-        "flex items-center gap-2 p-3 bg-muted rounded-lg flex-wrap",
+        "flex items-center gap-2 p-3 bg-accent/5 border border-accent/20 rounded-lg flex-wrap",
         selectedTasks.length === 0 && "opacity-60"
       )}>
         <div className="flex items-center gap-2 mr-2">
@@ -1353,18 +1401,18 @@ export default function WBSPage() {
             ) : (
               <div className="overflow-x-auto">
                 <div className="min-w-[1000px]">
-                  <div className="grid grid-cols-12 gap-px mb-4 bg-border rounded-lg overflow-hidden">
-                    <div className="col-span-3 bg-muted p-3 font-semibold text-sm">Task</div>
-                    <div className="col-span-9 bg-muted">
-                      <div className="grid text-center text-sm font-semibold" style={{ gridTemplateColumns: `repeat(${Math.min(units, 12)}, 1fr)` }}>
+                  <div className="grid grid-cols-12 mb-4 border border-border rounded-lg overflow-hidden bg-card">
+                    <div className="col-span-3 bg-card p-3 font-semibold text-sm border-r border-border">Task</div>
+                    <div className="col-span-9 bg-card">
+                      <div className="grid text-center text-sm font-semibold border-b border-border" style={{ gridTemplateColumns: `repeat(${Math.min(units, 12)}, 1fr)` }}>
                         {getUnitLabels().slice(0, 12).map((label, i) => (
-                          <div key={i} className="p-3 border-l border-border">{label}</div>
+                          <div key={i} className="p-3 border-l border-border last:border-r-0">{label}</div>
                         ))}
                       </div>
                     </div>
                   </div>
                   <div className="space-y-1">{rootTasks.map(task => renderGanttTask(task))}</div>
-                  <div className="mt-6 p-4 bg-muted/50 rounded-lg">
+                  <div className="mt-6 p-4 bg-accent/5 border border-accent/20 rounded-lg">
                     <h3 className="text-sm font-semibold mb-3">Legend</h3>
                     <div className="flex flex-wrap items-center gap-4 text-sm">
                       <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-green-500" /><span>Completed</span></div>
@@ -1389,7 +1437,7 @@ export default function WBSPage() {
           <CardContent>
             <div className="grid grid-cols-7 gap-px bg-border rounded-lg overflow-hidden">
               {WEEKDAYS.map((day) => (
-                <div key={day} className="bg-muted p-3 text-center text-sm font-semibold">{day}</div>
+                <div key={day} className="bg-card border border-border p-3 text-center text-sm font-semibold">{day}</div>
               ))}
               {Array.from({ length: weeks * 7 }).map((_, index) => {
                 const dayNumber = index - startDay + 1;
@@ -1399,7 +1447,7 @@ export default function WBSPage() {
                 return (
                   <div
                     key={index}
-                    className={cn("bg-background p-2 min-h-28", isToday && "ring-2 ring-primary ring-inset", !isValidDay && "bg-muted/30")}
+                    className={cn("bg-background p-2 min-h-28", isToday && "ring-2 ring-primary ring-inset", !isValidDay && "bg-accent/5")}
                     data-testid={isValidDay ? `calendar-day-${dayNumber}` : undefined}
                   >
                     {isValidDay && (

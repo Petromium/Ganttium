@@ -7,11 +7,13 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useProject } from "@/contexts/ProjectContext";
 import { TaskModal } from "@/components/TaskModal";
+import { cn } from "@/lib/utils";
 import type { Task, TaskDependency } from "@shared/schema";
 
-type ZoomLevel = "week" | "month" | "quarter";
+type ZoomLevel = "day" | "week" | "month" | "quarter";
 
 const ZOOM_CONFIGS: Record<ZoomLevel, { daysPerUnit: number; unitLabel: string }> = {
+  day: { daysPerUnit: 1, unitLabel: "Day" },
   week: { daysPerUnit: 7, unitLabel: "Week" },
   month: { daysPerUnit: 30, unitLabel: "Month" },
   quarter: { daysPerUnit: 90, unitLabel: "Quarter" },
@@ -114,7 +116,9 @@ export default function GanttPage() {
     
     for (let i = 0; i < units; i++) {
       const unitDate = new Date(minDate.getTime() + i * daysPerUnit * 24 * 60 * 60 * 1000);
-      if (zoom === "week") {
+      if (zoom === "day") {
+        labels.push(unitDate.toLocaleDateString("en-US", { month: "short", day: "numeric" }));
+      } else if (zoom === "week") {
         labels.push(`${unitLabel} ${i + 1}`);
       } else if (zoom === "month") {
         labels.push(unitDate.toLocaleDateString("en-US", { month: "short", year: "2-digit" }));
@@ -133,10 +137,12 @@ export default function GanttPage() {
   const handleZoomIn = () => {
     if (zoom === "quarter") setZoom("month");
     else if (zoom === "month") setZoom("week");
+    else if (zoom === "week") setZoom("day");
   };
 
   const handleZoomOut = () => {
-    if (zoom === "week") setZoom("month");
+    if (zoom === "day") setZoom("week");
+    else if (zoom === "week") setZoom("month");
     else if (zoom === "month") setZoom("quarter");
   };
 
@@ -147,23 +153,54 @@ export default function GanttPage() {
     const children = getChildren(task.id);
     const { left, width } = getTaskPosition(task);
     const hasValidDates = task.startDate && task.endDate;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
     
     const elements: JSX.Element[] = [
       <div
         key={task.id}
-        className={`grid grid-cols-12 gap-px items-center ${getPriorityColor(task.priority)}`}
+        className={`grid grid-cols-12 items-center border-b border-border ${getPriorityColor(task.priority)}`}
         style={{ paddingLeft: `${level * 1.5}rem` }}
       >
-        <div className="col-span-3 flex items-center gap-2 py-2 pr-2">
+        <div className="col-span-3 flex items-center gap-2 py-2 pr-2 border-r border-border bg-card">
           <Badge variant="outline" className="font-mono text-xs shrink-0">
             {task.wbsCode || `#${task.id}`}
           </Badge>
           <span className="text-sm font-medium truncate">{task.name}</span>
         </div>
-        <div className="col-span-9 relative h-10 bg-muted/30 rounded">
+        <div className="col-span-9 relative h-10 bg-white dark:bg-gray-900 border-r border-border">
+          {/* Vertical grid lines for days/weeks */}
+          <div className="absolute inset-0 flex">
+            {Array.from({ length: totalDays }).map((_, dayIndex) => {
+              const dayDate = new Date(minDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
+              dayDate.setHours(0, 0, 0, 0);
+              const isWeekend = dayDate.getDay() === 0 || dayDate.getDay() === 6;
+              const isToday = dayDate.getTime() === today.getTime();
+              const { daysPerUnit } = ZOOM_CONFIGS[zoom];
+              const isUnitBoundary = dayIndex % daysPerUnit === 0;
+              
+              return (
+                <div
+                  key={dayIndex}
+                  className={cn(
+                    "border-l",
+                    isUnitBoundary ? "border-border" : "border-border/30",
+                    isWeekend && "bg-muted/10",
+                    isToday && "bg-primary/5"
+                  )}
+                  style={{ width: `${100 / totalDays}%` }}
+                >
+                  {isToday && (
+                    <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-primary z-10" />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          
           {hasValidDates ? (
             <div
-              className={`absolute top-1/2 -translate-y-1/2 h-6 rounded ${getStatusColor(task.status)} flex items-center px-2 text-white text-xs font-semibold shadow hover-elevate cursor-pointer transition-shadow overflow-hidden`}
+              className={`absolute top-1/2 -translate-y-1/2 h-6 rounded-md ${getStatusColor(task.status)} flex items-center px-2 text-white text-xs font-semibold shadow-md hover:shadow-lg cursor-pointer transition-all overflow-hidden z-20`}
               style={{
                 left: `${left}%`,
                 width: `${width}%`,
@@ -176,12 +213,12 @@ export default function GanttPage() {
                 <span className="truncate">{task.progress || 0}%</span>
               </div>
               <div
-                className="absolute inset-0 bg-white/20 rounded pointer-events-none"
+                className="absolute inset-0 bg-white/20 rounded-md pointer-events-none"
                 style={{ width: `${task.progress || 0}%` }}
               />
             </div>
           ) : (
-            <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
+            <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground z-10">
               No dates set
             </div>
           )}
@@ -231,7 +268,7 @@ export default function GanttPage() {
             variant="outline" 
             size="icon" 
             onClick={handleZoomIn}
-            disabled={zoom === "week"}
+            disabled={zoom === "day"}
             data-testid="button-zoom-in"
           >
             <ZoomIn className="h-4 w-4" />
@@ -265,15 +302,15 @@ export default function GanttPage() {
           ) : (
             <div className="overflow-x-auto">
               <div className="min-w-[1000px]">
-                <div className="grid grid-cols-12 gap-px mb-4 bg-border rounded-lg overflow-hidden">
-                  <div className="col-span-3 bg-muted p-3 font-semibold text-sm">Task</div>
-                  <div className="col-span-9 bg-muted">
+                <div className="grid grid-cols-12 mb-4 border border-border rounded-lg overflow-hidden bg-card">
+                  <div className="col-span-3 bg-card p-3 font-semibold text-sm border-r border-border">Task</div>
+                  <div className="col-span-9 bg-card">
                     <div 
-                      className="grid text-center text-sm font-semibold"
+                      className="grid text-center text-sm font-semibold border-b border-border"
                       style={{ gridTemplateColumns: `repeat(${Math.min(units, 12)}, 1fr)` }}
                     >
                       {getUnitLabels().slice(0, 12).map((label, i) => (
-                        <div key={i} className="p-3 border-l border-border">
+                        <div key={i} className="p-3 border-l border-border last:border-r-0">
                           {label}
                         </div>
                       ))}
@@ -285,7 +322,7 @@ export default function GanttPage() {
                   {rootTasks.map(task => renderTask(task))}
                 </div>
 
-                <div className="mt-6 p-4 bg-muted/50 rounded-lg">
+                <div className="mt-6 p-4 bg-accent/5 border border-accent/20 rounded-lg">
                   <h3 className="text-sm font-semibold mb-3">Legend</h3>
                   <div className="flex flex-wrap items-center gap-4 text-sm">
                     <div className="flex items-center gap-2">
@@ -309,7 +346,7 @@ export default function GanttPage() {
                       <span>Not Started</span>
                     </div>
                     <div className="flex items-center gap-2">
-                      <div className="w-6 h-4 border-l-4 border-l-red-500 bg-muted rounded" />
+                      <div className="w-6 h-4 border-l-4 border-l-red-500 bg-accent/5 rounded" />
                       <span>Critical Priority</span>
                     </div>
                   </div>
