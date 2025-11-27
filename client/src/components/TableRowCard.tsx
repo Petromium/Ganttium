@@ -1,7 +1,7 @@
 import { useRef } from "react";
 import { Card } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
-import { GripVertical, ChevronRight } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface TableRowCardProps {
@@ -48,19 +48,19 @@ export function TableRowCard({
   return (
     <Card
       className={cn(
-        "p-4 mb-2 cursor-pointer hover-elevate active-elevate-2 transition-shadow",
+        "p-1.5 sm:p-3 md:p-4 mb-2 cursor-pointer hover-elevate active-elevate-2 transition-shadow",
         className
       )}
       onClick={onClick}
       data-testid={`row-card-${id}`}
     >
-      <div className="flex items-center gap-3">
-        <GripVertical className="h-4 w-4 text-muted-foreground cursor-grab" data-testid={`handle-${id}`} />
+      <div className="flex items-center gap-1 sm:gap-3">
         <Checkbox
           checked={selected}
           onPointerDown={handlePointerDown}
           onCheckedChange={handleCheckboxChange}
           onClick={handleCheckboxClick}
+          className="h-1.5 w-1.5 sm:h-4 sm:w-4 shrink-0"
           data-testid={`checkbox-${id}`}
         />
         {expandable && (
@@ -69,18 +69,18 @@ export function TableRowCard({
               e.stopPropagation();
               onToggleExpand?.();
             }}
-            className="hover-elevate p-1 rounded"
+            className="hover-elevate p-0 sm:p-1 rounded shrink-0"
             data-testid={`button-expand-${id}`}
           >
             <ChevronRight
               className={cn(
-                "h-4 w-4 text-muted-foreground transition-transform",
+                "h-1.5 w-1.5 sm:h-4 sm:w-4 text-muted-foreground transition-transform",
                 expanded && "rotate-90"
               )}
             />
           </button>
         )}
-        <div className="flex-1">{children}</div>
+        <div className="flex-1 min-w-0">{children}</div>
       </div>
     </Card>
   );

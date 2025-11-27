@@ -537,7 +537,12 @@ export default function WBSPage() {
 
     return (
       <div key={task.id}>
-        <div style={{ marginLeft: `${level * 1.5}rem` }}>
+        <div className={cn(
+          level === 0 && "ml-0",
+          level === 1 && "ml-3 sm:ml-6",
+          level === 2 && "ml-6 sm:ml-12",
+          level >= 3 && "ml-9 sm:ml-[4.5rem]"
+        )}>
           <TableRowCard
             id={task.id.toString()}
             selected={selectedTasks.includes(task.id)}
@@ -548,11 +553,11 @@ export default function WBSPage() {
             data-testid={`row-task-${task.id}`}
           >
             {/* Mobile: Enhanced Stack Layout */}
-            <div className="sm:hidden space-y-2.5 cursor-pointer" onClick={() => handleEditTask(task)}>
+            <div className="sm:hidden space-y-2 cursor-pointer" onClick={() => handleEditTask(task)}>
               {/* Header Row: Name + Status */}
               <div className="flex items-start justify-between gap-2">
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-sm leading-tight truncate">{task.name}</div>
+                <div className="flex-1 min-w-0 pr-2">
+                  <div className="font-semibold text-sm leading-tight break-words">{task.name}</div>
                   <div className="text-xs text-muted-foreground mt-0.5">{task.wbsCode}</div>
                 </div>
                 <Badge variant={getStatusColor(task.status)} className="shrink-0 text-xs h-5 px-2" data-testid={`badge-status-${task.id}`}>
@@ -560,37 +565,45 @@ export default function WBSPage() {
                 </Badge>
               </div>
 
-              {/* Progress Bar - Thick (matches badge height) */}
+              {/* Progress Bar - Compact (half width) with segmented indicator */}
               <div className="space-y-1">
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-muted-foreground">Progress</span>
                   <span className="font-medium">{task.progress}%</span>
                 </div>
-                <div className="h-5 bg-accent/10 rounded-full overflow-hidden">
-                  <div 
-                    className="h-full bg-primary transition-all" 
-                    style={{ width: `${task.progress}%` }} 
-                  />
+                <div className="flex items-center gap-2">
+                  {/* Segmented progress indicator */}
+                  <div className="flex gap-0.5">
+                    {[0, 25, 50, 75, 100].map((threshold) => (
+                      <div
+                        key={threshold}
+                        className={cn(
+                          "w-1.5 h-5 rounded-sm transition-colors",
+                          task.progress >= threshold ? "bg-primary" : "bg-accent/20"
+                        )}
+                      />
+                    ))}
+                  </div>
                 </div>
               </div>
 
               {/* Dates & Duration Row */}
               {(startDate || endDate || duration) && (
-                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
                   {startDate && (
                     <div className="flex items-center gap-1">
-                      <Calendar className="h-3.5 w-3.5" />
-                      <span>{startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                      <Calendar className="h-3 w-3 shrink-0" />
+                      <span className="whitespace-nowrap">{startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
                     </div>
                   )}
                   {endDate && (
                     <>
-                      <span>→</span>
-                      <span>{endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                      <span className="shrink-0">→</span>
+                      <span className="whitespace-nowrap">{endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
                     </>
                   )}
                   {duration && (
-                    <Badge variant="outline" className="h-4 px-1.5 text-[10px]">
+                    <Badge variant="outline" className="h-4 px-1.5 text-[10px] shrink-0">
                       {duration}d
                     </Badge>
                   )}
@@ -598,34 +611,34 @@ export default function WBSPage() {
               )}
 
               {/* Metrics Row: Resources, Risks, Issues, Documents, Chat */}
-              <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2 flex-wrap">
                 {resourceCount > 0 && (
                   <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <Users className="h-3.5 w-3.5" />
+                    <Users className="h-3 w-3 shrink-0" />
                     <span>{resourceCount}</span>
                   </div>
                 )}
                 {riskCount > 0 && (
                   <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+                    <AlertTriangle className="h-3 w-3 shrink-0 text-amber-600" />
                     <span>{riskCount}</span>
                   </div>
                 )}
                 {issueCount > 0 && (
                   <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <AlertCircle className="h-3.5 w-3.5 text-red-600" />
+                    <AlertCircle className="h-3 w-3 shrink-0 text-red-600" />
                     <span>{issueCount}</span>
                   </div>
                 )}
                 {documentCount > 0 && (
                   <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <FileText className="h-3.5 w-3.5" />
+                    <FileText className="h-3 w-3 shrink-0" />
                     <span>{documentCount}</span>
                   </div>
                 )}
                 {hasChat && (
                   <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <MessageSquare className="h-3.5 w-3.5 text-blue-600" />
+                    <MessageSquare className="h-3 w-3 shrink-0 text-blue-600" />
                     <span>Chat</span>
                   </div>
                 )}
@@ -633,15 +646,15 @@ export default function WBSPage() {
 
               {/* Footer: Priority + Assignee */}
               <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/50">
-                <Badge variant={getPriorityColor(task.priority)} className="h-5 px-2 text-xs" data-testid={`badge-priority-${task.id}`}>
+                <Badge variant={getPriorityColor(task.priority)} className="h-5 px-2 text-xs shrink-0" data-testid={`badge-priority-${task.id}`}>
                   {task.priority}
                 </Badge>
                 {task.assignedTo && (
-                  <div className="flex items-center gap-1.5">
-                    <Avatar className="h-5 w-5">
-                      <AvatarFallback className="text-[10px]">{getInitials(task.assignedTo)}</AvatarFallback>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <Avatar className="h-4 w-4 shrink-0">
+                      <AvatarFallback className="text-[9px]">{getInitials(task.assignedTo)}</AvatarFallback>
                     </Avatar>
-                    <span className="text-xs text-muted-foreground truncate max-w-[100px]">
+                    <span className="text-xs text-muted-foreground truncate">
                       {task.assignedToName || "Assigned"}
                     </span>
                   </div>
@@ -665,13 +678,22 @@ export default function WBSPage() {
                 {task.status.replace("-", " ")}
               </Badge>
 
-              {/* Progress Bar - Thick + Metrics */}
+              {/* Progress Bar - Compact + Metrics */}
               <div className="space-y-1.5">
                 <div className="flex items-center gap-2">
-                  <div className="flex-1 h-5 bg-accent/10 rounded-full overflow-hidden">
-                    <div className="h-full bg-primary transition-all" style={{ width: `${task.progress}%` }} />
+                  {/* Segmented progress indicator */}
+                  <div className="flex gap-0.5">
+                    {[0, 25, 50, 75, 100].map((threshold) => (
+                      <div
+                        key={threshold}
+                        className={cn(
+                          "w-1 h-5 rounded-sm transition-colors",
+                          task.progress >= threshold ? "bg-primary" : "bg-accent/20"
+                        )}
+                      />
+                    ))}
                   </div>
-                  <span className="text-sm font-medium w-10 text-right">{task.progress}%</span>
+                  <span className="text-sm font-medium w-10 text-right shrink-0">{task.progress}%</span>
                 </div>
                 {/* Inline metrics below progress */}
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -708,19 +730,19 @@ export default function WBSPage() {
               </div>
 
               {/* Dates & Duration */}
-              <div className="text-xs text-muted-foreground min-w-[140px]">
+              <div className="text-xs text-muted-foreground min-w-[140px] flex flex-col items-start">
                 {startDate && endDate ? (
                   <div className="flex items-center gap-1">
-                    <Calendar className="h-3 w-3" />
-                    <span>
+                    <Calendar className="h-3 w-3 shrink-0" />
+                    <span className="whitespace-nowrap">
                       {startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - 
                       {endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                     </span>
                   </div>
                 ) : startDate ? (
                   <div className="flex items-center gap-1">
-                    <Calendar className="h-3 w-3" />
-                    <span>Starts {startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                    <Calendar className="h-3 w-3 shrink-0" />
+                    <span className="whitespace-nowrap">Starts {startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
                   </div>
                 ) : null}
                 {duration && (
@@ -1246,23 +1268,25 @@ export default function WBSPage() {
           </Button>
         </div>
 
-        {/* Action buttons - Grid on mobile, row on desktop */}
-        <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
-          {/* Dependencies Dropdown - Full width on mobile */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                disabled={selectedTasks.length < 2}
-                className="w-full sm:w-auto justify-start"
-                data-testid="dropdown-dependencies"
-              >
-                <Link2 className="h-4 w-4 mr-1" />
-                Dependencies
-                <ChevronDown className="h-3 w-3 ml-auto sm:ml-1" />
-              </Button>
-            </DropdownMenuTrigger>
+        {/* Action buttons - Horizontal scroll on mobile, flex-wrap on desktop */}
+        <div className="overflow-x-auto -mx-3 sm:mx-0 px-3 sm:px-0">
+          <div className="flex gap-2 sm:flex-wrap min-w-max sm:min-w-0">
+            {/* Dependencies Dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  disabled={selectedTasks.length < 2}
+                  className="shrink-0 justify-start"
+                  data-testid="dropdown-dependencies"
+                >
+                  <Link2 className="h-4 w-4 mr-1" />
+                  <span className="hidden xs:inline">Dependencies</span>
+                  <span className="xs:hidden">Deps</span>
+                  <ChevronDown className="h-3 w-3 ml-1" />
+                </Button>
+              </DropdownMenuTrigger>
             <DropdownMenuContent>
               <DropdownMenuLabel>Link Selected Tasks</DropdownMenuLabel>
               <DropdownMenuSeparator />
@@ -1295,21 +1319,21 @@ export default function WBSPage() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Status Dropdown - Full width on mobile */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                disabled={selectedTasks.length === 0}
-                className="w-full sm:w-auto justify-start"
-                data-testid="dropdown-status"
-              >
-                <CheckCircle2 className="h-4 w-4 mr-1" />
-                Status
-                <ChevronDown className="h-3 w-3 ml-auto sm:ml-1" />
-              </Button>
-            </DropdownMenuTrigger>
+            {/* Status Dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  disabled={selectedTasks.length === 0}
+                  className="shrink-0"
+                  data-testid="dropdown-status"
+                >
+                  <CheckCircle2 className="h-4 w-4 mr-1" />
+                  Status
+                  <ChevronDown className="h-3 w-3 ml-1" />
+                </Button>
+              </DropdownMenuTrigger>
             <DropdownMenuContent>
               <DropdownMenuLabel>Set Status</DropdownMenuLabel>
               <DropdownMenuSeparator />
@@ -1340,21 +1364,22 @@ export default function WBSPage() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Progress Dropdown - Full width on mobile */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                disabled={selectedTasks.length === 0}
-                className="w-full sm:w-auto justify-start"
-                data-testid="dropdown-progress"
-              >
-                <Percent className="h-4 w-4 mr-1" />
-                Progress
-                <ChevronDown className="h-3 w-3 ml-auto sm:ml-1" />
-              </Button>
-            </DropdownMenuTrigger>
+            {/* Progress Dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  disabled={selectedTasks.length === 0}
+                  className="shrink-0"
+                  data-testid="dropdown-progress"
+                >
+                  <Percent className="h-4 w-4 mr-1" />
+                  <span className="hidden xs:inline">Progress</span>
+                  <span className="xs:hidden">%</span>
+                  <ChevronDown className="h-3 w-3 ml-1" />
+                </Button>
+              </DropdownMenuTrigger>
             <DropdownMenuContent>
               <DropdownMenuLabel>Set Progress</DropdownMenuLabel>
               <DropdownMenuSeparator />
@@ -1370,21 +1395,22 @@ export default function WBSPage() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Resources Dropdown - Full width on mobile */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                disabled={selectedTasks.length === 0}
-                className="w-full sm:w-auto justify-start"
-                data-testid="dropdown-resources"
-              >
-                <Users className="h-4 w-4 mr-1" />
-                Resources
-                <ChevronDown className="h-3 w-3 ml-auto sm:ml-1" />
-              </Button>
-            </DropdownMenuTrigger>
+            {/* Resources Dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  disabled={selectedTasks.length === 0}
+                  className="shrink-0"
+                  data-testid="dropdown-resources"
+                >
+                  <Users className="h-4 w-4 mr-1" />
+                  <span className="hidden xs:inline">Resources</span>
+                  <span className="xs:hidden">Res</span>
+                  <ChevronDown className="h-3 w-3 ml-1" />
+                </Button>
+              </DropdownMenuTrigger>
           <DropdownMenuContent className="max-h-64 overflow-y-auto">
             <DropdownMenuLabel>Assign Resources</DropdownMenuLabel>
             <DropdownMenuSeparator />
@@ -1420,21 +1446,21 @@ export default function WBSPage() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-          {/* Risks Dropdown - Full width on mobile */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                disabled={selectedTasks.length === 0}
-                className="w-full sm:w-auto justify-start"
-                data-testid="dropdown-risks"
-              >
-                <AlertTriangle className="h-4 w-4 mr-1" />
-                Risks
-                <ChevronDown className="h-3 w-3 ml-auto sm:ml-1" />
-              </Button>
-            </DropdownMenuTrigger>
+            {/* Risks Dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  disabled={selectedTasks.length === 0}
+                  className="shrink-0"
+                  data-testid="dropdown-risks"
+                >
+                  <AlertTriangle className="h-4 w-4 mr-1" />
+                  Risks
+                  <ChevronDown className="h-3 w-3 ml-1" />
+                </Button>
+              </DropdownMenuTrigger>
           <DropdownMenuContent className="max-h-64 overflow-y-auto">
             <DropdownMenuLabel>Link Risks</DropdownMenuLabel>
             <DropdownMenuSeparator />
@@ -1470,21 +1496,21 @@ export default function WBSPage() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-          {/* Issues Dropdown - Full width on mobile */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                disabled={selectedTasks.length === 0}
-                className="w-full sm:w-auto justify-start"
-                data-testid="dropdown-issues"
-              >
-                <AlertOctagon className="h-4 w-4 mr-1" />
-                Issues
-                <ChevronDown className="h-3 w-3 ml-auto sm:ml-1" />
-              </Button>
-            </DropdownMenuTrigger>
+            {/* Issues Dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  disabled={selectedTasks.length === 0}
+                  className="shrink-0"
+                  data-testid="dropdown-issues"
+                >
+                  <AlertOctagon className="h-4 w-4 mr-1" />
+                  Issues
+                  <ChevronDown className="h-3 w-3 ml-1" />
+                </Button>
+              </DropdownMenuTrigger>
             <DropdownMenuContent className="max-h-64 overflow-y-auto">
             <DropdownMenuLabel>Link Issues</DropdownMenuLabel>
             <DropdownMenuSeparator />
@@ -1520,45 +1546,47 @@ export default function WBSPage() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-          {/* Recalculate - Full width on mobile */}
-          <Button 
-            variant="outline" 
-            size="sm" 
-            disabled={selectedTasks.length === 0}
-            onClick={() => bulkRecalculateMutation.mutate(selectedTasks)}
-            className="w-full sm:w-auto justify-start"
-            data-testid="button-recalculate-schedule"
-          >
-            <Activity className="h-4 w-4 mr-1" />
-            <span className="hidden sm:inline">Recalculate Schedule</span>
-            <span className="sm:hidden">Recalculate</span>
-          </Button>
+            {/* Recalculate Button */}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={selectedTasks.length === 0 || bulkRecalculateMutation.isPending}
+              onClick={() => bulkRecalculateMutation.mutate(selectedTasks)}
+              className="shrink-0"
+              data-testid="button-recalculate-schedule"
+            >
+              <Loader2 className={cn("h-4 w-4 mr-1", bulkRecalculateMutation.isPending && "animate-spin")} />
+              <span className="hidden xs:inline">Recalculate</span>
+              <span className="xs:hidden">Recalc</span>
+            </Button>
 
-          {/* Set Baseline - Full width on mobile */}
-          <Button 
-            variant="outline" 
-            size="sm" 
-            disabled={selectedTasks.length === 0}
-            onClick={() => setBaselineDialogOpen(true)}
-            className="w-full sm:w-auto justify-start"
-            data-testid="button-set-baseline"
-          >
-            <Clock className="h-4 w-4 mr-1" />
-            Set Baseline
-          </Button>
+            {/* Set Baseline Button */}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={selectedTasks.length === 0 || bulkBaselineMutation.isPending}
+              onClick={() => setBaselineDialogOpen(true)}
+              className="shrink-0"
+              data-testid="button-set-baseline"
+            >
+              <Clock className="h-4 w-4 mr-1" />
+              <span className="hidden xs:inline">Set Baseline</span>
+              <span className="xs:hidden">Baseline</span>
+            </Button>
 
-          {/* Delete - Full width on mobile */}
-          <Button 
-            variant="outline" 
-            size="sm" 
-            disabled={selectedTasks.length === 0}
-            onClick={() => setDeleteDialogOpen(true)}
-            className="w-full sm:w-auto justify-start text-destructive hover:text-destructive"
-            data-testid="button-bulk-delete"
-          >
-            <Trash2 className="h-4 w-4 mr-1" />
-            Delete
-          </Button>
+            {/* Delete Button */}
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={selectedTasks.length === 0 || deleteMutation.isPending}
+              onClick={() => setDeleteDialogOpen(true)}
+              className="shrink-0 text-destructive hover:text-destructive"
+              data-testid="button-bulk-delete"
+            >
+              <Trash2 className="h-4 w-4 mr-1" />
+              Delete
+            </Button>
+          </div>
         </div>
       </div>
 
