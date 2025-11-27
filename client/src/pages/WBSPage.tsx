@@ -680,7 +680,7 @@ export default function WBSPage() {
 
               {/* Progress Bar - Compact + Metrics */}
               <div className="space-y-1.5">
-                <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
                   {/* Segmented progress indicator */}
                   <div className="flex gap-0.5">
                     {[0, 25, 50, 75, 100].map((threshold) => (
@@ -692,9 +692,9 @@ export default function WBSPage() {
                         )}
                       />
                     ))}
-                  </div>
-                  <span className="text-sm font-medium w-10 text-right shrink-0">{task.progress}%</span>
                 </div>
+                  <span className="text-sm font-medium w-10 text-right shrink-0">{task.progress}%</span>
+              </div>
                 {/* Inline metrics below progress */}
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
                   {resourceCount > 0 && (
@@ -1050,7 +1050,7 @@ export default function WBSPage() {
 
         {/* View controls - Wrap on mobile */}
         <div className="flex items-center gap-2 flex-wrap">
-          <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
+        <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
             <TabsList className="h-9">
               <TabsTrigger value="list" className="px-2 sm:px-3" data-testid="tab-view-list">
                 <List className="h-4 w-4" />
@@ -1064,11 +1064,11 @@ export default function WBSPage() {
               <TabsTrigger value="calendar" className="px-2 sm:px-3" data-testid="tab-view-calendar">
                 <CalendarIcon className="h-4 w-4" />
               </TabsTrigger>
-            </TabsList>
-          </Tabs>
+          </TabsList>
+        </Tabs>
 
           {/* Gantt zoom controls - Hide text on mobile */}
-          {viewMode === "gantt" && (
+        {viewMode === "gantt" && (
             <div className="flex items-center gap-1 sm:gap-2">
               <Button variant="outline" size="icon" className="h-9 w-9" onClick={handleZoomIn} disabled={zoom === "day"} data-testid="button-zoom-in">
                 <ZoomIn className="h-4 w-4" />
@@ -1079,11 +1079,11 @@ export default function WBSPage() {
               <Button variant="outline" size="icon" className="h-9 w-9" onClick={handleZoomOut} disabled={zoom === "quarter"} data-testid="button-zoom-out">
                 <ZoomOut className="h-4 w-4" />
               </Button>
-            </div>
-          )}
+          </div>
+        )}
 
           {/* Calendar controls - Compact on mobile */}
-          {viewMode === "calendar" && (
+        {viewMode === "calendar" && (
             <div className="flex items-center gap-1 sm:gap-2">
               <Button variant="outline" size="sm" className="h-9 text-xs sm:text-sm" onClick={goToToday} data-testid="button-today">
                 Today
@@ -1097,21 +1097,21 @@ export default function WBSPage() {
               <Button variant="outline" size="icon" className="h-9 w-9" onClick={goToNextMonth} data-testid="button-next-month">
                 <ChevronRight className="h-4 w-4" />
               </Button>
-            </div>
-          )}
+          </div>
+        )}
 
           {/* Filter button */}
-          <Popover open={filterOpen} onOpenChange={setFilterOpen}>
-            <PopoverTrigger asChild>
+        <Popover open={filterOpen} onOpenChange={setFilterOpen}>
+          <PopoverTrigger asChild>
               <Button variant="outline" size="icon" className="h-9 w-9 relative" data-testid="button-filter">
-                <Filter className="h-4 w-4" />
-                {activeFilterCount > 0 && (
-                  <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-primary text-[10px] font-medium text-primary-foreground flex items-center justify-center">
-                    {activeFilterCount}
-                  </span>
-                )}
-              </Button>
-            </PopoverTrigger>
+              <Filter className="h-4 w-4" />
+              {activeFilterCount > 0 && (
+                <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-primary text-[10px] font-medium text-primary-foreground flex items-center justify-center">
+                  {activeFilterCount}
+                </span>
+              )}
+            </Button>
+          </PopoverTrigger>
             <PopoverContent className="w-[calc(100vw-2rem)] sm:w-80" align="end">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -1218,7 +1218,7 @@ export default function WBSPage() {
           </PopoverContent>
         </Popover>
       </div>
-    </div>
+      </div>
 
       {/* Selection Toolbar - Always visible */}
       <div className={cn(
@@ -1228,11 +1228,11 @@ export default function WBSPage() {
         {/* Mobile: Compact header */}
         <div className="flex items-center justify-between sm:hidden">
           <div className="flex items-center gap-2">
-            <Checkbox
+          <Checkbox 
               checked={selectedTasks.length === flattenedTaskIds.length}
-              onCheckedChange={handleSelectAll}
-              data-testid="checkbox-select-all"
-            />
+            onCheckedChange={handleSelectAll}
+            data-testid="checkbox-select-all"
+          />
             <span className="text-sm font-medium">{selectedTasks.length} selected</span>
           </div>
           <Button 
@@ -1256,7 +1256,7 @@ export default function WBSPage() {
             />
             <span className="text-sm font-medium" data-testid="text-selection-count">
               {selectedTasks.length > 0 ? `${selectedTasks.length} tasks selected` : "Select tasks"}
-            </span>
+          </span>
           </div>
           <Button 
             variant="ghost" 
@@ -1267,150 +1267,150 @@ export default function WBSPage() {
             <X className="h-4 w-4 mr-1" />Clear Selection
           </Button>
         </div>
-
+        
         {/* Action buttons - Horizontal scroll on mobile, flex-wrap on desktop */}
         <div className="overflow-x-auto -mx-3 sm:mx-0 px-3 sm:px-0">
           <div className="flex gap-2 sm:flex-wrap min-w-max sm:min-w-0">
-            {/* Dependencies Dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  disabled={selectedTasks.length < 2}
+        {/* Dependencies Dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              disabled={selectedTasks.length < 2}
                   className="shrink-0 justify-start"
-                  data-testid="dropdown-dependencies"
-                >
-                  <Link2 className="h-4 w-4 mr-1" />
+              data-testid="dropdown-dependencies"
+            >
+              <Link2 className="h-4 w-4 mr-1" />
                   <span className="hidden xs:inline">Dependencies</span>
                   <span className="xs:hidden">Deps</span>
-                  <ChevronDown className="h-3 w-3 ml-1" />
-                </Button>
-              </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              <DropdownMenuLabel>Link Selected Tasks</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem 
-                onClick={() => bulkDependencyMutation.mutate({ taskIds: selectedTasks, action: "chain-fs" })}
-                data-testid="menu-chain-fs"
-              >
-                Chain FS (Waterfall)
-              </DropdownMenuItem>
-              <DropdownMenuItem 
-                onClick={() => bulkDependencyMutation.mutate({ taskIds: selectedTasks, action: "set-ss" })}
-                data-testid="menu-set-ss"
-              >
-                Set SS (Start Together)
-              </DropdownMenuItem>
-              <DropdownMenuItem 
-                onClick={() => bulkDependencyMutation.mutate({ taskIds: selectedTasks, action: "set-ff" })}
-                data-testid="menu-set-ff"
-              >
-                Set FF (Finish Together)
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem 
-                onClick={() => bulkDependencyMutation.mutate({ taskIds: selectedTasks, action: "clear" })}
-                className="text-destructive"
-                data-testid="menu-clear-deps"
-              >
-                Clear Dependencies
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+              <ChevronDown className="h-3 w-3 ml-1" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuLabel>Link Selected Tasks</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem 
+              onClick={() => bulkDependencyMutation.mutate({ taskIds: selectedTasks, action: "chain-fs" })}
+              data-testid="menu-chain-fs"
+            >
+              Chain FS (Waterfall)
+            </DropdownMenuItem>
+            <DropdownMenuItem 
+              onClick={() => bulkDependencyMutation.mutate({ taskIds: selectedTasks, action: "set-ss" })}
+              data-testid="menu-set-ss"
+            >
+              Set SS (Start Together)
+            </DropdownMenuItem>
+            <DropdownMenuItem 
+              onClick={() => bulkDependencyMutation.mutate({ taskIds: selectedTasks, action: "set-ff" })}
+              data-testid="menu-set-ff"
+            >
+              Set FF (Finish Together)
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem 
+              onClick={() => bulkDependencyMutation.mutate({ taskIds: selectedTasks, action: "clear" })}
+              className="text-destructive"
+              data-testid="menu-clear-deps"
+            >
+              Clear Dependencies
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
-            {/* Status Dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  disabled={selectedTasks.length === 0}
+        {/* Status Dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              disabled={selectedTasks.length === 0}
                   className="shrink-0"
-                  data-testid="dropdown-status"
-                >
-                  <CheckCircle2 className="h-4 w-4 mr-1" />
-                  Status
-                  <ChevronDown className="h-3 w-3 ml-1" />
-                </Button>
-              </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              <DropdownMenuLabel>Set Status</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem 
-                onClick={() => bulkUpdateMutation.mutate({ taskIds: selectedTasks, updates: { status: "not-started" } })}
-                data-testid="menu-status-not-started"
-              >
-                Not Started
-              </DropdownMenuItem>
-              <DropdownMenuItem 
-                onClick={() => bulkUpdateMutation.mutate({ taskIds: selectedTasks, updates: { status: "in-progress" } })}
-                data-testid="menu-status-in-progress"
-              >
-                In Progress
-              </DropdownMenuItem>
-              <DropdownMenuItem 
-                onClick={() => bulkUpdateMutation.mutate({ taskIds: selectedTasks, updates: { status: "on-hold" } })}
-                data-testid="menu-status-on-hold"
-              >
-                On Hold
-              </DropdownMenuItem>
-              <DropdownMenuItem 
-                onClick={() => bulkUpdateMutation.mutate({ taskIds: selectedTasks, updates: { status: "completed" } })}
-                data-testid="menu-status-completed"
-              >
-                Completed
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+              data-testid="dropdown-status"
+            >
+              <CheckCircle2 className="h-4 w-4 mr-1" />
+              Status
+              <ChevronDown className="h-3 w-3 ml-1" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuLabel>Set Status</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem 
+              onClick={() => bulkUpdateMutation.mutate({ taskIds: selectedTasks, updates: { status: "not-started" } })}
+              data-testid="menu-status-not-started"
+            >
+              Not Started
+            </DropdownMenuItem>
+            <DropdownMenuItem 
+              onClick={() => bulkUpdateMutation.mutate({ taskIds: selectedTasks, updates: { status: "in-progress" } })}
+              data-testid="menu-status-in-progress"
+            >
+              In Progress
+            </DropdownMenuItem>
+            <DropdownMenuItem 
+              onClick={() => bulkUpdateMutation.mutate({ taskIds: selectedTasks, updates: { status: "on-hold" } })}
+              data-testid="menu-status-on-hold"
+            >
+              On Hold
+            </DropdownMenuItem>
+            <DropdownMenuItem 
+              onClick={() => bulkUpdateMutation.mutate({ taskIds: selectedTasks, updates: { status: "completed" } })}
+              data-testid="menu-status-completed"
+            >
+              Completed
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
-            {/* Progress Dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  disabled={selectedTasks.length === 0}
+        {/* Progress Dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              disabled={selectedTasks.length === 0}
                   className="shrink-0"
-                  data-testid="dropdown-progress"
-                >
-                  <Percent className="h-4 w-4 mr-1" />
+              data-testid="dropdown-progress"
+            >
+              <Percent className="h-4 w-4 mr-1" />
                   <span className="hidden xs:inline">Progress</span>
                   <span className="xs:hidden">%</span>
-                  <ChevronDown className="h-3 w-3 ml-1" />
-                </Button>
-              </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              <DropdownMenuLabel>Set Progress</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              {[0, 25, 50, 75, 100].map(value => (
-                <DropdownMenuItem 
-                  key={value}
-                  onClick={() => bulkUpdateMutation.mutate({ taskIds: selectedTasks, updates: { progress: value } })}
-                  data-testid={`menu-progress-${value}`}
-                >
-                  {value}%
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+              <ChevronDown className="h-3 w-3 ml-1" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuLabel>Set Progress</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {[0, 25, 50, 75, 100].map(value => (
+              <DropdownMenuItem 
+                key={value}
+                onClick={() => bulkUpdateMutation.mutate({ taskIds: selectedTasks, updates: { progress: value } })}
+                data-testid={`menu-progress-${value}`}
+              >
+                {value}%
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
 
-            {/* Resources Dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  disabled={selectedTasks.length === 0}
+        {/* Resources Dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              disabled={selectedTasks.length === 0}
                   className="shrink-0"
-                  data-testid="dropdown-resources"
-                >
-                  <Users className="h-4 w-4 mr-1" />
+              data-testid="dropdown-resources"
+            >
+              <Users className="h-4 w-4 mr-1" />
                   <span className="hidden xs:inline">Resources</span>
                   <span className="xs:hidden">Res</span>
-                  <ChevronDown className="h-3 w-3 ml-1" />
-                </Button>
-              </DropdownMenuTrigger>
+              <ChevronDown className="h-3 w-3 ml-1" />
+            </Button>
+          </DropdownMenuTrigger>
           <DropdownMenuContent className="max-h-64 overflow-y-auto">
             <DropdownMenuLabel>Assign Resources</DropdownMenuLabel>
             <DropdownMenuSeparator />
@@ -1446,21 +1446,21 @@ export default function WBSPage() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-            {/* Risks Dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  disabled={selectedTasks.length === 0}
+        {/* Risks Dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              disabled={selectedTasks.length === 0}
                   className="shrink-0"
-                  data-testid="dropdown-risks"
-                >
-                  <AlertTriangle className="h-4 w-4 mr-1" />
-                  Risks
-                  <ChevronDown className="h-3 w-3 ml-1" />
-                </Button>
-              </DropdownMenuTrigger>
+              data-testid="dropdown-risks"
+            >
+              <AlertTriangle className="h-4 w-4 mr-1" />
+              Risks
+              <ChevronDown className="h-3 w-3 ml-1" />
+            </Button>
+          </DropdownMenuTrigger>
           <DropdownMenuContent className="max-h-64 overflow-y-auto">
             <DropdownMenuLabel>Link Risks</DropdownMenuLabel>
             <DropdownMenuSeparator />
@@ -1496,22 +1496,22 @@ export default function WBSPage() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-            {/* Issues Dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  disabled={selectedTasks.length === 0}
+        {/* Issues Dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              disabled={selectedTasks.length === 0}
                   className="shrink-0"
-                  data-testid="dropdown-issues"
-                >
-                  <AlertOctagon className="h-4 w-4 mr-1" />
-                  Issues
-                  <ChevronDown className="h-3 w-3 ml-1" />
-                </Button>
-              </DropdownMenuTrigger>
-            <DropdownMenuContent className="max-h-64 overflow-y-auto">
+              data-testid="dropdown-issues"
+            >
+              <AlertOctagon className="h-4 w-4 mr-1" />
+              Issues
+              <ChevronDown className="h-3 w-3 ml-1" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="max-h-64 overflow-y-auto">
             <DropdownMenuLabel>Link Issues</DropdownMenuLabel>
             <DropdownMenuSeparator />
             {issues.length === 0 ? (
@@ -1547,32 +1547,32 @@ export default function WBSPage() {
         </DropdownMenu>
 
             {/* Recalculate Button */}
-            <Button
-              variant="outline"
-              size="sm"
+        <Button 
+          variant="outline" 
+          size="sm" 
               disabled={selectedTasks.length === 0 || bulkRecalculateMutation.isPending}
               onClick={() => bulkRecalculateMutation.mutate(selectedTasks)}
               className="shrink-0"
               data-testid="button-recalculate-schedule"
-            >
+        >
               <Loader2 className={cn("h-4 w-4 mr-1", bulkRecalculateMutation.isPending && "animate-spin")} />
               <span className="hidden xs:inline">Recalculate</span>
               <span className="xs:hidden">Recalc</span>
-            </Button>
+        </Button>
 
             {/* Set Baseline Button */}
-            <Button
+          <Button 
               variant="outline"
-              size="sm"
+            size="sm"
               disabled={selectedTasks.length === 0 || bulkBaselineMutation.isPending}
               onClick={() => setBaselineDialogOpen(true)}
               className="shrink-0"
               data-testid="button-set-baseline"
-            >
+          >
               <Clock className="h-4 w-4 mr-1" />
               <span className="hidden xs:inline">Set Baseline</span>
               <span className="xs:hidden">Baseline</span>
-            </Button>
+          </Button>
 
             {/* Delete Button */}
             <Button

@@ -607,7 +607,7 @@ class WebSocketManager {
               });
             } else {
               // Handle chat message
-              this.broadcastToConversation(conversationId, message);
+            this.broadcastToConversation(conversationId, message);
             }
           }
         } catch (error) {
