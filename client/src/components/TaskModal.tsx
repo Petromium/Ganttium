@@ -26,6 +26,10 @@ import { ResourceLevelingModal } from "@/components/modals/ResourceLevelingModal
 import { EditDocumentModal } from "@/components/modals/EditDocumentModal";
 import { EditRiskModal } from "@/components/modals/EditRiskModal";
 import { EditIssueModal } from "@/components/modals/EditIssueModal";
+import { ChatWindow } from "@/components/chat/ChatWindow";
+import { useTaskConversation, useCreateConversation } from "@/hooks/useConversations";
+import { useAuth } from "@/hooks/useAuth";
+import { MessageSquare } from "lucide-react";
 
 type TaskStatus = "not-started" | "in-progress" | "review" | "completed" | "on-hold";
 type TaskPriority = "low" | "medium" | "high" | "critical";
@@ -796,7 +800,7 @@ export function TaskModal({
         </DialogHeader>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 overflow-hidden flex flex-col">
-          <TabsList className="grid w-full grid-cols-6 shrink-0">
+          <TabsList className="grid w-full grid-cols-7 shrink-0">
             <TabsTrigger value="details">Details</TabsTrigger>
             <TabsTrigger value="dependencies" disabled={!isEditing}>
               Dependencies {isEditing && (predecessors.length + successors.length > 0) && `(${predecessors.length + successors.length})`}
@@ -813,6 +817,7 @@ export function TaskModal({
             <TabsTrigger value="issues" disabled={!isEditing}>
               Issues {isEditing && taskIssues.length > 0 && `(${taskIssues.length})`}
             </TabsTrigger>
+            <TabsTrigger value="chat">Chat</TabsTrigger>
           </TabsList>
 
           <ScrollArea className="flex-1 mt-4">
@@ -2005,6 +2010,10 @@ export function TaskModal({
                   </div>
                 </div>
               </TabsContent>
+
+              <TabsContent value="chat" className="space-y-4 mt-0 h-full">
+                {task && <TaskChatTab taskId={task.id} />}
+              </TabsContent>
             </div>
           </ScrollArea>
         </Tabs>
@@ -2133,6 +2142,58 @@ export function TaskModal({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function TaskChatTab({ taskId }: { taskId: number }) {
+  const { user } = useAuth();
+  const { data: conversation, isLoading } = useTaskConversation(taskId);
+  const createConversation = useCreateConversation();
+
+  const handleCreateConversation = async () => {
+    if (!user) return;
+    
+    try {
+      await createConversation.mutateAsync({
+        type: "task",
+        taskId,
+        participantIds: [user.id],
+      });
+    } catch (error) {
+      console.error("Failed to create task conversation:", error);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (!conversation) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 space-y-4">
+        <MessageSquare className="h-12 w-12 text-muted-foreground" />
+        <div className="text-center">
+          <p className="text-sm font-medium">No conversation yet</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Start a conversation about this task
+          </p>
+        </div>
+        <Button onClick={handleCreateConversation} disabled={createConversation.isPending}>
+          <Plus className="h-4 w-4 mr-2" />
+          {createConversation.isPending ? "Creating..." : "Start Conversation"}
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-[500px] border rounded-lg overflow-hidden">
+      <ChatWindow conversation={conversation} />
+    </div>
   );
 }
 

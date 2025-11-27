@@ -83,7 +83,7 @@ function getTopLevelTasks(tasks: Task[]): Task[] {
       // Top-level task: either has no parent OR wbsCode is level-1 (single number or "X.0")
       if (task.parentId === null) return true;
       
-      const parts = task.wbsCode.split('.');
+    const parts = task.wbsCode.split('.');
       // Level-1 pattern: single number or "X.0"
       return parts.length === 1 || (parts.length === 2 && parts[1] === '0');
     })
@@ -295,8 +295,8 @@ export default function Dashboard() {
                 const level1Code = extractLevel1WbsCode(task.wbsCode);
                 return (
                   <div key={task.id}>
-                    <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
-                      <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                    <div className="flex items-center gap-2">
                         <span className="text-sm font-medium truncate">
                           {task.name}
                         </span>

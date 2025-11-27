@@ -96,6 +96,11 @@ export const eventTypeEnum = pgEnum("event_type", [
   "training", "workshop", "review", "handover", "other"
 ]);
 
+// Chat Enums
+export const conversationTypeEnum = pgEnum("conversation_type", ["direct", "group", "project", "task"]);
+export const messageTypeEnum = pgEnum("message_type", ["text", "file", "image", "system"]);
+export const participantRoleEnum = pgEnum("participant_role", ["owner", "admin", "member"]);
+
 // Organizations (Multi-tenant root)
 export const organizations = pgTable("organizations", {
   id: serial("id").primaryKey(),
@@ -742,6 +747,61 @@ export const taskIssues = pgTable("task_issues", {
   uniqueTaskIssue: unique("task_issues_unique").on(table.taskId, table.issueId),
 }));
 
+// ==================== Chat System ====================
+
+// Chat Conversations
+export const chatConversations = pgTable("chat_conversations", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  taskId: integer("task_id").references(() => tasks.id, { onDelete: "cascade" }),
+  type: conversationTypeEnum("type").notNull().default("direct"),
+  name: varchar("name", { length: 255 }), // For group conversations
+  description: text("description"),
+  createdBy: varchar("created_by", { length: 255 }).notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  projectIdx: index("chat_conversations_project_idx").on(table.projectId),
+  taskIdx: index("chat_conversations_task_idx").on(table.taskId),
+  typeIdx: index("chat_conversations_type_idx").on(table.type),
+}));
+
+// Chat Participants
+export const chatParticipants = pgTable("chat_participants", {
+  id: serial("id").primaryKey(),
+  conversationId: integer("conversation_id").notNull().references(() => chatConversations.id, { onDelete: "cascade" }),
+  userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id, { onDelete: "cascade" }),
+  role: participantRoleEnum("role").notNull().default("member"),
+  joinedAt: timestamp("joined_at").defaultNow().notNull(),
+  lastReadAt: timestamp("last_read_at"), // Track when user last read messages
+}, (table) => ({
+  uniqueParticipant: unique("chat_participants_unique").on(table.conversationId, table.userId),
+  conversationIdx: index("chat_participants_conversation_idx").on(table.conversationId),
+  userIdx: index("chat_participants_user_idx").on(table.userId),
+}));
+
+// Chat Messages
+export const chatMessages = pgTable("chat_messages", {
+  id: serial("id").primaryKey(),
+  conversationId: integer("conversation_id").notNull().references(() => chatConversations.id, { onDelete: "cascade" }),
+  userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id, { onDelete: "cascade" }),
+  content: text("content").notNull(), // Message text or file path
+  type: messageTypeEnum("type").notNull().default("text"),
+  filePath: text("file_path"), // For file/image messages
+  fileName: varchar("file_name", { length: 255 }), // Original filename
+  fileSize: integer("file_size"), // Size in bytes
+  mimeType: varchar("mime_type", { length: 100 }), // MIME type for files
+  replyToMessageId: integer("reply_to_message_id").references(() => chatMessages.id, { onDelete: "set null" }), // For reply threading
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  deletedAt: timestamp("deleted_at"), // Soft delete
+}, (table) => ({
+  conversationIdx: index("chat_messages_conversation_idx").on(table.conversationId),
+  userIdx: index("chat_messages_user_idx").on(table.userId),
+  createdAtIdx: index("chat_messages_created_at_idx").on(table.createdAt),
+  replyIdx: index("chat_messages_reply_idx").on(table.replyToMessageId),
+}));
+
 // Zod Schemas for Organizations
 export const insertOrganizationSchema = createInsertSchema(organizations).omit({ id: true, createdAt: true, updatedAt: true });
 export const selectOrganizationSchema = createSelectSchema(organizations);
@@ -1229,3 +1289,29 @@ export const insertTaskIssueSchema = createInsertSchema(taskIssues).omit({ id: t
 export const selectTaskIssueSchema = createSelectSchema(taskIssues);
 export type InsertTaskIssue = z.infer<typeof insertTaskIssueSchema>;
 export type TaskIssue = typeof taskIssues.$inferSelect;
+
+// ==================== Chat Zod Schemas ====================
+
+// Zod Schemas for Chat Conversations
+export const insertConversationSchema = createInsertSchema(chatConversations).omit({ id: true, createdAt: true, updatedAt: true, createdBy: true });
+export const updateConversationSchema = insertConversationSchema.partial();
+export const selectConversationSchema = createSelectSchema(chatConversations);
+export type InsertConversation = z.infer<typeof insertConversationSchema>;
+export type UpdateConversation = z.infer<typeof updateConversationSchema>;
+export type Conversation = typeof chatConversations.$inferSelect;
+
+// Zod Schemas for Chat Participants
+export const insertParticipantSchema = createInsertSchema(chatParticipants).omit({ id: true, joinedAt: true });
+export const selectParticipantSchema = createSelectSchema(chatParticipants);
+export type InsertParticipant = z.infer<typeof insertParticipantSchema>;
+export type Participant = typeof chatParticipants.$inferSelect;
+
+// Zod Schemas for Chat Messages
+export const insertMessageSchema = createInsertSchema(chatMessages).omit({ id: true, createdAt: true, updatedAt: true, userId: true }).extend({
+  userId: z.string().optional(), // Auto-set to current user if not provided
+});
+export const updateMessageSchema = insertMessageSchema.partial();
+export const selectMessageSchema = createSelectSchema(chatMessages);
+export type InsertMessage = z.infer<typeof insertMessageSchema>;
+export type UpdateMessage = z.infer<typeof updateMessageSchema>;
+export type Message = typeof chatMessages.$inferSelect;

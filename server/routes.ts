@@ -24,7 +24,11 @@ import {
   insertEmailTemplateSchema,
   updateEmailTemplateSchema,
   insertResourceSchema,
-  insertResourceAssignmentSchema
+  insertResourceAssignmentSchema,
+  insertConversationSchema,
+  updateConversationSchema,
+  insertMessageSchema,
+  updateMessageSchema
 } from "@shared/schema";
 import { chatWithAssistant, type ChatMessage } from "./aiAssistant";
 import { z } from "zod";
@@ -43,6 +47,9 @@ import {
 } from "./emailService";
 import { wsManager } from "./websocket";
 import { schedulingService } from "./scheduling";
+import { db } from "./db";
+import { eq } from "drizzle-orm";
+import * as schema from "@shared/schema";
 
 // Helper to get user ID from request
 function getUserId(req: any): string {
@@ -5156,10 +5163,404 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== Chat Routes =====
+  
+  // Conversations
+  app.get('/api/chat/conversations', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const conversations = await storage.getConversationsByUser(userId);
+      res.json(conversations);
+    } catch (error: any) {
+      console.error("Error fetching conversations:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch conversations" });
+    }
+  });
+
+  app.get('/api/chat/conversations/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const conversationId = parseInt(req.params.id);
+      const conversation = await storage.getConversation(conversationId);
+      
+      if (!conversation) {
+        return res.status(404).json({ message: "Conversation not found" });
+      }
+
+      // Check if user is a participant
+      const participants = await storage.getParticipants(conversationId);
+      const isParticipant = participants.some(p => p.userId === userId);
+      
+      if (!isParticipant) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      res.json(conversation);
+    } catch (error: any) {
+      console.error("Error fetching conversation:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch conversation" });
+    }
+  });
+
+  app.post('/api/chat/conversations', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const data = insertConversationSchema.parse(req.body);
+      
+      const conversation = await storage.createConversation({
+        ...data,
+        createdBy: userId,
+      });
+
+      // Add creator as participant with owner role
+      await storage.addParticipant(conversation.id, userId, "owner");
+
+      // Add other participants if provided
+      if (req.body.participantIds && Array.isArray(req.body.participantIds)) {
+        for (const participantId of req.body.participantIds) {
+          if (participantId !== userId) {
+            await storage.addParticipant(conversation.id, participantId, "member");
+          }
+        }
+      }
+
+      wsManager.publishChatMessage(conversation.id, {
+        type: "chat-conversation-created",
+        payload: conversation,
+        timestamp: Date.now(),
+        userId,
+      }).catch(() => {});
+
+      res.json(conversation);
+    } catch (error: any) {
+      console.error("Error creating conversation:", error);
+      res.status(400).json({ message: error.message || "Failed to create conversation" });
+    }
+  });
+
+  app.patch('/api/chat/conversations/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const conversationId = parseInt(req.params.id);
+      const conversation = await storage.getConversation(conversationId);
+      
+      if (!conversation) {
+        return res.status(404).json({ message: "Conversation not found" });
+      }
+
+      // Check if user is owner or admin
+      const participants = await storage.getParticipants(conversationId);
+      const userParticipant = participants.find(p => p.userId === userId);
+      
+      if (!userParticipant || (userParticipant.role !== "owner" && userParticipant.role !== "admin")) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const data = updateConversationSchema.parse(req.body);
+      const updated = await storage.updateConversation(conversationId, data);
+      
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating conversation:", error);
+      res.status(400).json({ message: error.message || "Failed to update conversation" });
+    }
+  });
+
+  app.delete('/api/chat/conversations/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const conversationId = parseInt(req.params.id);
+      const conversation = await storage.getConversation(conversationId);
+      
+      if (!conversation) {
+        return res.status(404).json({ message: "Conversation not found" });
+      }
+
+      // Check if user is owner
+      const participants = await storage.getParticipants(conversationId);
+      const userParticipant = participants.find(p => p.userId === userId);
+      
+      if (!userParticipant || userParticipant.role !== "owner") {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await storage.deleteConversation(conversationId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting conversation:", error);
+      res.status(500).json({ message: error.message || "Failed to delete conversation" });
+    }
+  });
+
+  app.get('/api/chat/conversations/project/:projectId', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+      
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      const conversations = await storage.getConversationsByProject(projectId);
+      res.json(conversations);
+    } catch (error: any) {
+      console.error("Error fetching project conversations:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch conversations" });
+    }
+  });
+
+  app.get('/api/chat/conversations/task/:taskId', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const taskId = parseInt(req.params.taskId);
+      const task = await storage.getTask(taskId);
+      
+      if (!task) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      if (!await checkProjectAccess(userId, task.projectId)) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      const conversation = await storage.getConversationByTask(taskId);
+      res.json(conversation || null);
+    } catch (error: any) {
+      console.error("Error fetching task conversation:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch conversation" });
+    }
+  });
+
+  // Participants
+  app.get('/api/chat/conversations/:id/participants', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const conversationId = parseInt(req.params.id);
+      
+      // Check if user is a participant
+      const participants = await storage.getParticipants(conversationId);
+      const isParticipant = participants.some(p => p.userId === userId);
+      
+      if (!isParticipant) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      res.json(participants);
+    } catch (error: any) {
+      console.error("Error fetching participants:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch participants" });
+    }
+  });
+
+  app.post('/api/chat/conversations/:id/participants', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const conversationId = parseInt(req.params.id);
+      const { participantId, role = "member" } = req.body;
+
+      if (!participantId) {
+        return res.status(400).json({ message: "participantId required" });
+      }
+
+      // Check if user is owner or admin
+      const participants = await storage.getParticipants(conversationId);
+      const userParticipant = participants.find(p => p.userId === userId);
+      
+      if (!userParticipant || (userParticipant.role !== "owner" && userParticipant.role !== "admin")) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const participant = await storage.addParticipant(conversationId, participantId, role);
+      res.json(participant);
+    } catch (error: any) {
+      console.error("Error adding participant:", error);
+      res.status(400).json({ message: error.message || "Failed to add participant" });
+    }
+  });
+
+  app.delete('/api/chat/conversations/:id/participants/:userId', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const conversationId = parseInt(req.params.id);
+      const targetUserId = req.params.userId;
+
+      // Check if user is owner or admin, or removing themselves
+      const participants = await storage.getParticipants(conversationId);
+      const userParticipant = participants.find(p => p.userId === userId);
+      
+      if (!userParticipant) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      if (targetUserId !== userId && userParticipant.role !== "owner" && userParticipant.role !== "admin") {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await storage.removeParticipant(conversationId, targetUserId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error removing participant:", error);
+      res.status(500).json({ message: error.message || "Failed to remove participant" });
+    }
+  });
+
+  // Messages
+  app.get('/api/chat/conversations/:id/messages', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const conversationId = parseInt(req.params.id);
+      const limit = parseInt(req.query.limit as string) || 50;
+      const offset = parseInt(req.query.offset as string) || 0;
+
+      // Check if user is a participant
+      const participants = await storage.getParticipants(conversationId);
+      const isParticipant = participants.some(p => p.userId === userId);
+      
+      if (!isParticipant) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const messages = await storage.getMessages(conversationId, limit, offset);
+      res.json(messages.reverse()); // Reverse to show oldest first
+    } catch (error: any) {
+      console.error("Error fetching messages:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch messages" });
+    }
+  });
+
+  app.post('/api/chat/conversations/:id/messages', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const conversationId = parseInt(req.params.id);
+      
+      // Check if user is a participant
+      const participants = await storage.getParticipants(conversationId);
+      const isParticipant = participants.some(p => p.userId === userId);
+      
+      if (!isParticipant) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const messageData = {
+        ...req.body,
+        conversationId,
+      };
+      
+      const data = insertMessageSchema.parse(messageData);
+
+      const message = await storage.createMessage({
+        ...data,
+        userId,
+      } as InsertMessage & { userId: string });
+
+      // Publish to Redis for cross-pod broadcasting
+      await wsManager.publishChatMessage(conversationId, {
+        type: "chat-message",
+        payload: message,
+        timestamp: Date.now(),
+        userId,
+      });
+
+      res.json(message);
+    } catch (error: any) {
+      console.error("Error creating message:", error);
+      res.status(400).json({ message: error.message || "Failed to create message" });
+    }
+  });
+
+  app.patch('/api/chat/messages/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const messageId = parseInt(req.params.id);
+      
+      // Get message to check ownership
+      const messages = await db.select().from(schema.chatMessages)
+        .where(eq(schema.chatMessages.id, messageId))
+        .limit(1);
+      
+      if (!messages[0]) {
+        return res.status(404).json({ message: "Message not found" });
+      }
+
+      if (messages[0].userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const data = updateMessageSchema.parse(req.body);
+      const updated = await storage.updateMessage(messageId, data);
+      
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating message:", error);
+      res.status(400).json({ message: error.message || "Failed to update message" });
+    }
+  });
+
+  app.delete('/api/chat/messages/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const messageId = parseInt(req.params.id);
+      
+      // Get message to check ownership
+      const messages = await db.select().from(schema.chatMessages)
+        .where(eq(schema.chatMessages.id, messageId))
+        .limit(1);
+      
+      if (!messages[0]) {
+        return res.status(404).json({ message: "Message not found" });
+      }
+
+      if (messages[0].userId !== userId) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await storage.deleteMessage(messageId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error deleting message:", error);
+      res.status(500).json({ message: error.message || "Failed to delete message" });
+    }
+  });
+
+  app.post('/api/chat/messages/:id/read', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const messageId = parseInt(req.params.id);
+      
+      // Get message to get conversationId
+      const messages = await db.select().from(schema.chatMessages)
+        .where(eq(schema.chatMessages.id, messageId))
+        .limit(1);
+      
+      if (!messages[0]) {
+        return res.status(404).json({ message: "Message not found" });
+      }
+
+      await storage.markAsRead(messages[0].conversationId, userId);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error marking message as read:", error);
+      res.status(500).json({ message: error.message || "Failed to mark as read" });
+    }
+  });
+
+  // Utility routes
+  app.get('/api/chat/unread-count', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const conversationId = req.query.conversationId ? parseInt(req.query.conversationId as string) : undefined;
+      const count = await storage.getUnreadCount(userId, conversationId);
+      res.json({ count });
+    } catch (error: any) {
+      console.error("Error getting unread count:", error);
+      res.status(500).json({ message: error.message || "Failed to get unread count" });
+    }
+  });
+
   const httpServer = createServer(app);
 
-  // Initialize WebSocket server
-  wsManager.initialize(httpServer);
+  // Initialize WebSocket server (now async)
+  await wsManager.initialize(httpServer);
 
   return httpServer;
 }

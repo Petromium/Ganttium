@@ -16,6 +16,7 @@ import {
   FileDown,
   Mail,
   Settings,
+  MessageSquare,
 } from "lucide-react";
 import {
   Sidebar,
@@ -40,6 +41,7 @@ const projectTabs = [
   { title: "Change Requests", icon: FileEdit, path: "/change-requests" },
   { title: "Cost Management", icon: DollarSign, path: "/cost" },
   { title: "AI Assistant", icon: Bot, path: "/ai-assistant" },
+  { title: "Chat", icon: MessageSquare, path: "/chat" },
   { title: "Reports", icon: FileDown, path: "/reports" },
   { title: "Email Templates", icon: Mail, path: "/email-templates" },
   { title: "Documents", icon: FileText, path: "/documents" },

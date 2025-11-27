@@ -39,6 +39,7 @@ import DocumentsPage from "@/pages/DocumentsPage";
 import PMODashboardPage from "@/pages/PMODashboardPage";
 import PMOCalendarPage from "@/pages/PMOCalendarPage";
 import PMOInventoryPage from "@/pages/PMOInventoryPage";
+import ChatPage from "@/pages/ChatPage";
 import LoginPage from "@/pages/LoginPage";
 import ForgotPasswordPage from "@/pages/ForgotPasswordPage";
 import ResetPasswordPage from "@/pages/ResetPasswordPage";
@@ -72,6 +73,7 @@ function Router() {
       <Route path="/reports" component={ReportsPage} />
       <Route path="/email-templates" component={EmailTemplatesPage} />
       <Route path="/ai-assistant" component={AIAssistantPage} />
+      <Route path="/chat" component={ChatPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/pmo/dashboard" component={PMODashboardPage} />
       <Route path="/pmo/calendar" component={PMOCalendarPage} />

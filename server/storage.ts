@@ -1,4 +1,4 @@
-import { eq, and, desc, asc, isNull, inArray } from "drizzle-orm";
+import { eq, and, desc, asc, isNull, inArray, sql } from "drizzle-orm";
 import * as schema from "@shared/schema";
 import { db } from "./db";
 import type {
@@ -68,6 +68,14 @@ import type {
   TaskRisk,
   InsertTaskIssue,
   TaskIssue,
+  InsertConversation,
+  Conversation,
+  UpdateConversation,
+  InsertParticipant,
+  Participant,
+  InsertMessage,
+  Message,
+  UpdateMessage,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -305,6 +313,28 @@ export interface IStorage {
   getTaskIssues(taskId: number): Promise<TaskIssue[]>;
   createTaskIssue(taskIssue: InsertTaskIssue): Promise<TaskIssue>;
   deleteTaskIssue(taskId: number, issueId: number): Promise<void>;
+
+  // Chat Conversations
+  getConversation(id: number): Promise<Conversation | undefined>;
+  getConversationsByProject(projectId: number): Promise<Conversation[]>;
+  getConversationsByUser(userId: string): Promise<Conversation[]>;
+  getConversationByTask(taskId: number): Promise<Conversation | undefined>;
+  createConversation(conversation: InsertConversation & { createdBy: string }): Promise<Conversation>;
+  updateConversation(id: number, conversation: Partial<UpdateConversation>): Promise<Conversation | undefined>;
+  deleteConversation(id: number): Promise<void>;
+
+  // Chat Participants
+  getParticipants(conversationId: number): Promise<Participant[]>;
+  addParticipant(conversationId: number, userId: string, role?: string): Promise<Participant>;
+  removeParticipant(conversationId: number, userId: string): Promise<void>;
+  markAsRead(conversationId: number, userId: string): Promise<void>;
+  getUnreadCount(userId: string, conversationId?: number): Promise<number>;
+
+  // Chat Messages
+  getMessages(conversationId: number, limit?: number, offset?: number): Promise<Message[]>;
+  createMessage(message: InsertMessage & { userId: string }): Promise<Message>;
+  updateMessage(id: number, message: Partial<UpdateMessage>): Promise<Message | undefined>;
+  deleteMessage(id: number): Promise<void>;
 
   // Inheritance helpers
   getTaskAncestors(taskId: number): Promise<Task[]>;
@@ -1744,6 +1774,176 @@ export class DatabaseStorage implements IStorage {
         eq(schema.taskIssues.issueId, issueId)
       )
     );
+  }
+
+  // Chat Conversations
+  async getConversation(id: number): Promise<Conversation | undefined> {
+    const [conv] = await db.select().from(schema.chatConversations)
+      .where(eq(schema.chatConversations.id, id));
+    return conv;
+  }
+
+  async getConversationsByProject(projectId: number): Promise<Conversation[]> {
+    return db.select().from(schema.chatConversations)
+      .where(eq(schema.chatConversations.projectId, projectId))
+      .orderBy(desc(schema.chatConversations.updatedAt));
+  }
+
+  async getConversationsByUser(userId: string): Promise<Conversation[]> {
+    // Get conversations where user is a participant
+    const participants = await db.select({ conversationId: schema.chatParticipants.conversationId })
+      .from(schema.chatParticipants)
+      .where(eq(schema.chatParticipants.userId, userId));
+
+    const conversationIds = participants.map(p => p.conversationId);
+    if (conversationIds.length === 0) return [];
+
+    return db.select().from(schema.chatConversations)
+      .where(inArray(schema.chatConversations.id, conversationIds))
+      .orderBy(desc(schema.chatConversations.updatedAt));
+  }
+
+  async getConversationByTask(taskId: number): Promise<Conversation | undefined> {
+    const [conv] = await db.select().from(schema.chatConversations)
+      .where(eq(schema.chatConversations.taskId, taskId));
+    return conv;
+  }
+
+  async createConversation(conversation: InsertConversation & { createdBy: string }): Promise<Conversation> {
+    const [created] = await db.insert(schema.chatConversations).values({
+      ...conversation,
+      createdBy: conversation.createdBy,
+    }).returning();
+    return created;
+  }
+
+  async updateConversation(id: number, conversation: Partial<UpdateConversation>): Promise<Conversation | undefined> {
+    const [updated] = await db.update(schema.chatConversations)
+      .set({ ...conversation, updatedAt: new Date() })
+      .where(eq(schema.chatConversations.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteConversation(id: number): Promise<void> {
+    await db.delete(schema.chatConversations).where(eq(schema.chatConversations.id, id));
+  }
+
+  // Chat Participants
+  async getParticipants(conversationId: number): Promise<Participant[]> {
+    return db.select().from(schema.chatParticipants)
+      .where(eq(schema.chatParticipants.conversationId, conversationId))
+      .orderBy(asc(schema.chatParticipants.joinedAt));
+  }
+
+  async addParticipant(conversationId: number, userId: string, role: string = "member"): Promise<Participant> {
+    const [participant] = await db.insert(schema.chatParticipants).values({
+      conversationId,
+      userId,
+      role: role as any,
+    }).returning();
+    return participant;
+  }
+
+  async removeParticipant(conversationId: number, userId: string): Promise<void> {
+    await db.delete(schema.chatParticipants).where(
+      and(
+        eq(schema.chatParticipants.conversationId, conversationId),
+        eq(schema.chatParticipants.userId, userId)
+      )
+    );
+  }
+
+  async markAsRead(conversationId: number, userId: string): Promise<void> {
+    await db.update(schema.chatParticipants)
+      .set({ lastReadAt: new Date() })
+      .where(
+        and(
+          eq(schema.chatParticipants.conversationId, conversationId),
+          eq(schema.chatParticipants.userId, userId)
+        )
+      );
+  }
+
+  async getUnreadCount(userId: string, conversationId?: number): Promise<number> {
+    if (conversationId) {
+      // Get unread count for specific conversation
+      const participant = await db.select().from(schema.chatParticipants)
+        .where(
+          and(
+            eq(schema.chatParticipants.conversationId, conversationId),
+            eq(schema.chatParticipants.userId, userId)
+          )
+        )
+        .limit(1);
+
+      if (!participant[0] || !participant[0].lastReadAt) {
+        // If never read, count all messages
+        const [result] = await db.select({ count: sql<number>`count(*)` })
+          .from(schema.chatMessages)
+          .where(eq(schema.chatMessages.conversationId, conversationId));
+        return result?.count || 0;
+      }
+
+      // Count messages after lastReadAt
+      const [result] = await db.select({ count: sql<number>`count(*)` })
+        .from(schema.chatMessages)
+        .where(
+          and(
+            eq(schema.chatMessages.conversationId, conversationId),
+            sql`${schema.chatMessages.createdAt} > ${participant[0].lastReadAt}`
+          )
+        );
+      return result?.count || 0;
+    } else {
+      // Get total unread count across all conversations
+      const participants = await db.select().from(schema.chatParticipants)
+        .where(eq(schema.chatParticipants.userId, userId));
+
+      let totalUnread = 0;
+      for (const p of participants) {
+        const count = await this.getUnreadCount(userId, p.conversationId);
+        totalUnread += count;
+      }
+      return totalUnread;
+    }
+  }
+
+  // Chat Messages
+  async getMessages(conversationId: number, limit: number = 50, offset: number = 0): Promise<Message[]> {
+    return db.select().from(schema.chatMessages)
+      .where(
+        and(
+          eq(schema.chatMessages.conversationId, conversationId),
+          isNull(schema.chatMessages.deletedAt)
+        )
+      )
+      .orderBy(desc(schema.chatMessages.createdAt))
+      .limit(limit)
+      .offset(offset);
+  }
+
+  async createMessage(message: InsertMessage & { userId: string }): Promise<Message> {
+    const [created] = await db.insert(schema.chatMessages).values({
+      ...message,
+      userId: message.userId,
+    }).returning();
+    return created;
+  }
+
+  async updateMessage(id: number, message: Partial<UpdateMessage>): Promise<Message | undefined> {
+    const [updated] = await db.update(schema.chatMessages)
+      .set({ ...message, updatedAt: new Date() })
+      .where(eq(schema.chatMessages.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteMessage(id: number): Promise<void> {
+    // Soft delete
+    await db.update(schema.chatMessages)
+      .set({ deletedAt: new Date() })
+      .where(eq(schema.chatMessages.id, id));
   }
 
   // Inheritance helpers

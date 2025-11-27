@@ -10,6 +10,7 @@ interface AuthenticatedSocket extends WebSocket {
   userId: string;
   projectId?: number;
   organizationId?: number;
+  conversationId?: number; // For chat conversations
   isAlive: boolean;
   isAuthenticated: boolean;
 }
@@ -47,7 +48,12 @@ type EventType =
   | "user-joined"
   | "user-left"
   | "cursor-move"
-  | "comment-added";
+  | "comment-added"
+  | "chat-message"
+  | "chat-typing"
+  | "chat-presence"
+  | "chat-conversation-created"
+  | "chat-conversation-updated";
 
 function sign(val: string, secret: string): string {
   return createHmac("sha256", secret).update(val).digest("base64").replace(/=+$/, "");
@@ -112,16 +118,21 @@ class WebSocketManager {
   private wss: WebSocketServer | null = null;
   private projectRooms: Map<number, Set<AuthenticatedSocket>> = new Map();
   private organizationRooms: Map<number, Set<AuthenticatedSocket>> = new Map();
+  private conversationRooms: Map<number, Set<AuthenticatedSocket>> = new Map(); // Chat conversations
   private heartbeatInterval: NodeJS.Timeout | null = null;
   private failedAttempts: Map<string, { count: number; lastAttempt: number }> = new Map();
+  private redisInitialized: boolean = false;
   private readonly MAX_FAILED_ATTEMPTS = 5;
   private readonly RATE_LIMIT_WINDOW = 60000; // 1 minute
 
-  initialize(server: Server) {
+  async initialize(server: Server) {
     this.wss = new WebSocketServer({
       server,
       path: "/ws",
     });
+
+    // Initialize Redis subscriptions for chat
+    await this.initializeRedisSubscriptions();
 
     this.wss.on("connection", async (ws: WebSocket, req: IncomingMessage) => {
       const socket = ws as AuthenticatedSocket;
@@ -220,6 +231,11 @@ class WebSocketManager {
     }, 30000);
 
     log("WebSocket server initialized on /ws", "ws");
+    
+    // Initialize Redis subscriptions for chat
+    this.initializeRedisSubscriptions().catch((error) => {
+      log(`Failed to initialize Redis: ${error}`, "ws");
+    });
   }
 
   private recordFailedAttempt(clientIp: string) {
@@ -262,6 +278,22 @@ class WebSocketManager {
 
       case "cursor-move":
         this.handleCursorMove(socket, message.payload);
+        break;
+
+      case "join-conversation":
+        await this.handleJoinConversation(socket, message.payload);
+        break;
+
+      case "leave-conversation":
+        this.handleLeaveConversation(socket);
+        break;
+
+      case "chat-message":
+        await this.handleChatMessage(socket, message.payload);
+        break;
+
+      case "typing-indicator":
+        await this.handleTypingIndicator(socket, message.payload);
         break;
 
       case "ping":
@@ -477,6 +509,7 @@ class WebSocketManager {
   private handleDisconnect(socket: AuthenticatedSocket) {
     this.handleLeaveProject(socket);
     this.handleLeaveOrganization(socket);
+    this.handleLeaveConversation(socket);
   }
 
   broadcastToProject(
@@ -547,7 +580,174 @@ class WebSocketManager {
     return this.wss?.clients.size || 0;
   }
 
-  shutdown() {
+  /**
+   * Initialize Redis subscriptions for chat messages
+   */
+  private async initializeRedisSubscriptions() {
+    try {
+      const { getRedisSubscriber } = await import("./redis");
+      const subscriber = getRedisSubscriber();
+
+      // Subscribe to all conversation channels (pattern matching)
+      await subscriber.psubscribe("chat:conversation:*");
+      await subscriber.psubscribe("chat:typing:*");
+
+      subscriber.on("pmessage", (pattern, channel, messageStr) => {
+        try {
+          const message = JSON.parse(messageStr);
+          const conversationId = this.extractConversationIdFromChannel(channel);
+          if (conversationId) {
+            if (channel.startsWith("chat:typing:")) {
+              // Handle typing indicator
+              this.broadcastToConversation(conversationId, {
+                type: "typing-indicator",
+                payload: message,
+                timestamp: Date.now(),
+                userId: message.userId,
+              });
+            } else {
+              // Handle chat message
+              this.broadcastToConversation(conversationId, message);
+            }
+          }
+        } catch (error) {
+          log(`Failed to handle Redis message from ${channel}: ${error}`, "ws");
+        }
+      });
+
+      this.redisInitialized = true;
+      log("Redis subscriptions initialized for chat", "ws");
+    } catch (error) {
+      log(`Failed to initialize Redis subscriptions: ${error}`, "ws");
+      // Continue without Redis (fallback to local-only)
+    }
+  }
+
+  /**
+   * Extract conversation ID from Redis channel name
+   */
+  private extractConversationIdFromChannel(channel: string): number | null {
+    const match = channel.match(/chat:(?:conversation|typing):(\d+)/);
+    return match ? parseInt(match[1], 10) : null;
+  }
+
+  /**
+   * Handle joining a conversation room
+   */
+  private async handleJoinConversation(socket: AuthenticatedSocket, payload: { conversationId: number }) {
+    const { conversationId } = payload;
+    if (!conversationId) {
+      socket.send(
+        JSON.stringify({
+          type: "error",
+          payload: { message: "conversationId required" },
+        })
+      );
+      return;
+    }
+
+    this.handleLeaveConversation(socket);
+
+    socket.conversationId = conversationId;
+
+    if (!this.conversationRooms.has(conversationId)) {
+      this.conversationRooms.set(conversationId, new Set());
+    }
+    this.conversationRooms.get(conversationId)!.add(socket);
+
+    socket.send(
+      JSON.stringify({
+        type: "conversation-joined",
+        payload: { conversationId },
+        timestamp: Date.now(),
+        userId: socket.userId,
+      })
+    );
+  }
+
+  /**
+   * Handle leaving a conversation room
+   */
+  private handleLeaveConversation(socket: AuthenticatedSocket) {
+    if (!socket.conversationId) return;
+
+    const conversationId = socket.conversationId;
+    const room = this.conversationRooms.get(conversationId);
+    if (room) {
+      room.delete(socket);
+      if (room.size === 0) {
+        this.conversationRooms.delete(conversationId);
+      }
+    }
+
+    socket.conversationId = undefined;
+  }
+
+  /**
+   * Handle incoming chat message from WebSocket
+   * This will be saved to DB and published to Redis
+   */
+  private async handleChatMessage(socket: AuthenticatedSocket, payload: any) {
+    // This will be handled by the API route, which will then publish to Redis
+    // We just acknowledge receipt
+    socket.send(
+      JSON.stringify({
+        type: "chat-message-received",
+        payload: { messageId: payload.messageId },
+        timestamp: Date.now(),
+      })
+    );
+  }
+
+  /**
+   * Handle typing indicator
+   */
+  private async handleTypingIndicator(socket: AuthenticatedSocket, payload: { conversationId: number; isTyping: boolean }) {
+    const { conversationId, isTyping } = payload;
+    if (!conversationId) return;
+
+    try {
+      const { publishTyping } = await import("./redis");
+      await publishTyping(conversationId, socket.userId, isTyping);
+    } catch (error) {
+      log(`Failed to publish typing indicator: ${error}`, "ws");
+    }
+  }
+
+  /**
+   * Broadcast message to a conversation (local WebSocket connections)
+   */
+  broadcastToConversation(
+    conversationId: number,
+    message: BroadcastMessage,
+    excludeSocket?: AuthenticatedSocket
+  ) {
+    const room = this.conversationRooms.get(conversationId);
+    if (!room) return;
+
+    const data = JSON.stringify(message);
+    room.forEach((socket) => {
+      if (socket !== excludeSocket && socket.readyState === WebSocket.OPEN) {
+        socket.send(data);
+      }
+    });
+  }
+
+  /**
+   * Publish chat message to Redis (called from API routes)
+   */
+  async publishChatMessage(conversationId: number, message: BroadcastMessage): Promise<void> {
+    try {
+      const { publishChatMessage } = await import("./redis");
+      await publishChatMessage(conversationId, message);
+    } catch (error) {
+      log(`Failed to publish chat message to Redis: ${error}`, "ws");
+      // Fallback: broadcast to local connections only
+      this.broadcastToConversation(conversationId, message);
+    }
+  }
+
+  async shutdown() {
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
     }
@@ -561,7 +761,18 @@ class WebSocketManager {
 
     this.projectRooms.clear();
     this.organizationRooms.clear();
+    this.conversationRooms.clear();
     this.failedAttempts.clear();
+
+    // Close Redis connections
+    try {
+      const { closeRedisConnections } = await import("./redis");
+      await closeRedisConnections().catch(() => {
+        // Ignore errors during shutdown
+      });
+    } catch (error) {
+      // Ignore errors during shutdown
+    }
 
     log("WebSocket server shut down", "ws");
   }

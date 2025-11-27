@@ -22,10 +22,14 @@ type EventType =
   | "user-joined"
   | "user-left"
   | "cursor-move"
-  | "comment-added";
+  | "comment-added"
+  | "chat-message"
+  | "chat-typing"
+  | "chat-conversation-created"
+  | "conversation-joined";
 
 interface WebSocketMessage {
-  type: EventType | "authenticated" | "project-joined" | "organization-joined" | "error" | "pong";
+  type: EventType | "authenticated" | "project-joined" | "organization-joined" | "error" | "pong" | "typing-indicator";
   payload: any;
   timestamp?: number;
   userId?: string;
@@ -234,6 +238,39 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     }
   }, []);
 
+  const joinConversation = useCallback((conversationId: number) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: "join-conversation",
+          payload: { conversationId },
+        })
+      );
+    }
+  }, []);
+
+  const leaveConversation = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: "leave-conversation",
+          payload: {},
+        })
+      );
+    }
+  }, []);
+
+  const sendTypingIndicator = useCallback((conversationId: number, isTyping: boolean) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(
+        JSON.stringify({
+          type: "typing-indicator",
+          payload: { conversationId, isTyping },
+        })
+      );
+    }
+  }, []);
+
   const sendCursorPosition = useCallback((x: number, y: number, elementId?: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(
@@ -264,6 +301,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     connectedUsers,
     joinProject,
     leaveProject,
+    joinConversation,
+    leaveConversation,
+    sendTypingIndicator,
     sendCursorPosition,
     disconnect,
   };

@@ -15,7 +15,11 @@ export function useAuth() {
   const queryClient = useQueryClient();
 
   const { data: user, isLoading, error } = useQuery<AuthUser | null>({
-    queryKey: ["/api/auth/me"],
+    queryKey: ["/api/auth/user"],
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/auth/user");
+      return await response.json();
+    },
     retry: false,
     staleTime: 1000 * 60 * 5, // 5 minutes
   });
