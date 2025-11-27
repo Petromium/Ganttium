@@ -485,8 +485,36 @@ export default function WBSPage() {
             expandable={hasChildren}
             data-testid={`row-task-${task.id}`}
           >
+            {/* Mobile: Stack layout */}
+            <div className="sm:hidden space-y-2 cursor-pointer" onClick={() => handleEditTask(task)}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate">{task.name}</div>
+                  <div className="text-xs text-muted-foreground">{task.wbsCode}</div>
+                </div>
+                <Badge variant={getStatusColor(task.status)} className="shrink-0" data-testid={`badge-status-${task.id}`}>
+                  {task.status.replace("-", " ")}
+                </Badge>
+              </div>
+              {/* Progress, dates, assignee in a compact row */}
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                {task.progress !== undefined && (
+                  <span>{task.progress}%</span>
+                )}
+                {task.startDate && (
+                  <span>{new Date(task.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                )}
+                {task.assignedTo && (
+                  <Avatar className="h-5 w-5">
+                    <AvatarFallback className="text-[10px]">{getInitials(task.assignedTo)}</AvatarFallback>
+                  </Avatar>
+                )}
+              </div>
+            </div>
+
+            {/* Desktop: Original grid layout */}
             <div 
-              className="grid grid-cols-[2fr,1fr,1fr,1fr,100px,80px] gap-4 items-center flex-1 cursor-pointer"
+              className="hidden sm:grid grid-cols-[2fr,1fr,1fr,1fr,100px,80px] gap-4 items-center flex-1 cursor-pointer"
               onClick={() => handleEditTask(task)}
             >
               <div>
@@ -677,7 +705,7 @@ export default function WBSPage() {
               data-testid={`gantt-bar-${task.id}`}
             >
               <div className="flex items-center justify-between w-full"><span className="truncate">{task.progress || 0}%</span></div>
-              <div className="absolute inset-0 bg-white/20 rounded-md pointer-events-none" style={{ width: `${task.progress || 0}%` }} />
+              <div className="absolute inset-0 bg-white/20 rounded-md pointer-events-none" style={{ width: `${task.progress || 0}%` }}></div>
             </div>
           ) : (
             <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground z-10">No dates set</div>
@@ -733,7 +761,7 @@ export default function WBSPage() {
 
   if (!selectedProjectId) {
     return (
-      <div className="p-6">
+      <div className="p-3 sm:p-4 md:p-6">
         <div className="text-center py-12">
           <h2 className="text-2xl font-semibold mb-2">No Project Selected</h2>
           <p className="text-muted-foreground">Please select a project from the dropdown above</p>
@@ -751,15 +779,21 @@ export default function WBSPage() {
   }
 
   return (
-    <div className="p-6 space-y-4">
-      <div className="flex items-center justify-between">
+    <div className="p-3 sm:p-4 md:p-6 space-y-3 sm:space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-semibold" data-testid="page-title-wbs">Work Breakdown Structure</h1>
-          <p className="text-muted-foreground">Manage tasks and deliverables</p>
+          <h1 className="text-2xl sm:text-3xl font-semibold" data-testid="page-title-wbs">Work Breakdown Structure</h1>
+          <p className="text-sm sm:text-base text-muted-foreground mt-1">Manage tasks and deliverables</p>
         </div>
-        <Button onClick={() => handleAddTask()} data-testid="button-create-task">
-          <Plus className="h-4 w-4 mr-2" />
-          Create Task
+        <Button 
+          onClick={() => handleAddTask()} 
+          data-testid="button-create-task"
+          className="w-full sm:w-auto"
+          size="sm"
+        >
+          <Plus className="h-4 w-4 sm:mr-2" />
+          <span className="hidden sm:inline">Create Task</span>
+          <span className="sm:hidden">Create</span>
         </Button>
       </div>
 
@@ -773,57 +807,85 @@ export default function WBSPage() {
         </Alert>
       )}
 
-      <div className="flex items-center gap-4">
-        <div className="relative flex-1 max-w-md">
+      <div className="flex flex-col sm:flex-row gap-3">
+        {/* Search - Full width on mobile */}
+        <div className="relative flex-1 w-full sm:max-w-md">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             type="search"
             placeholder="Search tasks..."
-            className="pl-9"
+            className="pl-9 text-sm"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             data-testid="input-search-tasks"
           />
         </div>
 
-        <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
-          <TabsList>
-            <TabsTrigger value="list" data-testid="tab-view-list"><List className="h-4 w-4" /></TabsTrigger>
-            <TabsTrigger value="kanban" data-testid="tab-view-kanban"><LayoutGrid className="h-4 w-4" /></TabsTrigger>
-            <TabsTrigger value="gantt" data-testid="tab-view-gantt"><GanttChartSquare className="h-4 w-4" /></TabsTrigger>
-            <TabsTrigger value="calendar" data-testid="tab-view-calendar"><CalendarIcon className="h-4 w-4" /></TabsTrigger>
-          </TabsList>
-        </Tabs>
+        {/* View controls - Wrap on mobile */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as ViewMode)}>
+            <TabsList className="h-9">
+              <TabsTrigger value="list" className="px-2 sm:px-3" data-testid="tab-view-list">
+                <List className="h-4 w-4" />
+              </TabsTrigger>
+              <TabsTrigger value="kanban" className="px-2 sm:px-3" data-testid="tab-view-kanban">
+                <LayoutGrid className="h-4 w-4" />
+              </TabsTrigger>
+              <TabsTrigger value="gantt" className="px-2 sm:px-3" data-testid="tab-view-gantt">
+                <GanttChartSquare className="h-4 w-4" />
+              </TabsTrigger>
+              <TabsTrigger value="calendar" className="px-2 sm:px-3" data-testid="tab-view-calendar">
+                <CalendarIcon className="h-4 w-4" />
+              </TabsTrigger>
+            </TabsList>
+          </Tabs>
 
-        {viewMode === "gantt" && (
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" onClick={handleZoomIn} disabled={zoom === "day"} data-testid="button-zoom-in"><ZoomIn className="h-4 w-4" /></Button>
-            <Badge variant="secondary" className="px-3">{ZOOM_CONFIGS[zoom].unitLabel}</Badge>
-            <Button variant="outline" size="icon" onClick={handleZoomOut} disabled={zoom === "quarter"} data-testid="button-zoom-out"><ZoomOut className="h-4 w-4" /></Button>
-          </div>
-        )}
+          {/* Gantt zoom controls - Hide text on mobile */}
+          {viewMode === "gantt" && (
+            <div className="flex items-center gap-1 sm:gap-2">
+              <Button variant="outline" size="icon" className="h-9 w-9" onClick={handleZoomIn} disabled={zoom === "day"} data-testid="button-zoom-in">
+                <ZoomIn className="h-4 w-4" />
+              </Button>
+              <Badge variant="secondary" className="px-2 text-xs hidden sm:inline-flex">
+                {ZOOM_CONFIGS[zoom].unitLabel}
+              </Badge>
+              <Button variant="outline" size="icon" className="h-9 w-9" onClick={handleZoomOut} disabled={zoom === "quarter"} data-testid="button-zoom-out">
+                <ZoomOut className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
 
-        {viewMode === "calendar" && (
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={goToToday} data-testid="button-today">Today</Button>
-            <Button variant="outline" size="icon" onClick={goToPrevMonth} data-testid="button-prev-month"><ChevronLeft className="h-4 w-4" /></Button>
-            <div className="px-4 font-semibold min-w-[180px] text-center">{monthName}</div>
-            <Button variant="outline" size="icon" onClick={goToNextMonth} data-testid="button-next-month"><ChevronRight className="h-4 w-4" /></Button>
-          </div>
-        )}
+          {/* Calendar controls - Compact on mobile */}
+          {viewMode === "calendar" && (
+            <div className="flex items-center gap-1 sm:gap-2">
+              <Button variant="outline" size="sm" className="h-9 text-xs sm:text-sm" onClick={goToToday} data-testid="button-today">
+                Today
+              </Button>
+              <Button variant="outline" size="icon" className="h-9 w-9" onClick={goToPrevMonth} data-testid="button-prev-month">
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <div className="px-2 sm:px-4 font-semibold text-xs sm:text-sm min-w-[120px] sm:min-w-[180px] text-center">
+                {monthName}
+              </div>
+              <Button variant="outline" size="icon" className="h-9 w-9" onClick={goToNextMonth} data-testid="button-next-month">
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          )}
 
-        <Popover open={filterOpen} onOpenChange={setFilterOpen}>
-          <PopoverTrigger asChild>
-            <Button variant="outline" size="icon" className="relative" data-testid="button-filter">
-              <Filter className="h-4 w-4" />
-              {activeFilterCount > 0 && (
-                <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-primary text-[10px] font-medium text-primary-foreground flex items-center justify-center">
-                  {activeFilterCount}
-                </span>
-              )}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-80" align="end">
+          {/* Filter button */}
+          <Popover open={filterOpen} onOpenChange={setFilterOpen}>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="icon" className="h-9 w-9 relative" data-testid="button-filter">
+                <Filter className="h-4 w-4" />
+                {activeFilterCount > 0 && (
+                  <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-primary text-[10px] font-medium text-primary-foreground flex items-center justify-center">
+                    {activeFilterCount}
+                  </span>
+                )}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[calc(100vw-2rem)] sm:w-80" align="end">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h4 className="font-semibold">Filters</h4>
@@ -929,156 +991,195 @@ export default function WBSPage() {
           </PopoverContent>
         </Popover>
       </div>
+    </div>
 
       {/* Selection Toolbar - Always visible */}
       <div className={cn(
-        "flex items-center gap-2 p-3 bg-accent/5 border border-accent/20 rounded-lg flex-wrap",
+        "bg-accent/5 border border-accent/20 rounded-lg p-3 sm:p-4 space-y-3",
         selectedTasks.length === 0 && "opacity-60"
       )}>
-        <div className="flex items-center gap-2 mr-2">
-          <Checkbox 
-            checked={selectedTasks.length > 0 && selectedTasks.length === flattenedTaskIds.length}
-            onCheckedChange={handleSelectAll}
-            data-testid="checkbox-select-all"
-          />
-          <span className="text-sm font-medium min-w-[80px]" data-testid="text-selection-count">
-            {selectedTasks.length > 0 ? `${selectedTasks.length} selected` : "Select tasks"}
-          </span>
+        {/* Mobile: Compact header */}
+        <div className="flex items-center justify-between sm:hidden">
+          <div className="flex items-center gap-2">
+            <Checkbox
+              checked={selectedTasks.length === flattenedTaskIds.length}
+              onCheckedChange={handleSelectAll}
+              data-testid="checkbox-select-all"
+            />
+            <span className="text-sm font-medium">{selectedTasks.length} selected</span>
+          </div>
+          <Button 
+            variant="ghost" 
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => setSelectedTasks([])}
+            data-testid="button-clear-selection"
+          >
+            <X className="h-4 w-4" />
+          </Button>
         </div>
-        
-        {/* Dependencies Dropdown */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              disabled={selectedTasks.length < 2}
-              data-testid="dropdown-dependencies"
-            >
-              <Link2 className="h-4 w-4 mr-1" />
-              Dependencies
-              <ChevronDown className="h-3 w-3 ml-1" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent>
-            <DropdownMenuLabel>Link Selected Tasks</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem 
-              onClick={() => bulkDependencyMutation.mutate({ taskIds: selectedTasks, action: "chain-fs" })}
-              data-testid="menu-chain-fs"
-            >
-              Chain FS (Waterfall)
-            </DropdownMenuItem>
-            <DropdownMenuItem 
-              onClick={() => bulkDependencyMutation.mutate({ taskIds: selectedTasks, action: "set-ss" })}
-              data-testid="menu-set-ss"
-            >
-              Set SS (Start Together)
-            </DropdownMenuItem>
-            <DropdownMenuItem 
-              onClick={() => bulkDependencyMutation.mutate({ taskIds: selectedTasks, action: "set-ff" })}
-              data-testid="menu-set-ff"
-            >
-              Set FF (Finish Together)
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem 
-              onClick={() => bulkDependencyMutation.mutate({ taskIds: selectedTasks, action: "clear" })}
-              className="text-destructive"
-              data-testid="menu-clear-deps"
-            >
-              Clear Dependencies
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
 
-        {/* Status Dropdown */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              disabled={selectedTasks.length === 0}
-              data-testid="dropdown-status"
-            >
-              <CheckCircle2 className="h-4 w-4 mr-1" />
-              Status
-              <ChevronDown className="h-3 w-3 ml-1" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent>
-            <DropdownMenuLabel>Set Status</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem 
-              onClick={() => bulkUpdateMutation.mutate({ taskIds: selectedTasks, updates: { status: "not-started" } })}
-              data-testid="menu-status-not-started"
-            >
-              Not Started
-            </DropdownMenuItem>
-            <DropdownMenuItem 
-              onClick={() => bulkUpdateMutation.mutate({ taskIds: selectedTasks, updates: { status: "in-progress" } })}
-              data-testid="menu-status-in-progress"
-            >
-              In Progress
-            </DropdownMenuItem>
-            <DropdownMenuItem 
-              onClick={() => bulkUpdateMutation.mutate({ taskIds: selectedTasks, updates: { status: "on-hold" } })}
-              data-testid="menu-status-on-hold"
-            >
-              On Hold
-            </DropdownMenuItem>
-            <DropdownMenuItem 
-              onClick={() => bulkUpdateMutation.mutate({ taskIds: selectedTasks, updates: { status: "completed" } })}
-              data-testid="menu-status-completed"
-            >
-              Completed
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {/* Desktop: Full header */}
+        <div className="hidden sm:flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Checkbox
+              checked={selectedTasks.length === flattenedTaskIds.length}
+              onCheckedChange={handleSelectAll}
+              data-testid="checkbox-select-all"
+            />
+            <span className="text-sm font-medium" data-testid="text-selection-count">
+              {selectedTasks.length > 0 ? `${selectedTasks.length} tasks selected` : "Select tasks"}
+            </span>
+          </div>
+          <Button 
+            variant="ghost" 
+            size="sm"
+            onClick={() => setSelectedTasks([])}
+            data-testid="button-clear-selection"
+          >
+            <X className="h-4 w-4 mr-1" />Clear Selection
+          </Button>
+        </div>
 
-        {/* Progress Dropdown */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              disabled={selectedTasks.length === 0}
-              data-testid="dropdown-progress"
-            >
-              <Percent className="h-4 w-4 mr-1" />
-              Progress
-              <ChevronDown className="h-3 w-3 ml-1" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent>
-            <DropdownMenuLabel>Set Progress</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            {[0, 25, 50, 75, 100].map(value => (
-              <DropdownMenuItem 
-                key={value}
-                onClick={() => bulkUpdateMutation.mutate({ taskIds: selectedTasks, updates: { progress: value } })}
-                data-testid={`menu-progress-${value}`}
+        {/* Action buttons - Grid on mobile, row on desktop */}
+        <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2">
+          {/* Dependencies Dropdown - Full width on mobile */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                disabled={selectedTasks.length < 2}
+                className="w-full sm:w-auto justify-start"
+                data-testid="dropdown-dependencies"
               >
-                {value}%
+                <Link2 className="h-4 w-4 mr-1" />
+                Dependencies
+                <ChevronDown className="h-3 w-3 ml-auto sm:ml-1" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuLabel>Link Selected Tasks</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem 
+                onClick={() => bulkDependencyMutation.mutate({ taskIds: selectedTasks, action: "chain-fs" })}
+                data-testid="menu-chain-fs"
+              >
+                Chain FS (Waterfall)
               </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+              <DropdownMenuItem 
+                onClick={() => bulkDependencyMutation.mutate({ taskIds: selectedTasks, action: "set-ss" })}
+                data-testid="menu-set-ss"
+              >
+                Set SS (Start Together)
+              </DropdownMenuItem>
+              <DropdownMenuItem 
+                onClick={() => bulkDependencyMutation.mutate({ taskIds: selectedTasks, action: "set-ff" })}
+                data-testid="menu-set-ff"
+              >
+                Set FF (Finish Together)
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem 
+                onClick={() => bulkDependencyMutation.mutate({ taskIds: selectedTasks, action: "clear" })}
+                className="text-destructive"
+                data-testid="menu-clear-deps"
+              >
+                Clear Dependencies
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
 
-        {/* Resources Dropdown */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              disabled={selectedTasks.length === 0}
-              data-testid="dropdown-resources"
-            >
-              <Users className="h-4 w-4 mr-1" />
-              Resources
-              <ChevronDown className="h-3 w-3 ml-1" />
-            </Button>
-          </DropdownMenuTrigger>
+          {/* Status Dropdown - Full width on mobile */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                disabled={selectedTasks.length === 0}
+                className="w-full sm:w-auto justify-start"
+                data-testid="dropdown-status"
+              >
+                <CheckCircle2 className="h-4 w-4 mr-1" />
+                Status
+                <ChevronDown className="h-3 w-3 ml-auto sm:ml-1" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuLabel>Set Status</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem 
+                onClick={() => bulkUpdateMutation.mutate({ taskIds: selectedTasks, updates: { status: "not-started" } })}
+                data-testid="menu-status-not-started"
+              >
+                Not Started
+              </DropdownMenuItem>
+              <DropdownMenuItem 
+                onClick={() => bulkUpdateMutation.mutate({ taskIds: selectedTasks, updates: { status: "in-progress" } })}
+                data-testid="menu-status-in-progress"
+              >
+                In Progress
+              </DropdownMenuItem>
+              <DropdownMenuItem 
+                onClick={() => bulkUpdateMutation.mutate({ taskIds: selectedTasks, updates: { status: "on-hold" } })}
+                data-testid="menu-status-on-hold"
+              >
+                On Hold
+              </DropdownMenuItem>
+              <DropdownMenuItem 
+                onClick={() => bulkUpdateMutation.mutate({ taskIds: selectedTasks, updates: { status: "completed" } })}
+                data-testid="menu-status-completed"
+              >
+                Completed
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Progress Dropdown - Full width on mobile */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                disabled={selectedTasks.length === 0}
+                className="w-full sm:w-auto justify-start"
+                data-testid="dropdown-progress"
+              >
+                <Percent className="h-4 w-4 mr-1" />
+                Progress
+                <ChevronDown className="h-3 w-3 ml-auto sm:ml-1" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuLabel>Set Progress</DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              {[0, 25, 50, 75, 100].map(value => (
+                <DropdownMenuItem 
+                  key={value}
+                  onClick={() => bulkUpdateMutation.mutate({ taskIds: selectedTasks, updates: { progress: value } })}
+                  data-testid={`menu-progress-${value}`}
+                >
+                  {value}%
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* Resources Dropdown - Full width on mobile */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                disabled={selectedTasks.length === 0}
+                className="w-full sm:w-auto justify-start"
+                data-testid="dropdown-resources"
+              >
+                <Users className="h-4 w-4 mr-1" />
+                Resources
+                <ChevronDown className="h-3 w-3 ml-auto sm:ml-1" />
+              </Button>
+            </DropdownMenuTrigger>
           <DropdownMenuContent className="max-h-64 overflow-y-auto">
             <DropdownMenuLabel>Assign Resources</DropdownMenuLabel>
             <DropdownMenuSeparator />
@@ -1114,20 +1215,21 @@ export default function WBSPage() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Risks Dropdown */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              disabled={selectedTasks.length === 0}
-              data-testid="dropdown-risks"
-            >
-              <AlertTriangle className="h-4 w-4 mr-1" />
-              Risks
-              <ChevronDown className="h-3 w-3 ml-1" />
-            </Button>
-          </DropdownMenuTrigger>
+          {/* Risks Dropdown - Full width on mobile */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                disabled={selectedTasks.length === 0}
+                className="w-full sm:w-auto justify-start"
+                data-testid="dropdown-risks"
+              >
+                <AlertTriangle className="h-4 w-4 mr-1" />
+                Risks
+                <ChevronDown className="h-3 w-3 ml-auto sm:ml-1" />
+              </Button>
+            </DropdownMenuTrigger>
           <DropdownMenuContent className="max-h-64 overflow-y-auto">
             <DropdownMenuLabel>Link Risks</DropdownMenuLabel>
             <DropdownMenuSeparator />
@@ -1163,21 +1265,22 @@ export default function WBSPage() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Issues Dropdown */}
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button 
-              variant="outline" 
-              size="sm" 
-              disabled={selectedTasks.length === 0}
-              data-testid="dropdown-issues"
-            >
-              <AlertOctagon className="h-4 w-4 mr-1" />
-              Issues
-              <ChevronDown className="h-3 w-3 ml-1" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent className="max-h-64 overflow-y-auto">
+          {/* Issues Dropdown - Full width on mobile */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                disabled={selectedTasks.length === 0}
+                className="w-full sm:w-auto justify-start"
+                data-testid="dropdown-issues"
+              >
+                <AlertOctagon className="h-4 w-4 mr-1" />
+                Issues
+                <ChevronDown className="h-3 w-3 ml-auto sm:ml-1" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="max-h-64 overflow-y-auto">
             <DropdownMenuLabel>Link Issues</DropdownMenuLabel>
             <DropdownMenuSeparator />
             {issues.length === 0 ? (
@@ -1212,54 +1315,46 @@ export default function WBSPage() {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Recalculate Button */}
-        <Button 
-          variant="outline" 
-          size="sm" 
-          disabled={selectedTasks.length === 0}
-          onClick={() => bulkRecalculateMutation.mutate(selectedTasks)}
-          data-testid="button-recalculate-schedule"
-        >
-          <Activity className="h-4 w-4 mr-1" />
-          Recalculate Schedule
-        </Button>
-
-        {/* Set Baseline Button */}
-        <Button 
-          variant="outline" 
-          size="sm" 
-          disabled={selectedTasks.length === 0}
-          onClick={() => setBaselineDialogOpen(true)}
-          data-testid="button-set-baseline"
-        >
-          <Clock className="h-4 w-4 mr-1" />
-          Set Baseline
-        </Button>
-
-        {/* Delete Button */}
-        <Button 
-          variant="outline" 
-          size="sm" 
-          disabled={selectedTasks.length === 0}
-          onClick={() => setDeleteDialogOpen(true)}
-          className="text-destructive hover:text-destructive"
-          data-testid="button-bulk-delete"
-        >
-          <Trash2 className="h-4 w-4 mr-1" />
-          Delete
-        </Button>
-
-        {/* Clear Selection */}
-        {selectedTasks.length > 0 && (
+          {/* Recalculate - Full width on mobile */}
           <Button 
-            variant="ghost" 
-            size="sm"
-            onClick={() => setSelectedTasks([])}
-            data-testid="button-clear-selection"
+            variant="outline" 
+            size="sm" 
+            disabled={selectedTasks.length === 0}
+            onClick={() => bulkRecalculateMutation.mutate(selectedTasks)}
+            className="w-full sm:w-auto justify-start"
+            data-testid="button-recalculate-schedule"
           >
-            <X className="h-4 w-4" />
+            <Activity className="h-4 w-4 mr-1" />
+            <span className="hidden sm:inline">Recalculate Schedule</span>
+            <span className="sm:hidden">Recalculate</span>
           </Button>
-        )}
+
+          {/* Set Baseline - Full width on mobile */}
+          <Button 
+            variant="outline" 
+            size="sm" 
+            disabled={selectedTasks.length === 0}
+            onClick={() => setBaselineDialogOpen(true)}
+            className="w-full sm:w-auto justify-start"
+            data-testid="button-set-baseline"
+          >
+            <Clock className="h-4 w-4 mr-1" />
+            Set Baseline
+          </Button>
+
+          {/* Delete - Full width on mobile */}
+          <Button 
+            variant="outline" 
+            size="sm" 
+            disabled={selectedTasks.length === 0}
+            onClick={() => setDeleteDialogOpen(true)}
+            className="w-full sm:w-auto justify-start text-destructive hover:text-destructive"
+            data-testid="button-bulk-delete"
+          >
+            <Trash2 className="h-4 w-4 mr-1" />
+            Delete
+          </Button>
+        </div>
       </div>
 
       {/* Delete Confirmation Dialog */}
@@ -1323,7 +1418,7 @@ export default function WBSPage() {
       )}
 
       {viewMode === "kanban" && (
-        <div className="grid grid-cols-4 gap-4 min-h-[500px]">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 min-h-[500px]">
           {KANBAN_COLUMNS.map((column) => (
             <div 
               key={column.id} 
@@ -1415,11 +1510,11 @@ export default function WBSPage() {
                   <div className="mt-6 p-4 bg-accent/5 border border-accent/20 rounded-lg">
                     <h3 className="text-sm font-semibold mb-3">Legend</h3>
                     <div className="flex flex-wrap items-center gap-4 text-sm">
-                      <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-green-500" /><span>Completed</span></div>
-                      <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-blue-500" /><span>In Progress</span></div>
-                      <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-purple-500" /><span>In Review</span></div>
-                      <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-amber-500" /><span>On Hold</span></div>
-                      <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-gray-400" /><span>Not Started</span></div>
+                      <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-green-500"></div><span>Completed</span></div>
+                      <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-blue-500"></div><span>In Progress</span></div>
+                      <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-purple-500"></div><span>In Review</span></div>
+                      <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-amber-500"></div><span>On Hold</span></div>
+                      <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-gray-400"></div><span>Not Started</span></div>
                     </div>
                   </div>
                 </div>
