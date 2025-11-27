@@ -8,7 +8,8 @@ import {
   Search, Filter, LayoutGrid, List, Calendar as CalendarIcon, 
   GanttChartSquare, AlertCircle, Plus, Clock, AlertTriangle, 
   Loader2, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, X,
-  Link2, CheckCircle2, Percent, Users, FileText, AlertOctagon, Trash2, ChevronDown, Activity
+  Link2, CheckCircle2, Percent, Users, FileText, AlertOctagon, Trash2, ChevronDown, Activity,
+  Calendar, MessageSquare
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -42,7 +43,7 @@ import {
   DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
-import type { Task, TaskDependency, Resource, Risk, Issue, Document } from "@shared/schema";
+import type { Task, TaskDependency, Resource, Risk, Issue, Document, TaskRisk, TaskIssue, TaskDocument, ResourceAssignment, Conversation } from "@shared/schema";
 
 type TaskStatus = "not-started" | "in-progress" | "review" | "completed" | "on-hold";
 type ViewMode = "list" | "kanban" | "gantt" | "calendar";
@@ -125,6 +126,24 @@ export default function WBSPage() {
     queryKey: [`/api/projects/${selectedProjectId}/documents`],
     enabled: !!selectedProjectId,
   });
+
+  // Fetch all task relationships for efficient count computation
+  const { data: relationships } = useQuery<{
+    taskRisks: TaskRisk[];
+    taskIssues: TaskIssue[];
+    taskDocuments: TaskDocument[];
+    resourceAssignments: ResourceAssignment[];
+    conversations: Conversation[];
+  }>({
+    queryKey: [`/api/projects/${selectedProjectId}/task-relationships`],
+    enabled: !!selectedProjectId,
+  });
+
+  const taskRisks = relationships?.taskRisks || [];
+  const taskIssues = relationships?.taskIssues || [];
+  const taskDocuments = relationships?.taskDocuments || [];
+  const resourceAssignments = relationships?.resourceAssignments || [];
+  const conversations = relationships?.conversations || [];
 
   const deleteMutation = useMutation({
     mutationFn: async (taskId: number) => {
@@ -460,6 +479,37 @@ export default function WBSPage() {
     return name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
   };
 
+  // Helper functions to compute relationship counts
+  const getTaskResourceCount = (taskId: number) => {
+    return resourceAssignments.filter(ra => ra.taskId === taskId).length;
+  };
+
+  const getTaskRiskCount = (taskId: number) => {
+    return taskRisks.filter(tr => tr.taskId === taskId).length;
+  };
+
+  const getTaskIssueCount = (taskId: number) => {
+    return taskIssues.filter(ti => ti.taskId === taskId).length;
+  };
+
+  const getTaskDocumentCount = (taskId: number) => {
+    return taskDocuments.filter(td => td.taskId === taskId).length;
+  };
+
+  const getTaskHasChat = (taskId: number) => {
+    return conversations.some(c => c.taskId === taskId);
+  };
+
+  const getTaskDuration = (task: Task) => {
+    if (task.computedDuration) return task.computedDuration;
+    if (task.startDate && task.endDate) {
+      const start = new Date(task.startDate);
+      const end = new Date(task.endDate);
+      return Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+    }
+    return null;
+  };
+
   const isOverdue = (task: Task) => {
     if (!task.endDate) return false;
     return new Date(task.endDate) < new Date() && task.status !== "completed";
@@ -473,6 +523,18 @@ export default function WBSPage() {
     const isExpanded = expandedTasks.includes(task.id);
     const hasChildren = children.length > 0;
 
+    // Compute counts
+    const resourceCount = getTaskResourceCount(task.id);
+    const riskCount = getTaskRiskCount(task.id);
+    const issueCount = getTaskIssueCount(task.id);
+    const documentCount = getTaskDocumentCount(task.id);
+    const hasChat = getTaskHasChat(task.id);
+    const duration = getTaskDuration(task);
+
+    // Format dates
+    const startDate = task.startDate ? new Date(task.startDate) : null;
+    const endDate = task.endDate ? new Date(task.endDate) : null;
+
     return (
       <div key={task.id}>
         <div style={{ marginLeft: `${level * 1.5}rem` }}>
@@ -485,64 +547,207 @@ export default function WBSPage() {
             expandable={hasChildren}
             data-testid={`row-task-${task.id}`}
           >
-            {/* Mobile: Stack layout */}
-            <div className="sm:hidden space-y-2 cursor-pointer" onClick={() => handleEditTask(task)}>
+            {/* Mobile: Enhanced Stack Layout */}
+            <div className="sm:hidden space-y-2.5 cursor-pointer" onClick={() => handleEditTask(task)}>
+              {/* Header Row: Name + Status */}
               <div className="flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">{task.name}</div>
-                  <div className="text-xs text-muted-foreground">{task.wbsCode}</div>
+                  <div className="font-semibold text-sm leading-tight truncate">{task.name}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{task.wbsCode}</div>
                 </div>
-                <Badge variant={getStatusColor(task.status)} className="shrink-0" data-testid={`badge-status-${task.id}`}>
+                <Badge variant={getStatusColor(task.status)} className="shrink-0 text-xs h-5 px-2" data-testid={`badge-status-${task.id}`}>
                   {task.status.replace("-", " ")}
                 </Badge>
               </div>
-              {/* Progress, dates, assignee in a compact row */}
-              <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                {task.progress !== undefined && (
-                  <span>{task.progress}%</span>
+
+              {/* Progress Bar - Thick (matches badge height) */}
+              <div className="space-y-1">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Progress</span>
+                  <span className="font-medium">{task.progress}%</span>
+                </div>
+                <div className="h-5 bg-accent/10 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-primary transition-all" 
+                    style={{ width: `${task.progress}%` }} 
+                  />
+                </div>
+              </div>
+
+              {/* Dates & Duration Row */}
+              {(startDate || endDate || duration) && (
+                <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                  {startDate && (
+                    <div className="flex items-center gap-1">
+                      <Calendar className="h-3.5 w-3.5" />
+                      <span>{startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                    </div>
+                  )}
+                  {endDate && (
+                    <>
+                      <span>→</span>
+                      <span>{endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                    </>
+                  )}
+                  {duration && (
+                    <Badge variant="outline" className="h-4 px-1.5 text-[10px]">
+                      {duration}d
+                    </Badge>
+                  )}
+                </div>
+              )}
+
+              {/* Metrics Row: Resources, Risks, Issues, Documents, Chat */}
+              <div className="flex items-center gap-3 flex-wrap">
+                {resourceCount > 0 && (
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <Users className="h-3.5 w-3.5" />
+                    <span>{resourceCount}</span>
+                  </div>
                 )}
-                {task.startDate && (
-                  <span>{new Date(task.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                {riskCount > 0 && (
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+                    <span>{riskCount}</span>
+                  </div>
                 )}
+                {issueCount > 0 && (
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <AlertCircle className="h-3.5 w-3.5 text-red-600" />
+                    <span>{issueCount}</span>
+                  </div>
+                )}
+                {documentCount > 0 && (
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <FileText className="h-3.5 w-3.5" />
+                    <span>{documentCount}</span>
+                  </div>
+                )}
+                {hasChat && (
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <MessageSquare className="h-3.5 w-3.5 text-blue-600" />
+                    <span>Chat</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer: Priority + Assignee */}
+              <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/50">
+                <Badge variant={getPriorityColor(task.priority)} className="h-5 px-2 text-xs" data-testid={`badge-priority-${task.id}`}>
+                  {task.priority}
+                </Badge>
                 {task.assignedTo && (
-                  <Avatar className="h-5 w-5">
-                    <AvatarFallback className="text-[10px]">{getInitials(task.assignedTo)}</AvatarFallback>
-                  </Avatar>
+                  <div className="flex items-center gap-1.5">
+                    <Avatar className="h-5 w-5">
+                      <AvatarFallback className="text-[10px]">{getInitials(task.assignedTo)}</AvatarFallback>
+                    </Avatar>
+                    <span className="text-xs text-muted-foreground truncate max-w-[100px]">
+                      {task.assignedToName || "Assigned"}
+                    </span>
+                  </div>
                 )}
               </div>
             </div>
 
-            {/* Desktop: Original grid layout */}
+            {/* Desktop: Enhanced Grid Layout */}
             <div 
-              className="hidden sm:grid grid-cols-[2fr,1fr,1fr,1fr,100px,80px] gap-4 items-center flex-1 cursor-pointer"
+              className="hidden sm:grid grid-cols-[2fr,auto,1.5fr,auto,auto,80px] gap-4 items-center flex-1 cursor-pointer"
               onClick={() => handleEditTask(task)}
             >
+              {/* Task Info */}
               <div>
                 <div className="font-medium">{task.name}</div>
                 <div className="text-sm text-muted-foreground">{task.wbsCode}</div>
               </div>
-              <Badge variant={getStatusColor(task.status)} data-testid={`badge-status-${task.id}`}>
+
+              {/* Status Badge */}
+              <Badge variant={getStatusColor(task.status)} className="h-5 px-2" data-testid={`badge-status-${task.id}`}>
                 {task.status.replace("-", " ")}
               </Badge>
-              <div className="flex items-center gap-2">
-                <div className="flex-1 h-2 bg-accent/10 rounded-full overflow-hidden">
-                  <div className="h-full bg-primary" style={{ width: `${task.progress}%` }} />
+
+              {/* Progress Bar - Thick + Metrics */}
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 h-5 bg-accent/10 rounded-full overflow-hidden">
+                    <div className="h-full bg-primary transition-all" style={{ width: `${task.progress}%` }} />
+                  </div>
+                  <span className="text-sm font-medium w-10 text-right">{task.progress}%</span>
                 </div>
-                <span className="text-sm text-muted-foreground w-12 text-right">{task.progress}%</span>
+                {/* Inline metrics below progress */}
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  {resourceCount > 0 && (
+                    <div className="flex items-center gap-1">
+                      <Users className="h-3 w-3" />
+                      <span>{resourceCount}</span>
+                    </div>
+                  )}
+                  {riskCount > 0 && (
+                    <div className="flex items-center gap-1">
+                      <AlertTriangle className="h-3 w-3 text-amber-600" />
+                      <span>{riskCount}</span>
+                    </div>
+                  )}
+                  {issueCount > 0 && (
+                    <div className="flex items-center gap-1">
+                      <AlertCircle className="h-3 w-3 text-red-600" />
+                      <span>{issueCount}</span>
+                    </div>
+                  )}
+                  {documentCount > 0 && (
+                    <div className="flex items-center gap-1">
+                      <FileText className="h-3 w-3" />
+                      <span>{documentCount}</span>
+                    </div>
+                  )}
+                  {hasChat && (
+                    <div className="flex items-center gap-1">
+                      <MessageSquare className="h-3 w-3 text-blue-600" />
+                    </div>
+                  )}
+                </div>
               </div>
-              <Badge variant={getPriorityColor(task.priority)} data-testid={`badge-priority-${task.id}`}>
+
+              {/* Dates & Duration */}
+              <div className="text-xs text-muted-foreground min-w-[140px]">
+                {startDate && endDate ? (
+                  <div className="flex items-center gap-1">
+                    <Calendar className="h-3 w-3" />
+                    <span>
+                      {startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - 
+                      {endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </span>
+                  </div>
+                ) : startDate ? (
+                  <div className="flex items-center gap-1">
+                    <Calendar className="h-3 w-3" />
+                    <span>Starts {startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
+                  </div>
+                ) : null}
+                {duration && (
+                  <div className="text-[10px] mt-0.5">{duration} days</div>
+                )}
+              </div>
+
+              {/* Priority Badge */}
+              <Badge variant={getPriorityColor(task.priority)} className="h-5 px-2" data-testid={`badge-priority-${task.id}`}>
                 {task.priority}
               </Badge>
-              <div className="text-sm text-muted-foreground">{task.assignedTo || "Unassigned"}</div>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={(e) => { e.stopPropagation(); handleDeleteTask(task.id); }}
-                disabled={deleteMutation.isPending}
-                data-testid={`button-delete-${task.id}`}
-              >
-                Delete
-              </Button>
+
+              {/* Assignee */}
+              <div className="flex items-center gap-2">
+                {task.assignedTo ? (
+                  <>
+                    <Avatar className="h-6 w-6">
+                      <AvatarFallback className="text-xs">{getInitials(task.assignedTo)}</AvatarFallback>
+                    </Avatar>
+                    <span className="text-sm text-muted-foreground truncate max-w-[80px]">
+                      {task.assignedToName || "Assigned"}
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-sm text-muted-foreground">Unassigned</span>
+                )}
+              </div>
             </div>
           </TableRowCard>
         </div>

@@ -48,7 +48,7 @@ import {
 import { wsManager } from "./websocket";
 import { schedulingService } from "./scheduling";
 import { db } from "./db";
-import { eq } from "drizzle-orm";
+import { eq, inArray, and } from "drizzle-orm";
 import * as schema from "@shared/schema";
 
 // Helper to get user ID from request
@@ -2565,6 +2565,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching inherited issues:", error);
       res.status(500).json({ message: "Failed to fetch inherited issues" });
+    }
+  });
+
+  // Bulk fetch all task relationships for a project (for efficient count computation)
+  app.get('/api/projects/:projectId/task-relationships', isAuthenticated, async (req: any, res) => {
+    try {
+      const projectId = parseInt(req.params.projectId);
+      
+      // Fetch all tasks for the project
+      const tasks = await storage.getTasks(projectId);
+      const taskIds = tasks.map(t => t.id);
+      
+      if (taskIds.length === 0) {
+        return res.json({
+          taskRisks: [],
+          taskIssues: [],
+          taskDocuments: [],
+          resourceAssignments: [],
+          conversations: [],
+        });
+      }
+      
+      // Filter out null taskIds for conversations query
+      const validTaskIds = taskIds.filter(id => id !== null) as number[];
+      
+      // Fetch all relationships in parallel
+      const [taskRisks, taskIssues, taskDocuments, resourceAssignments, conversations] = await Promise.all([
+        // Task Risks
+        db.select().from(schema.taskRisks)
+          .where(inArray(schema.taskRisks.taskId, taskIds)),
+        // Task Issues
+        db.select().from(schema.taskIssues)
+          .where(inArray(schema.taskIssues.taskId, taskIds)),
+        // Task Documents
+        db.select().from(schema.taskDocuments)
+          .where(inArray(schema.taskDocuments.taskId, taskIds)),
+        // Resource Assignments
+        db.select().from(schema.resourceAssignments)
+          .where(inArray(schema.resourceAssignments.taskId, taskIds)),
+        // Conversations (filter by projectId and non-null taskId)
+        validTaskIds.length > 0
+          ? db.select().from(schema.chatConversations)
+              .where(
+                and(
+                  eq(schema.chatConversations.projectId, projectId),
+                  inArray(schema.chatConversations.taskId, validTaskIds)
+                )
+              )
+          : Promise.resolve([]),
+      ]);
+      
+      res.json({
+        taskRisks,
+        taskIssues,
+        taskDocuments,
+        resourceAssignments,
+        conversations,
+      });
+    } catch (error) {
+      console.error("Error fetching task relationships:", error);
+      res.status(500).json({ message: "Failed to fetch task relationships" });
     }
   });
 
