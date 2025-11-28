@@ -167,6 +167,7 @@ export default function AdminDashboard() {
           <TabsTrigger value="subscriptions" data-testid="tab-subscriptions">Subscriptions</TabsTrigger>
           <TabsTrigger value="usage" data-testid="tab-usage">Usage</TabsTrigger>
           <TabsTrigger value="organizations" data-testid="tab-organizations">Organizations</TabsTrigger>
+          <TabsTrigger value="users" data-testid="tab-users">Users</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
@@ -399,6 +400,14 @@ export default function AdminDashboard() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="users" className="space-y-6">
+          <div className="text-center py-8 text-muted-foreground">
+            <Users className="h-12 w-12 mx-auto mb-4 opacity-50" />
+            <p>User management is available from the organization context.</p>
+            <p className="text-sm mt-2">Select an organization and use the User Management page.</p>
+          </div>
         </TabsContent>
       </Tabs>
     </div>

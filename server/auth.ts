@@ -17,6 +17,7 @@ import { storage } from "./storage";
 import { db } from "./db";
 import { users } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import { authLimiter, passwordResetLimiter } from "./middleware/security";
 
 // Session configuration
 const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
@@ -70,9 +71,11 @@ export function getSession() {
         saveUninitialized: false,
         cookie: {
             httpOnly: true,
-            secure: isProduction,
+            secure: isProduction, // Requires HTTPS in production
+            sameSite: isProduction ? "strict" : "lax", // CSRF protection
             maxAge: sessionTtl,
         },
+        name: "sessionId", // Don't use default "connect.sid" for security
     });
 }
 
@@ -263,7 +266,7 @@ export async function setupAuth(app: Express) {
     // ===== AUTH ROUTES =====
 
     // Register with email/password
-    app.post("/api/auth/register", async (req: Request, res: Response) => {
+    app.post("/api/auth/register", authLimiter, async (req: Request, res: Response) => {
         try {
             const { email, password, firstName, lastName } = req.body;
 
@@ -321,7 +324,7 @@ export async function setupAuth(app: Express) {
     });
 
     // Login with email/password
-    app.post("/api/auth/login", (req: Request, res: Response, next: NextFunction) => {
+    app.post("/api/auth/login", authLimiter, (req: Request, res: Response, next: NextFunction) => {
         passport.authenticate("local", (err: Error, user: Express.User, info: { message: string }) => {
             if (err) {
                 return res.status(500).json({ message: "Login failed" });
@@ -624,7 +627,7 @@ export async function setupAuth(app: Express) {
 
     // ===== PASSWORD RESET =====
 
-    app.post("/api/auth/forgot-password", async (req: Request, res: Response) => {
+    app.post("/api/auth/forgot-password", passwordResetLimiter, async (req: Request, res: Response) => {
         try {
             const { email } = req.body;
             if (!email) {
@@ -656,7 +659,7 @@ export async function setupAuth(app: Express) {
         }
     });
 
-    app.post("/api/auth/reset-password", async (req: Request, res: Response) => {
+    app.post("/api/auth/reset-password", passwordResetLimiter, async (req: Request, res: Response) => {
         try {
             const { token, password } = req.body;
 

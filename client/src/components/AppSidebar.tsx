@@ -55,6 +55,7 @@ const pmoTabs = [
   { title: "Contacts Directory", icon: Contact, path: "/pmo/contacts" },
   { title: "Calendar", icon: Calendar, path: "/pmo/calendar" },
   { title: "Inventory", icon: Package, path: "/pmo/inventory" },
+  { title: "User Management", icon: Users, path: "/users" },
 ];
 
 export function AppSidebar() {

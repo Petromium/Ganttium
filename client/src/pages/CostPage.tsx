@@ -38,7 +38,14 @@ interface CostFormData {
   description: string;
   budgeted: string;
   actual: string;
+  committed: string;
+  forecast: string;
   currency: string;
+  status: string;
+  referenceNumber: string;
+  date: string;
+  invoiceDate: string;
+  paidDate: string;
   taskId?: number;
 }
 
@@ -75,13 +82,15 @@ interface CategoryBreakdown {
 }
 
 function aggregateCostsByCategory(costItems: CostItem[]): CategoryBreakdown[] {
-  const categoryMap = new Map<string, { budgeted: number; actual: number; count: number }>();
+  const categoryMap = new Map<string, { budgeted: number; actual: number; committed: number; forecast: number; count: number }>();
   
   costItems.forEach(item => {
     const cat = item.category || 'other';
-    const existing = categoryMap.get(cat) || { budgeted: 0, actual: 0, count: 0 };
+    const existing = categoryMap.get(cat) || { budgeted: 0, actual: 0, committed: 0, forecast: 0, count: 0 };
     existing.budgeted += parseNumeric(item.budgeted);
     existing.actual += parseNumeric(item.actual);
+    existing.committed += parseNumeric(item.committed || '0');
+    existing.forecast += parseNumeric(item.forecast || '0');
     existing.count += 1;
     categoryMap.set(cat, existing);
   });
@@ -91,6 +100,8 @@ function aggregateCostsByCategory(costItems: CostItem[]): CategoryBreakdown[] {
       category,
       budgeted: data.budgeted,
       actual: data.actual,
+      committed: data.committed,
+      forecast: data.forecast,
       variance: data.actual - data.budgeted,
       itemCount: data.count
     }))
@@ -232,13 +243,22 @@ export default function CostPage() {
     mutationFn: async ({ id, data }: { id: number; data: CostFormData }) => {
       const budgetedNum = parseFloat(data.budgeted) || 0;
       const actualNum = parseFloat(data.actual) || 0;
+      const committedNum = parseFloat(data.committed) || 0;
+      const forecastNum = data.forecast ? parseFloat(data.forecast) : null;
       
       const response = await apiRequest('PATCH', `/api/costs/${id}`, {
         category: data.category,
         description: data.description.trim(),
         budgeted: budgetedNum.toString(),
         actual: actualNum.toString(),
+        committed: committedNum.toString(),
+        forecast: forecastNum?.toString() || null,
         currency: data.currency,
+        status: data.status,
+        referenceNumber: data.referenceNumber.trim() || null,
+        date: data.date ? new Date(data.date).toISOString() : new Date().toISOString(),
+        invoiceDate: data.invoiceDate ? new Date(data.invoiceDate).toISOString() : null,
+        paidDate: data.paidDate ? new Date(data.paidDate).toISOString() : null,
         taskId: data.taskId || null,
       });
       return response.json();
@@ -270,12 +290,22 @@ export default function CostPage() {
     setFormErrors({});
     if (item) {
       setEditingItem(item);
+      const itemDate = item.date ? new Date(item.date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
+      const itemInvoiceDate = item.invoiceDate ? new Date(item.invoiceDate).toISOString().split('T')[0] : '';
+      const itemPaidDate = item.paidDate ? new Date(item.paidDate).toISOString().split('T')[0] : '';
       setFormData({
         category: item.category,
         description: item.description,
         budgeted: item.budgeted,
-        actual: item.actual,
+        actual: item.actual || '0',
+        committed: item.committed?.toString() || '0',
+        forecast: item.forecast?.toString() || '',
         currency: item.currency,
+        status: item.status || 'planned',
+        referenceNumber: item.referenceNumber || '',
+        date: itemDate,
+        invoiceDate: itemInvoiceDate,
+        paidDate: itemPaidDate,
         taskId: item.taskId || undefined,
       });
     } else {
@@ -285,7 +315,14 @@ export default function CostPage() {
         description: '',
         budgeted: '',
         actual: '0',
+        committed: '0',
+        forecast: '',
         currency: projectCurrency,
+        status: 'planned',
+        referenceNumber: '',
+        date: new Date().toISOString().split('T')[0],
+        invoiceDate: '',
+        paidDate: '',
         taskId: undefined,
       });
     }
@@ -323,6 +360,8 @@ export default function CostPage() {
 
   const totalBudget = costItems.reduce((sum, c) => sum + parseNumeric(c.budgeted), 0);
   const totalActual = costItems.reduce((sum, c) => sum + parseNumeric(c.actual), 0);
+  const totalCommitted = costItems.reduce((sum, c) => sum + parseNumeric(c.committed || '0'), 0);
+  const totalForecast = costItems.reduce((sum, c) => sum + parseNumeric(c.forecast || '0'), 0);
   const variance = totalActual - totalBudget;
   const variancePercent = totalBudget > 0 ? Math.round((variance / totalBudget) * 100) : 0;
 
@@ -343,14 +382,13 @@ export default function CostPage() {
       </div>
 
       {isLoading ? (
-        <div className="grid gap-4 md:grid-cols-4">
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
-          <Skeleton className="h-32" />
+        <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-32" />
+          ))}
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-3 lg:grid-cols-6">
           <MetricCard
             title="Total Budget"
             value={formatShortCurrency(totalBudget)}
@@ -372,11 +410,16 @@ export default function CostPage() {
             data-testid="metric-remaining"
           />
           <MetricCard
-            title="Variance"
-            value={`${variance >= 0 ? '+' : ''}${formatShortCurrency(variance)}`}
-            change={variancePercent}
-            icon={AlertTriangle}
-            data-testid="metric-variance"
+            title="Committed"
+            value={formatShortCurrency(totalCommitted)}
+            icon={DollarSign}
+            data-testid="metric-committed"
+          />
+          <MetricCard
+            title="Forecast"
+            value={formatShortCurrency(totalForecast || totalBudget)}
+            icon={TrendingUp}
+            data-testid="metric-forecast"
           />
         </div>
       )}
@@ -519,6 +562,12 @@ export default function CostPage() {
                       <div className="flex gap-4 text-xs text-muted-foreground mt-1 flex-wrap">
                         <span>Budget: {formatCurrency(parseNumeric(item.budgeted), item.currency)}</span>
                         <span>Actual: {formatCurrency(parseNumeric(item.actual), item.currency)}</span>
+                        {parseNumeric(item.committed || '0') > 0 && (
+                          <span>Committed: {formatCurrency(parseNumeric(item.committed || '0'), item.currency)}</span>
+                        )}
+                        {item.status && (
+                          <Badge variant="outline" className="text-xs">{item.status}</Badge>
+                        )}
                       </div>
                     </div>
                     <div className="flex gap-1">
@@ -637,6 +686,101 @@ export default function CostPage() {
                 {formErrors.actual && (
                   <p className="text-xs text-destructive">{formErrors.actual}</p>
                 )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="committed">Committed Amount</Label>
+                <Input
+                  id="committed"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.committed}
+                  onChange={(e) => setFormData({ ...formData, committed: e.target.value })}
+                  placeholder="0"
+                  data-testid="input-committed"
+                />
+                <p className="text-xs text-muted-foreground">POs, contracts not yet invoiced</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="forecast">Forecast Amount</Label>
+                <Input
+                  id="forecast"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.forecast}
+                  onChange={(e) => setFormData({ ...formData, forecast: e.target.value })}
+                  placeholder="Optional"
+                  data-testid="input-forecast"
+                />
+                <p className="text-xs text-muted-foreground">Projected future cost</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="status">Status</Label>
+                <Select
+                  value={formData.status}
+                  onValueChange={(v) => setFormData({ ...formData, status: v })}
+                >
+                  <SelectTrigger data-testid="select-status">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="planned">Planned</SelectItem>
+                    <SelectItem value="committed">Committed</SelectItem>
+                    <SelectItem value="invoiced">Invoiced</SelectItem>
+                    <SelectItem value="paid">Paid</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="date">Date</Label>
+                <Input
+                  id="date"
+                  type="date"
+                  value={formData.date}
+                  onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                  data-testid="input-date"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="referenceNumber">Reference Number (PO/Invoice)</Label>
+              <Input
+                id="referenceNumber"
+                value={formData.referenceNumber}
+                onChange={(e) => setFormData({ ...formData, referenceNumber: e.target.value })}
+                placeholder="PO-12345 or INV-67890"
+                data-testid="input-reference"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="invoiceDate">Invoice Date</Label>
+                <Input
+                  id="invoiceDate"
+                  type="date"
+                  value={formData.invoiceDate}
+                  onChange={(e) => setFormData({ ...formData, invoiceDate: e.target.value })}
+                  data-testid="input-invoice-date"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="paidDate">Paid Date</Label>
+                <Input
+                  id="paidDate"
+                  type="date"
+                  value={formData.paidDate}
+                  onChange={(e) => setFormData({ ...formData, paidDate: e.target.value })}
+                  data-testid="input-paid-date"
+                />
               </div>
             </div>
 

@@ -13,12 +13,31 @@ import {
   updateStakeholderRaciSchema,
   insertRiskSchema,
   insertIssueSchema,
+  insertChangeRequestSchema,
+  insertChangeRequestApprovalSchema,
+  updateChangeRequestApprovalSchema,
+  insertChangeRequestTaskSchema,
+  updateChangeRequestTaskSchema,
+  insertChangeRequestTemplateSchema,
+  updateChangeRequestTemplateSchema,
+  insertExchangeRateSchema,
+  updateExchangeRateSchema,
   insertCostItemSchema,
+  updateCostItemSchema,
+  insertCostBreakdownStructureSchema,
+  updateCostBreakdownStructureSchema,
+  insertProcurementRequisitionSchema,
+  updateProcurementRequisitionSchema,
+  insertResourceRequirementSchema,
+  updateResourceRequirementSchema,
+  insertInventoryAllocationSchema,
+  updateInventoryAllocationSchema,
   updateProjectSchema,
   updateTaskSchema,
   updateStakeholderSchema,
   updateRiskSchema,
   updateIssueSchema,
+  updateChangeRequestSchema,
   updateCostItemSchema,
   insertAiConversationSchema,
   insertEmailTemplateSchema,
@@ -31,7 +50,9 @@ import {
   updateMessageSchema,
   insertContactSchema,
   updateContactSchema,
-  insertContactLogSchema
+  insertContactLogSchema,
+  insertUserInvitationSchema,
+  updateUserOrganizationSchema
 } from "@shared/schema";
 import { chatWithAssistant, type ChatMessage } from "./aiAssistant";
 import { z } from "zod";
@@ -46,8 +67,18 @@ import {
   replacePlaceholders,
   getDefaultTemplate,
   getAllDefaultTemplates,
-  getAvailablePlaceholders
+  getAvailablePlaceholders,
+  buildChangeRequestEmail,
+  buildChangeRequestApprovalNeededEmail
 } from "./emailService";
+import {
+  syncExchangeRates,
+  getExchangeRate,
+  convertCurrency,
+  getLatestExchangeRate
+} from "./exchangeRateService";
+import { logUserActivity } from "./middleware/audit";
+import { uploadLimiter } from "./middleware/security";
 import { wsManager } from "./websocket";
 import { schedulingService } from "./scheduling";
 import { db } from "./db";
@@ -63,6 +94,12 @@ function getUserId(req: any): string {
 async function checkOrganizationAccess(userId: string, organizationId: number): Promise<boolean> {
   const userOrg = await storage.getUserOrganization(userId, organizationId);
   return !!userOrg;
+}
+
+// Helper to check if user has admin/owner role
+async function checkAdminAccess(userId: string, organizationId: number): Promise<boolean> {
+  const userOrg = await storage.getUserOrganization(userId, organizationId);
+  return !!userOrg && ['owner', 'admin'].includes(userOrg.role);
 }
 
 // Helper to check if user has access to project (through organization)
@@ -118,6 +155,279 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error creating organization:", error);
       res.status(400).json({ message: "Failed to create organization" });
+    }
+  });
+
+  // ===== Organization User Management Routes =====
+  app.get('/api/organizations/:orgId/users', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+
+      // Check access (admin/owner required to list users)
+      const userOrg = await storage.getUserOrganization(userId, orgId);
+      if (!userOrg || !['owner', 'admin'].includes(userOrg.role)) {
+        return res.status(403).json({ message: "Admin or owner access required" });
+      }
+
+      const users = await storage.getUsersByOrganization(orgId);
+      // Get user roles in this organization
+      const usersWithRoles = await Promise.all(users.map(async (user) => {
+        const userOrgRel = await storage.getUserOrganization(user.id, orgId);
+        return {
+          ...user,
+          role: userOrgRel?.role || 'member',
+          joinedAt: userOrgRel?.createdAt || null,
+        };
+      }));
+
+      res.json(usersWithRoles);
+    } catch (error) {
+      console.error("Error fetching organization users:", error);
+      res.status(500).json({ message: "Failed to fetch users" });
+    }
+  });
+
+  app.post('/api/organizations/:orgId/users/invite', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      const { email, role = 'member' } = req.body;
+
+      if (!email) {
+        return res.status(400).json({ message: "Email is required" });
+      }
+
+      // Check access (admin/owner required)
+      const userOrg = await storage.getUserOrganization(userId, orgId);
+      if (!userOrg || !['owner', 'admin'].includes(userOrg.role)) {
+        return res.status(403).json({ message: "Admin or owner access required" });
+      }
+
+      // Check if user already in organization
+      const existingUser = await storage.getUserByEmail(email);
+      if (existingUser) {
+        const existingRel = await storage.getUserOrganization(existingUser.id, orgId);
+        if (existingRel) {
+          return res.status(400).json({ message: "User is already a member of this organization" });
+        }
+      }
+
+      // Check for pending invitation
+      const pendingInvitation = await storage.getUserInvitationByEmail(orgId, email);
+      if (pendingInvitation) {
+        return res.status(400).json({ message: "An invitation is already pending for this email" });
+      }
+
+      // Generate invitation token
+      const crypto = await import('crypto');
+      const token = crypto.randomBytes(32).toString('hex');
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 7); // 7 days expiration
+
+      const invitation = await storage.createUserInvitation({
+        organizationId: orgId,
+        email,
+        role,
+        invitedBy: userId,
+        token,
+        expiresAt,
+      });
+
+      // Log activity
+      await logUserActivity(userId, 'user.invited', {
+        organizationId: orgId,
+        entityType: 'user_invitation',
+        entityId: invitation.id,
+        details: { email, role },
+        req,
+      });
+
+      // TODO: Send invitation email
+      // await sendInvitationEmail(email, token, orgId);
+
+      res.status(201).json(invitation);
+    } catch (error: any) {
+      console.error("Error creating invitation:", error);
+      res.status(400).json({ message: error.message || "Failed to create invitation" });
+    }
+  });
+
+  app.patch('/api/organizations/:orgId/users/:userId', isAuthenticated, async (req: any, res) => {
+    try {
+      const requestingUserId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      const targetUserId = req.params.userId;
+      const { role } = req.body;
+
+      if (!role) {
+        return res.status(400).json({ message: "Role is required" });
+      }
+
+      // Check access (admin/owner required)
+      const requestingUserOrg = await storage.getUserOrganization(requestingUserId, orgId);
+      if (!requestingUserOrg || !['owner', 'admin'].includes(requestingUserOrg.role)) {
+        return res.status(403).json({ message: "Admin or owner access required" });
+      }
+
+      // Prevent changing own role if not owner
+      if (requestingUserId === targetUserId && requestingUserOrg.role !== 'owner') {
+        return res.status(403).json({ message: "Cannot change your own role" });
+      }
+
+      // Prevent changing last owner's role
+      const targetUserOrg = await storage.getUserOrganization(targetUserId, orgId);
+      if (targetUserOrg?.role === 'owner') {
+        const allUsers = await storage.getUsersByOrganization(orgId);
+        const owners = await Promise.all(
+          allUsers.map(async (u) => {
+            const uo = await storage.getUserOrganization(u.id, orgId);
+            return uo?.role === 'owner';
+          })
+        );
+        if (owners.filter(Boolean).length === 1 && role !== 'owner') {
+          return res.status(400).json({ message: "Cannot change role of the last owner" });
+        }
+      }
+
+      const oldRole = targetUserOrg?.role;
+      const updated = await storage.updateUserOrganization(targetUserId, orgId, { role });
+      if (!updated) {
+        return res.status(404).json({ message: "User not found in organization" });
+      }
+
+      // Log activity
+      await logUserActivity(requestingUserId, 'user.role_changed', {
+        organizationId: orgId,
+        entityType: 'user',
+        entityId: targetUserId,
+        details: { 
+          targetUserId,
+          oldRole: oldRole || null,
+          newRole: role,
+        },
+        req,
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating user role:", error);
+      res.status(400).json({ message: error.message || "Failed to update user role" });
+    }
+  });
+
+  app.delete('/api/organizations/:orgId/users/:userId', isAuthenticated, async (req: any, res) => {
+    try {
+      const requestingUserId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      const targetUserId = req.params.userId;
+
+      // Check access (admin/owner required)
+      const requestingUserOrg = await storage.getUserOrganization(requestingUserId, orgId);
+      if (!requestingUserOrg || !['owner', 'admin'].includes(requestingUserOrg.role)) {
+        return res.status(403).json({ message: "Admin or owner access required" });
+      }
+
+      // Prevent self-deletion
+      if (requestingUserId === targetUserId) {
+        return res.status(400).json({ message: "Cannot remove yourself from the organization" });
+      }
+
+      // Prevent removing last owner
+      const targetUserOrg = await storage.getUserOrganization(targetUserId, orgId);
+      if (targetUserOrg?.role === 'owner') {
+        const allUsers = await storage.getUsersByOrganization(orgId);
+        const owners = await Promise.all(
+          allUsers.map(async (u) => {
+            const uo = await storage.getUserOrganization(u.id, orgId);
+            return uo?.role === 'owner';
+          })
+        );
+        if (owners.filter(Boolean).length === 1) {
+          return res.status(400).json({ message: "Cannot remove the last owner" });
+        }
+      }
+
+      const targetUser = await storage.getUser(targetUserId);
+      
+      await storage.deleteUserOrganization(targetUserId, orgId);
+
+      // Log activity
+      await logUserActivity(requestingUserId, 'user.removed_from_org', {
+        organizationId: orgId,
+        entityType: 'user',
+        entityId: targetUserId,
+        details: { 
+          targetUserId,
+          targetUserEmail: targetUser?.email || null,
+          targetUserRole: targetUserOrg?.role || null,
+        },
+        req,
+      });
+
+      res.sendStatus(204);
+    } catch (error: any) {
+      console.error("Error removing user:", error);
+      res.status(400).json({ message: error.message || "Failed to remove user" });
+    }
+  });
+
+  app.get('/api/organizations/:orgId/users/invitations', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+
+      // Check access (admin/owner required)
+      const userOrg = await storage.getUserOrganization(userId, orgId);
+      if (!userOrg || !['owner', 'admin'].includes(userOrg.role)) {
+        return res.status(403).json({ message: "Admin or owner access required" });
+      }
+
+      const invitations = await storage.getUserInvitationsByOrganization(orgId);
+      res.json(invitations);
+    } catch (error) {
+      console.error("Error fetching invitations:", error);
+      res.status(500).json({ message: "Failed to fetch invitations" });
+    }
+  });
+
+  app.delete('/api/organizations/:orgId/users/invitations/:invitationId', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      const invitationId = parseInt(req.params.invitationId);
+
+      // Check access (admin/owner required)
+      const userOrg = await storage.getUserOrganization(userId, orgId);
+      if (!userOrg || !['owner', 'admin'].includes(userOrg.role)) {
+        return res.status(403).json({ message: "Admin or owner access required" });
+      }
+
+      // Verify invitation belongs to organization
+      const invitation = await storage.getUserInvitationById(invitationId);
+      if (!invitation || invitation.organizationId !== orgId) {
+        return res.status(404).json({ message: "Invitation not found" });
+      }
+
+      await storage.deleteUserInvitation(invitationId);
+      res.sendStatus(204);
+    } catch (error: any) {
+      console.error("Error deleting invitation:", error);
+      res.status(400).json({ message: error.message || "Failed to delete invitation" });
+    }
+  });
+
+  // Accept invitation (public endpoint, but requires token)
+  app.post('/api/invitations/:token/accept', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const token = req.params.token;
+
+      const userOrg = await storage.acceptUserInvitation(token, userId);
+      res.json(userOrg);
+    } catch (error: any) {
+      console.error("Error accepting invitation:", error);
+      res.status(400).json({ message: error.message || "Failed to accept invitation" });
     }
   });
 
@@ -1915,6 +2225,1275 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting issue:", error);
       res.status(500).json({ message: "Failed to delete issue" });
+    }
+  });
+
+  // ===== Change Request Routes =====
+  app.get('/api/projects/:projectId/change-requests', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+
+      // Check access
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      const changeRequests = await storage.getChangeRequestsByProject(projectId);
+      res.json(changeRequests);
+    } catch (error) {
+      console.error("Error fetching change requests:", error);
+      res.status(500).json({ message: "Failed to fetch change requests" });
+    }
+  });
+
+  app.post('/api/change-requests', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const data = insertChangeRequestSchema.parse(req.body);
+
+      // Check access to project
+      if (!await checkProjectAccess(userId, data.projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Auto-generate code if not provided
+      if (!data.code) {
+        const existing = await storage.getChangeRequestsByProject(data.projectId);
+        const nextNumber = existing.length + 1;
+        data.code = `CR-${String(nextNumber).padStart(3, '0')}`;
+      }
+
+      const changeRequest = await storage.createChangeRequest({
+        ...data,
+        code: data.code,
+        requestedBy: userId,
+        status: data.status || 'submitted',
+      });
+
+      // Notify connected clients
+      wsManager.notifyProjectUpdate(changeRequest.projectId, "change-request-created", changeRequest, userId);
+
+      // Send notifications asynchronously (don't block response)
+      (async () => {
+        try {
+          const project = await storage.getProject(changeRequest.projectId);
+          const requester = await storage.getUser(userId);
+          
+          if (project && requester) {
+            // Notify project admins/members about new change request
+            const orgUsers = await storage.getUsersByOrganization(project.organizationId);
+            const projectUsers = orgUsers.filter(u => u.id !== userId); // Exclude requester
+            
+            // Send notification to users with admin/owner roles
+            for (const user of projectUsers) {
+              const userOrg = await storage.getUserOrganization(user.id, project.organizationId);
+              if (userOrg && ['owner', 'admin'].includes(userOrg.role) && user.email) {
+                const emailContent = buildChangeRequestEmail(changeRequest, project, requester, 'submitted');
+                await sendEmail({
+                  to: user.email,
+                  subject: emailContent.subject,
+                  htmlContent: emailContent.body,
+                  organizationId: project.organizationId,
+                });
+              }
+            }
+          }
+        } catch (error) {
+          console.error("Error sending change request notifications:", error);
+        }
+      })();
+
+      res.json(changeRequest);
+    } catch (error) {
+      console.error("Error creating change request:", error);
+      res.status(400).json({ message: "Failed to create change request" });
+    }
+  });
+
+  app.patch('/api/change-requests/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const existing = await storage.getChangeRequest(id);
+      if (!existing) {
+        return res.status(404).json({ message: "Change request not found" });
+      }
+
+      // Check access
+      if (!await checkProjectAccess(userId, existing.projectId)) {
+        return res.status(404).json({ message: "Change request not found" });
+      }
+
+      const data = updateChangeRequestSchema.parse(req.body);
+      // Filter out undefined values
+      const updateFields = Object.fromEntries(
+        Object.entries(data).filter(([_, value]) => value !== undefined)
+      );
+
+      // If status is changing to reviewed states, set reviewedBy and reviewedDate
+      if (updateFields.status && ['approved', 'rejected', 'under-review'].includes(updateFields.status) && !updateFields.reviewedBy) {
+        updateFields.reviewedBy = userId;
+        updateFields.reviewedDate = new Date();
+      }
+
+      // Merge with existing to preserve required fields
+      const mergedData = {
+        code: existing.code,
+        projectId: existing.projectId,
+        requestedBy: existing.requestedBy,
+        submittedDate: existing.submittedDate,
+        ...updateFields,
+      };
+
+      const updated = await storage.updateChangeRequest(id, mergedData);
+
+      // Notify connected clients
+      wsManager.notifyProjectUpdate(existing.projectId, "change-request-updated", updated, userId);
+
+      // Send notifications if status changed to approved/rejected
+      if (updateFields.status && ['approved', 'rejected'].includes(updateFields.status)) {
+        (async () => {
+          try {
+            const project = await storage.getProject(existing.projectId);
+            const requester = await storage.getUser(existing.requestedBy);
+            const reviewer = updated.reviewedBy ? await storage.getUser(updated.reviewedBy) : undefined;
+            
+            if (project && requester && requester.email) {
+              const emailType = updateFields.status === 'approved' ? 'approved' : 'rejected';
+              const emailContent = buildChangeRequestEmail(updated, project, requester, emailType, reviewer);
+              await sendEmail({
+                to: requester.email,
+                subject: emailContent.subject,
+                htmlContent: emailContent.body,
+                organizationId: project.organizationId,
+              });
+            }
+          } catch (error) {
+            console.error("Error sending change request status notification:", error);
+          }
+        })();
+      }
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating change request:", error);
+      res.status(400).json({ message: "Failed to update change request" });
+    }
+  });
+
+  app.delete('/api/change-requests/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const changeRequest = await storage.getChangeRequest(id);
+      if (!changeRequest) {
+        return res.status(404).json({ message: "Change request not found" });
+      }
+
+      // Check access
+      if (!await checkProjectAccess(userId, changeRequest.projectId)) {
+        return res.status(404).json({ message: "Change request not found" });
+      }
+
+      await storage.deleteChangeRequest(id);
+
+      // Notify connected clients
+      wsManager.notifyProjectUpdate(changeRequest.projectId, "change-request-deleted", { id, projectId: changeRequest.projectId }, userId);
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting change request:", error);
+      res.status(500).json({ message: "Failed to delete change request" });
+    }
+  });
+
+  // ===== Change Request Approval Workflow Routes =====
+  app.get('/api/change-requests/:id/approvals', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const changeRequest = await storage.getChangeRequest(id);
+      if (!changeRequest) {
+        return res.status(404).json({ message: "Change request not found" });
+      }
+
+      // Check access
+      if (!await checkProjectAccess(userId, changeRequest.projectId)) {
+        return res.status(404).json({ message: "Change request not found" });
+      }
+
+      const approvals = await storage.getChangeRequestApprovals(id);
+      res.json(approvals);
+    } catch (error) {
+      console.error("Error fetching approvals:", error);
+      res.status(500).json({ message: "Failed to fetch approvals" });
+    }
+  });
+
+  app.post('/api/change-requests/:id/approvals', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const changeRequestId = parseInt(req.params.id);
+
+      const changeRequest = await storage.getChangeRequest(changeRequestId);
+      if (!changeRequest) {
+        return res.status(404).json({ message: "Change request not found" });
+      }
+
+      // Check access
+      if (!await checkProjectAccess(userId, changeRequest.projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const data = insertChangeRequestApprovalSchema.parse({
+        ...req.body,
+        changeRequestId,
+      });
+
+      // Get existing approvals to determine sequence
+      const existingApprovals = await storage.getChangeRequestApprovals(changeRequestId);
+      if (!data.sequence) {
+        data.sequence = existingApprovals.length > 0 
+          ? Math.max(...existingApprovals.map(a => a.sequence)) + 1 
+          : 1;
+      }
+
+      const approval = await storage.addChangeRequestApprover(data);
+
+      // Update change request status to "under-review" if not already
+      if (changeRequest.status === "submitted") {
+        await storage.updateChangeRequest(changeRequestId, { status: "under-review" });
+      }
+
+      // Notify connected clients
+      wsManager.notifyProjectUpdate(changeRequest.projectId, "change-request-approval-added", approval, userId);
+
+      res.json(approval);
+    } catch (error) {
+      console.error("Error adding approver:", error);
+      res.status(400).json({ message: "Failed to add approver" });
+    }
+  });
+
+  app.patch('/api/change-requests/approvals/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      // Get approval by id (we need to query differently)
+      const allApprovals = await db.select().from(schema.changeRequestApprovals)
+        .where(eq(schema.changeRequestApprovals.id, id));
+      
+      if (!allApprovals || allApprovals.length === 0) {
+        return res.status(404).json({ message: "Approval not found" });
+      }
+
+      const approval = allApprovals[0];
+      
+      // Check if user is the reviewer
+      if (approval.reviewerId !== userId) {
+        return res.status(403).json({ message: "You are not authorized to review this approval" });
+      }
+
+      // Check if already reviewed
+      if (approval.status !== "pending") {
+        return res.status(400).json({ message: "This approval has already been reviewed" });
+      }
+
+      const data = updateChangeRequestApprovalSchema.parse(req.body);
+      
+      // Set reviewed date when status changes
+      const updateData: any = {
+        ...data,
+        reviewedAt: data.status && data.status !== "pending" ? new Date() : approval.reviewedAt,
+      };
+
+      const updated = await storage.updateChangeRequestApproval(id, updateData);
+
+      // Get change request to update its status
+      const changeRequest = await storage.getChangeRequest(approval.changeRequestId);
+      if (changeRequest) {
+        // Check if all approvals are complete
+        const allApprovals = await storage.getChangeRequestApprovals(approval.changeRequestId);
+        const allApproved = allApprovals.every(a => a.status === "approved");
+        const anyRejected = allApprovals.some(a => a.status === "rejected");
+        const allReviewed = allApprovals.every(a => a.status !== "pending");
+
+        let newStatus = changeRequest.status;
+        if (anyRejected) {
+          newStatus = "rejected";
+        } else if (allApproved && allReviewed) {
+          newStatus = "approved";
+        } else if (allReviewed && !allApproved) {
+          newStatus = "rejected"; // Some approved, some rejected = rejected
+        }
+
+        if (newStatus !== changeRequest.status) {
+          const updatedCr = await storage.updateChangeRequest(approval.changeRequestId, {
+            status: newStatus as any,
+            reviewedBy: userId,
+            reviewedDate: new Date(),
+          });
+
+          // Send notification if status changed to approved/rejected
+          if (updatedCr && ['approved', 'rejected'].includes(newStatus)) {
+            (async () => {
+              try {
+                const project = await storage.getProject(changeRequest.projectId);
+                const requester = await storage.getUser(changeRequest.requestedBy);
+                const reviewer = await storage.getUser(userId);
+                
+                if (project && requester && requester.email) {
+                  const emailType = newStatus === 'approved' ? 'approved' : 'rejected';
+                  const emailContent = buildChangeRequestEmail(updatedCr, project, requester, emailType, reviewer);
+                  await sendEmail({
+                    to: requester.email,
+                    subject: emailContent.subject,
+                    htmlContent: emailContent.body,
+                    organizationId: project.organizationId,
+                  });
+                }
+              } catch (error) {
+                console.error("Error sending change request status notification:", error);
+              }
+            })();
+          }
+        }
+      }
+
+      // Notify connected clients
+      if (changeRequest) {
+        wsManager.notifyProjectUpdate(changeRequest.projectId, "change-request-approval-updated", updated, userId);
+      }
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating approval:", error);
+      res.status(400).json({ message: "Failed to update approval" });
+    }
+  });
+
+  app.delete('/api/change-requests/approvals/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const approval = await storage.getChangeRequestApproval(id);
+      if (!approval) {
+        return res.status(404).json({ message: "Approval not found" });
+      }
+      const changeRequest = await storage.getChangeRequest(approval.changeRequestId);
+      
+      if (!changeRequest) {
+        return res.status(404).json({ message: "Change request not found" });
+      }
+
+      // Check access
+      if (!await checkProjectAccess(userId, changeRequest.projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await storage.deleteChangeRequestApproval(id);
+
+      // Notify connected clients
+      wsManager.notifyProjectUpdate(changeRequest.projectId, "change-request-approval-deleted", { id }, userId);
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting approval:", error);
+      res.status(500).json({ message: "Failed to delete approval" });
+    }
+  });
+
+  app.get('/api/change-requests/pending-approvals', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const pending = await storage.getPendingApprovalsForUser(userId);
+      res.json(pending);
+    } catch (error) {
+      console.error("Error fetching pending approvals:", error);
+      res.status(500).json({ message: "Failed to fetch pending approvals" });
+    }
+  });
+
+  // ===== Change Request Task Linkage Routes =====
+  app.get('/api/change-requests/:id/tasks', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const changeRequest = await storage.getChangeRequest(id);
+      if (!changeRequest) {
+        return res.status(404).json({ message: "Change request not found" });
+      }
+
+      // Check access
+      if (!await checkProjectAccess(userId, changeRequest.projectId)) {
+        return res.status(404).json({ message: "Change request not found" });
+      }
+
+      const tasks = await storage.getTasksByChangeRequest(id);
+      res.json(tasks);
+    } catch (error) {
+      console.error("Error fetching change request tasks:", error);
+      res.status(500).json({ message: "Failed to fetch tasks" });
+    }
+  });
+
+  app.post('/api/change-requests/:id/tasks', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const changeRequestId = parseInt(req.params.id);
+
+      const changeRequest = await storage.getChangeRequest(changeRequestId);
+      if (!changeRequest) {
+        return res.status(404).json({ message: "Change request not found" });
+      }
+
+      // Check access
+      if (!await checkProjectAccess(userId, changeRequest.projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const data = insertChangeRequestTaskSchema.parse({
+        ...req.body,
+        changeRequestId,
+      });
+
+      const link = await storage.addChangeRequestTask(data);
+
+      // Notify connected clients
+      wsManager.notifyProjectUpdate(changeRequest.projectId, "change-request-task-linked", link, userId);
+
+      res.json(link);
+    } catch (error) {
+      console.error("Error linking task:", error);
+      res.status(400).json({ message: "Failed to link task" });
+    }
+  });
+
+  app.delete('/api/change-requests/tasks/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      // Get the link to find the change request
+      const allLinks = await db.select().from(schema.changeRequestTasks)
+        .where(eq(schema.changeRequestTasks.id, id));
+      
+      if (!allLinks || allLinks.length === 0) {
+        return res.status(404).json({ message: "Link not found" });
+      }
+
+      const link = allLinks[0];
+      const changeRequest = await storage.getChangeRequest(link.changeRequestId);
+      
+      if (!changeRequest) {
+        return res.status(404).json({ message: "Change request not found" });
+      }
+
+      if (!await checkProjectAccess(userId, changeRequest.projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await storage.deleteChangeRequestTask(id);
+      wsManager.notifyProjectUpdate(changeRequest.projectId, "change-request-task-unlinked", { id }, userId);
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error unlinking task:", error);
+      res.status(500).json({ message: "Failed to unlink task" });
+    }
+  });
+
+  app.get('/api/tasks/:taskId/change-requests', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const taskId = parseInt(req.params.taskId);
+
+      const task = await storage.getTask(taskId);
+      if (!task) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      // Check access
+      if (!await checkProjectAccess(userId, task.projectId)) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      const changeRequests = await storage.getChangeRequestsByTask(taskId);
+      res.json(changeRequests);
+    } catch (error) {
+      console.error("Error fetching task change requests:", error);
+      res.status(500).json({ message: "Failed to fetch change requests" });
+    }
+  });
+
+  // ===== Change Request Template Routes =====
+  app.get('/api/organizations/:orgId/change-request-templates', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+
+      // Check access
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const templates = await storage.getChangeRequestTemplatesByOrganization(orgId);
+      res.json(templates);
+    } catch (error) {
+      console.error("Error fetching change request templates:", error);
+      res.status(500).json({ message: "Failed to fetch templates" });
+    }
+  });
+
+  app.post('/api/change-request-templates', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const data = insertChangeRequestTemplateSchema.parse(req.body);
+
+      // Check access to organization
+      if (!await checkOrganizationAccess(userId, data.organizationId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const template = await storage.createChangeRequestTemplate({
+        ...data,
+        createdBy: userId,
+      });
+
+      res.json(template);
+    } catch (error) {
+      console.error("Error creating change request template:", error);
+      res.status(400).json({ message: "Failed to create template" });
+    }
+  });
+
+  app.patch('/api/change-request-templates/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const existing = await storage.getChangeRequestTemplate(id);
+      if (!existing) {
+        return res.status(404).json({ message: "Template not found" });
+      }
+
+      // Check access
+      if (!await checkOrganizationAccess(userId, existing.organizationId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const data = updateChangeRequestTemplateSchema.parse(req.body);
+      const updated = await storage.updateChangeRequestTemplate(id, data);
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating change request template:", error);
+      res.status(400).json({ message: "Failed to update template" });
+    }
+  });
+
+  app.delete('/api/change-request-templates/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const template = await storage.getChangeRequestTemplate(id);
+      if (!template) {
+        return res.status(404).json({ message: "Template not found" });
+      }
+
+      // Check access
+      if (!await checkOrganizationAccess(userId, template.organizationId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await storage.deleteChangeRequestTemplate(id);
+
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting change request template:", error);
+      res.status(500).json({ message: "Failed to delete template" });
+    }
+  });
+
+  // ===== Change Request Cost Items Routes =====
+  app.get('/api/change-requests/:id/costs', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const changeRequest = await storage.getChangeRequest(id);
+      if (!changeRequest) {
+        return res.status(404).json({ message: "Change request not found" });
+      }
+
+      // Check access
+      if (!await checkProjectAccess(userId, changeRequest.projectId)) {
+        return res.status(404).json({ message: "Change request not found" });
+      }
+
+      const costs = await storage.getCostItemsByChangeRequest(id);
+      res.json(costs);
+    } catch (error) {
+      console.error("Error fetching change request costs:", error);
+      res.status(500).json({ message: "Failed to fetch costs" });
+    }
+  });
+
+  // ===== Change Request Analytics Routes =====
+  app.get('/api/projects/:projectId/change-requests/analytics', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+
+      // Check access
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      const changeRequests = await storage.getChangeRequestsByProject(projectId);
+      const allApprovals = await Promise.all(
+        changeRequests.map(cr => storage.getChangeRequestApprovals(cr.id))
+      );
+
+      // Calculate statistics
+      const total = changeRequests.length;
+      const byStatus = {
+        submitted: changeRequests.filter(cr => cr.status === "submitted").length,
+        "under-review": changeRequests.filter(cr => cr.status === "under-review").length,
+        approved: changeRequests.filter(cr => cr.status === "approved").length,
+        rejected: changeRequests.filter(cr => cr.status === "rejected").length,
+        implemented: changeRequests.filter(cr => cr.status === "implemented").length,
+      };
+
+      // Cost impact
+      const totalCostImpact = changeRequests.reduce((sum, cr) => {
+        return sum + parseFloat(cr.costImpact?.toString() || "0");
+      }, 0);
+
+      // Schedule impact
+      const totalScheduleImpact = changeRequests.reduce((sum, cr) => {
+        return sum + (cr.scheduleImpact || 0);
+      }, 0);
+
+      // Approval statistics
+      const flatApprovals = allApprovals.flat();
+      const totalApprovals = flatApprovals.length;
+      const approvedCount = flatApprovals.filter(a => a.status === "approved").length;
+      const rejectedCount = flatApprovals.filter(a => a.status === "rejected").length;
+      const pendingCount = flatApprovals.filter(a => a.status === "pending").length;
+      const approvalRate = totalApprovals > 0 ? (approvedCount / totalApprovals) * 100 : 0;
+
+      // Time-based trends (last 12 months)
+      const now = new Date();
+      const twelveMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+      const monthlyData: Record<string, { submitted: number; approved: number; rejected: number }> = {};
+
+      changeRequests.forEach(cr => {
+        const submittedDate = new Date(cr.submittedDate);
+        if (submittedDate >= twelveMonthsAgo) {
+          const monthKey = `${submittedDate.getFullYear()}-${String(submittedDate.getMonth() + 1).padStart(2, '0')}`;
+          if (!monthlyData[monthKey]) {
+            monthlyData[monthKey] = { submitted: 0, approved: 0, rejected: 0 };
+          }
+          monthlyData[monthKey].submitted++;
+          
+          if (cr.status === "approved") monthlyData[monthKey].approved++;
+          if (cr.status === "rejected") monthlyData[monthKey].rejected++;
+        }
+      });
+
+      // Calculate average time to approval/rejection
+      let totalApprovalTime = 0;
+      let approvedWithDates = 0;
+      let totalRejectionTime = 0;
+      let rejectedWithDates = 0;
+
+      changeRequests.forEach(cr => {
+        if (cr.reviewedDate && cr.submittedDate) {
+          const submittedDate = new Date(cr.submittedDate);
+          const reviewedDate = new Date(cr.reviewedDate);
+          const daysDiff = (reviewedDate.getTime() - submittedDate.getTime()) / (1000 * 60 * 60 * 24);
+          
+          if (cr.status === "approved") {
+            totalApprovalTime += daysDiff;
+            approvedWithDates++;
+          } else if (cr.status === "rejected") {
+            totalRejectionTime += daysDiff;
+            rejectedWithDates++;
+          }
+        }
+      });
+
+      const avgApprovalTime = approvedWithDates > 0 ? totalApprovalTime / approvedWithDates : 0;
+      const avgRejectionTime = rejectedWithDates > 0 ? totalRejectionTime / rejectedWithDates : 0;
+
+      // Cost impact breakdown by status
+      const costImpactByStatus = {
+        submitted: changeRequests
+          .filter(cr => cr.status === "submitted")
+          .reduce((sum, cr) => sum + parseFloat(cr.costImpact?.toString() || "0"), 0),
+        "under-review": changeRequests
+          .filter(cr => cr.status === "under-review")
+          .reduce((sum, cr) => sum + parseFloat(cr.costImpact?.toString() || "0"), 0),
+        approved: changeRequests
+          .filter(cr => cr.status === "approved")
+          .reduce((sum, cr) => sum + parseFloat(cr.costImpact?.toString() || "0"), 0),
+        rejected: changeRequests
+          .filter(cr => cr.status === "rejected")
+          .reduce((sum, cr) => sum + parseFloat(cr.costImpact?.toString() || "0"), 0),
+        implemented: changeRequests
+          .filter(cr => cr.status === "implemented")
+          .reduce((sum, cr) => sum + parseFloat(cr.costImpact?.toString() || "0"), 0),
+      };
+
+      res.json({
+        summary: {
+          total,
+          byStatus,
+          totalCostImpact,
+          totalScheduleImpact,
+        },
+        approvals: {
+          total: totalApprovals,
+          approved: approvedCount,
+          rejected: rejectedCount,
+          pending: pendingCount,
+          approvalRate: Math.round(approvalRate * 100) / 100,
+        },
+        trends: {
+          monthly: monthlyData,
+          avgApprovalTime: Math.round(avgApprovalTime * 10) / 10,
+          avgRejectionTime: Math.round(avgRejectionTime * 10) / 10,
+        },
+        costImpact: {
+          total: totalCostImpact,
+          byStatus: costImpactByStatus,
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching change request analytics:", error);
+      res.status(500).json({ message: "Failed to fetch analytics" });
+    }
+  });
+
+  // ===== Cost Breakdown Structure (CBS) Routes =====
+  app.get('/api/projects/:projectId/cbs', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      const cbs = await storage.getCostBreakdownStructureByProject(projectId);
+      res.json(cbs);
+    } catch (error) {
+      console.error("Error fetching CBS:", error);
+      res.status(500).json({ message: "Failed to fetch cost breakdown structure" });
+    }
+  });
+
+  app.get('/api/cbs/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const cbs = await storage.getCostBreakdownStructure(id);
+      if (!cbs) {
+        return res.status(404).json({ message: "CBS node not found" });
+      }
+
+      if (!await checkProjectAccess(userId, cbs.projectId)) {
+        return res.status(404).json({ message: "CBS node not found" });
+      }
+
+      res.json(cbs);
+    } catch (error) {
+      console.error("Error fetching CBS node:", error);
+      res.status(500).json({ message: "Failed to fetch CBS node" });
+    }
+  });
+
+  app.post('/api/cbs', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const cbsData = insertCostBreakdownStructureSchema.parse(req.body);
+      const projectId = cbsData.projectId;
+
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      const cbs = await storage.createCostBreakdownStructure(cbsData);
+      res.json(cbs);
+    } catch (error: any) {
+      console.error("Error creating CBS node:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to create CBS node" });
+    }
+  });
+
+  app.patch('/api/cbs/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const cbs = await storage.getCostBreakdownStructure(id);
+      if (!cbs) {
+        return res.status(404).json({ message: "CBS node not found" });
+      }
+
+      if (!await checkProjectAccess(userId, cbs.projectId)) {
+        return res.status(404).json({ message: "CBS node not found" });
+      }
+
+      const updateData = updateCostBreakdownStructureSchema.parse(req.body);
+      const updated = await storage.updateCostBreakdownStructure(id, updateData);
+
+      if (!updated) {
+        return res.status(404).json({ message: "CBS node not found" });
+      }
+
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating CBS node:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to update CBS node" });
+    }
+  });
+
+  app.delete('/api/cbs/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const cbs = await storage.getCostBreakdownStructure(id);
+      if (!cbs) {
+        return res.status(404).json({ message: "CBS node not found" });
+      }
+
+      if (!await checkProjectAccess(userId, cbs.projectId)) {
+        return res.status(404).json({ message: "CBS node not found" });
+      }
+
+      await storage.deleteCostBreakdownStructure(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting CBS node:", error);
+      res.status(500).json({ message: "Failed to delete CBS node" });
+    }
+  });
+
+  app.get('/api/cbs/:id/costs', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const cbs = await storage.getCostBreakdownStructure(id);
+      if (!cbs) {
+        return res.status(404).json({ message: "CBS node not found" });
+      }
+
+      if (!await checkProjectAccess(userId, cbs.projectId)) {
+        return res.status(404).json({ message: "CBS node not found" });
+      }
+
+      const costs = await storage.getCostItemsByCBS(id);
+      res.json(costs);
+    } catch (error) {
+      console.error("Error fetching CBS costs:", error);
+      res.status(500).json({ message: "Failed to fetch costs" });
+    }
+  });
+
+  app.post('/api/costs/:costItemId/cbs/:cbsId', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const costItemId = parseInt(req.params.costItemId);
+      const cbsId = parseInt(req.params.cbsId);
+      const allocation = req.body.allocation ? parseFloat(req.body.allocation) : 100;
+
+      const costItem = await storage.getCostItem(costItemId);
+      if (!costItem) {
+        return res.status(404).json({ message: "Cost item not found" });
+      }
+
+      const cbs = await storage.getCostBreakdownStructure(cbsId);
+      if (!cbs) {
+        return res.status(404).json({ message: "CBS node not found" });
+      }
+
+      if (!await checkProjectAccess(userId, costItem.projectId)) {
+        return res.status(404).json({ message: "Cost item not found" });
+      }
+
+      if (cbs.projectId !== costItem.projectId) {
+        return res.status(400).json({ message: "CBS node and cost item must belong to the same project" });
+      }
+
+      const link = await storage.linkCostItemToCBS(costItemId, cbsId, allocation);
+      res.json(link);
+    } catch (error) {
+      console.error("Error linking cost item to CBS:", error);
+      res.status(500).json({ message: "Failed to link cost item to CBS" });
+    }
+  });
+
+  app.delete('/api/costs/:costItemId/cbs/:cbsId', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const costItemId = parseInt(req.params.costItemId);
+      const cbsId = parseInt(req.params.cbsId);
+
+      const costItem = await storage.getCostItem(costItemId);
+      if (!costItem) {
+        return res.status(404).json({ message: "Cost item not found" });
+      }
+
+      if (!await checkProjectAccess(userId, costItem.projectId)) {
+        return res.status(404).json({ message: "Cost item not found" });
+      }
+
+      await storage.unlinkCostItemFromCBS(costItemId, cbsId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error unlinking cost item from CBS:", error);
+      res.status(500).json({ message: "Failed to unlink cost item from CBS" });
+    }
+  });
+
+  // ===== Procurement Requisitions Routes =====
+  app.get('/api/projects/:projectId/procurement-requisitions', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      const requisitions = await storage.getProcurementRequisitionsByProject(projectId);
+      res.json(requisitions);
+    } catch (error) {
+      console.error("Error fetching procurement requisitions:", error);
+      res.status(500).json({ message: "Failed to fetch requisitions" });
+    }
+  });
+
+  app.get('/api/procurement-requisitions/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const requisition = await storage.getProcurementRequisition(id);
+      if (!requisition) {
+        return res.status(404).json({ message: "Requisition not found" });
+      }
+
+      if (!await checkProjectAccess(userId, requisition.projectId)) {
+        return res.status(404).json({ message: "Requisition not found" });
+      }
+
+      res.json(requisition);
+    } catch (error) {
+      console.error("Error fetching requisition:", error);
+      res.status(500).json({ message: "Failed to fetch requisition" });
+    }
+  });
+
+  app.post('/api/procurement-requisitions', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const requisitionData = insertProcurementRequisitionSchema.parse(req.body);
+      const projectId = requisitionData.projectId;
+
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      // Generate requisition number if not provided
+      const existingReqs = await storage.getProcurementRequisitionsByProject(projectId);
+      const reqNumber = requisitionData.requisitionNumber || `REQ-${String(existingReqs.length + 1).padStart(3, '0')}`;
+
+      const requisition = await storage.createProcurementRequisition({
+        ...requisitionData,
+        requisitionNumber: reqNumber,
+        requestedBy: userId,
+      });
+      res.json(requisition);
+    } catch (error: any) {
+      console.error("Error creating requisition:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to create requisition" });
+    }
+  });
+
+  app.patch('/api/procurement-requisitions/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const requisition = await storage.getProcurementRequisition(id);
+      if (!requisition) {
+        return res.status(404).json({ message: "Requisition not found" });
+      }
+
+      if (!await checkProjectAccess(userId, requisition.projectId)) {
+        return res.status(404).json({ message: "Requisition not found" });
+      }
+
+      const updateData = updateProcurementRequisitionSchema.parse(req.body);
+      const updated = await storage.updateProcurementRequisition(id, updateData);
+
+      if (!updated) {
+        return res.status(404).json({ message: "Requisition not found" });
+      }
+
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating requisition:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to update requisition" });
+    }
+  });
+
+  app.delete('/api/procurement-requisitions/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const requisition = await storage.getProcurementRequisition(id);
+      if (!requisition) {
+        return res.status(404).json({ message: "Requisition not found" });
+      }
+
+      if (!await checkProjectAccess(userId, requisition.projectId)) {
+        return res.status(404).json({ message: "Requisition not found" });
+      }
+
+      await storage.deleteProcurementRequisition(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting requisition:", error);
+      res.status(500).json({ message: "Failed to delete requisition" });
+    }
+  });
+
+  // ===== Resource Requirements Routes =====
+  app.get('/api/tasks/:taskId/resource-requirements', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const taskId = parseInt(req.params.taskId);
+
+      const task = await storage.getTask(taskId);
+      if (!task) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      if (!await checkProjectAccess(userId, task.projectId)) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      const requirements = await storage.getResourceRequirementsByTask(taskId);
+      res.json(requirements);
+    } catch (error) {
+      console.error("Error fetching resource requirements:", error);
+      res.status(500).json({ message: "Failed to fetch resource requirements" });
+    }
+  });
+
+  app.post('/api/resource-requirements', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const requirementData = insertResourceRequirementSchema.parse(req.body);
+
+      const task = await storage.getTask(requirementData.taskId);
+      if (!task) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      if (!await checkProjectAccess(userId, task.projectId)) {
+        return res.status(404).json({ message: "Task not found" });
+      }
+
+      const requirement = await storage.createResourceRequirement({
+        ...requirementData,
+        createdBy: userId,
+      });
+      res.json(requirement);
+    } catch (error: any) {
+      console.error("Error creating resource requirement:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to create resource requirement" });
+    }
+  });
+
+  app.patch('/api/resource-requirements/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const requirement = await storage.getResourceRequirement(id);
+      if (!requirement) {
+        return res.status(404).json({ message: "Resource requirement not found" });
+      }
+
+      const task = await storage.getTask(requirement.taskId);
+      if (!task || !await checkProjectAccess(userId, task.projectId)) {
+        return res.status(404).json({ message: "Resource requirement not found" });
+      }
+
+      const updateData = updateResourceRequirementSchema.parse(req.body);
+      const updated = await storage.updateResourceRequirement(id, updateData);
+
+      if (!updated) {
+        return res.status(404).json({ message: "Resource requirement not found" });
+      }
+
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating resource requirement:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to update resource requirement" });
+    }
+  });
+
+  app.delete('/api/resource-requirements/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const requirement = await storage.getResourceRequirement(id);
+      if (!requirement) {
+        return res.status(404).json({ message: "Resource requirement not found" });
+      }
+
+      const task = await storage.getTask(requirement.taskId);
+      if (!task || !await checkProjectAccess(userId, task.projectId)) {
+        return res.status(404).json({ message: "Resource requirement not found" });
+      }
+
+      await storage.deleteResourceRequirement(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting resource requirement:", error);
+      res.status(500).json({ message: "Failed to delete resource requirement" });
+    }
+  });
+
+  // ===== Inventory Allocations Routes =====
+  app.get('/api/projects/:projectId/inventory-allocations', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      const allocations = await storage.getInventoryAllocationsByProject(projectId);
+      res.json(allocations);
+    } catch (error) {
+      console.error("Error fetching inventory allocations:", error);
+      res.status(500).json({ message: "Failed to fetch inventory allocations" });
+    }
+  });
+
+  app.post('/api/inventory-allocations', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const allocationData = insertInventoryAllocationSchema.parse(req.body);
+      const projectId = allocationData.projectId;
+
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      const allocation = await storage.createInventoryAllocation({
+        ...allocationData,
+        allocatedBy: userId,
+      });
+      res.json(allocation);
+    } catch (error: any) {
+      console.error("Error creating inventory allocation:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to create inventory allocation" });
+    }
+  });
+
+  app.patch('/api/inventory-allocations/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const allocation = await storage.getInventoryAllocation(id);
+      if (!allocation) {
+        return res.status(404).json({ message: "Inventory allocation not found" });
+      }
+
+      if (!await checkProjectAccess(userId, allocation.projectId)) {
+        return res.status(404).json({ message: "Inventory allocation not found" });
+      }
+
+      const updateData = updateInventoryAllocationSchema.parse(req.body);
+      const updated = await storage.updateInventoryAllocation(id, updateData);
+
+      if (!updated) {
+        return res.status(404).json({ message: "Inventory allocation not found" });
+      }
+
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating inventory allocation:", error);
+      if (error.name === "ZodError") {
+        return res.status(400).json({ message: "Invalid data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to update inventory allocation" });
+    }
+  });
+
+  app.delete('/api/inventory-allocations/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const allocation = await storage.getInventoryAllocation(id);
+      if (!allocation) {
+        return res.status(404).json({ message: "Inventory allocation not found" });
+      }
+
+      if (!await checkProjectAccess(userId, allocation.projectId)) {
+        return res.status(404).json({ message: "Inventory allocation not found" });
+      }
+
+      await storage.deleteInventoryAllocation(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting inventory allocation:", error);
+      res.status(500).json({ message: "Failed to delete inventory allocation" });
     }
   });
 

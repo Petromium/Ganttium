@@ -8,6 +8,23 @@ import express, {
 } from "express";
 
 import { registerRoutes } from "./routes";
+import {
+  configureHelmet,
+  configureCORS,
+  sanitizeInput,
+  validateEnvironmentVariables,
+  apiLimiter,
+} from "./middleware/security";
+
+// Validate environment variables on startup
+try {
+  validateEnvironmentVariables();
+} catch (error) {
+  console.error("[SECURITY] Environment validation failed:", error);
+  if (process.env.NODE_ENV === "production") {
+    process.exit(1);
+  }
+}
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -22,6 +39,10 @@ export function log(message: string, source = "express") {
 
 export const app = express();
 
+// Security middleware (applied early)
+app.use(configureHelmet());
+app.use(configureCORS());
+
 declare module 'http' {
   interface IncomingMessage {
     rawBody: unknown
@@ -30,9 +51,16 @@ declare module 'http' {
 app.use(express.json({
   verify: (req, _res, buf) => {
     req.rawBody = buf;
-  }
+  },
+  limit: "10mb", // Limit JSON payload size
 }));
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: false, limit: "10mb" }));
+
+// Input sanitization (after body parsing)
+app.use(sanitizeInput);
+
+// Apply general API rate limiting
+app.use("/api", apiLimiter);
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -80,6 +108,10 @@ export default async function runApp(
   // importantly run the final setup after setting up all the other routes so
   // the catch-all route doesn't interfere with the other routes
   await setup(app, server);
+
+  // Initialize scheduler for background tasks (exchange rate sync, etc.)
+  const { initializeScheduler } = await import("./scheduler");
+  initializeScheduler();
 
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Other ports are firewalled. Default to 5000 if not specified.

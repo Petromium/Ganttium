@@ -106,6 +106,7 @@ export const organizations = pgTable("organizations", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   slug: varchar("slug", { length: 100 }).notNull().unique(),
+  currency: varchar("currency", { length: 3 }).notNull().default("EUR"), // Organization default currency
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -155,7 +156,44 @@ export const userOrganizations = pgTable("user_organizations", {
   organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
   role: text("role").notNull().default("member"), // owner, admin, member, viewer
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  uniqueUserOrg: unique("user_org_unique").on(table.userId, table.organizationId),
+}));
+
+// User Invitations (for inviting users to organizations)
+export const userInvitations = pgTable("user_invitations", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  email: varchar("email", { length: 255 }).notNull(),
+  role: text("role").notNull().default("member"), // owner, admin, member, viewer
+  invitedBy: varchar("invited_by", { length: 255 }).notNull().references(() => users.id),
+  token: varchar("token", { length: 255 }).notNull().unique(), // Unique invitation token
+  expiresAt: timestamp("expires_at").notNull(), // Invitation expiration (default 7 days)
+  acceptedAt: timestamp("accepted_at"), // When invitation was accepted
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqueOrgEmail: unique("user_invitations_org_email_unique").on(table.organizationId, table.email),
+}));
+
+// User Activity Audit Log (Track user actions for security and compliance)
+export const userActivityLogs = pgTable("user_activity_logs", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id, { onDelete: "cascade" }),
+  organizationId: integer("organization_id").references(() => organizations.id, { onDelete: "set null" }), // Optional: context of action
+  projectId: integer("project_id").references(() => projects.id, { onDelete: "set null" }), // Optional: project context
+  action: text("action").notNull(), // e.g., "user.created", "user.role_changed", "user.invited", "user.removed", "project.created", etc.
+  entityType: text("entity_type"), // e.g., "user", "project", "task", "cost"
+  entityId: text("entity_id"), // ID of the affected entity
+  details: jsonb("details").$type<Record<string, any>>(), // Additional context (old values, new values, IP address, etc.)
+  ipAddress: varchar("ip_address", { length: 45 }), // IPv4 or IPv6
+  userAgent: text("user_agent"), // Browser/client information
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  userIdIdx: index("user_activity_logs_user_idx").on(table.userId),
+  organizationIdIdx: index("user_activity_logs_org_idx").on(table.organizationId),
+  actionIdx: index("user_activity_logs_action_idx").on(table.action),
+  createdAtIdx: index("user_activity_logs_created_idx").on(table.createdAt),
+}));
 
 // Projects
 export const projects = pgTable("projects", {
@@ -377,20 +415,108 @@ export const changeRequests = pgTable("change_requests", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Change Request Approvals (Workflow Engine)
+export const changeRequestApprovals = pgTable("change_request_approvals", {
+  id: serial("id").primaryKey(),
+  changeRequestId: integer("change_request_id").notNull().references(() => changeRequests.id, { onDelete: "cascade" }),
+  reviewerId: varchar("reviewer_id", { length: 255 }).notNull().references(() => users.id),
+  status: text("status").notNull().default("pending"), // pending, approved, rejected
+  sequence: integer("sequence").notNull().default(1), // Order in approval chain
+  comments: text("comments"),
+  reviewedAt: timestamp("reviewed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqueReviewerPerRequest: unique("change_request_approvals_unique").on(table.changeRequestId, table.reviewerId),
+}));
+
+// Change Request Templates (Organization-level reusable templates)
+export const changeRequestTemplates = pgTable("change_request_templates", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  title: text("title"), // Default title pattern
+  justification: text("justification"), // Default justification text
+  impactAssessment: text("impact_assessment"), // Default impact assessment template
+  defaultCostImpact: decimal("default_cost_impact", { precision: 15, scale: 2 }),
+  defaultScheduleImpact: integer("default_schedule_impact_days"),
+  category: text("category"), // e.g., "Design Change", "Scope Change", "Schedule Change"
+  createdBy: varchar("created_by", { length: 255 }).notNull().references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Change Request Tasks (Junction table for many-to-many relationship)
+export const changeRequestTasks = pgTable("change_request_tasks", {
+  id: serial("id").primaryKey(),
+  changeRequestId: integer("change_request_id").notNull().references(() => changeRequests.id, { onDelete: "cascade" }),
+  taskId: integer("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  impactType: text("impact_type"), // "affected", "created", "modified", "deleted"
+  notes: text("notes"), // Additional notes about how this task is impacted
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqueChangeRequestTask: unique("change_request_tasks_unique").on(table.changeRequestId, table.taskId),
+}));
+
 // Cost Items (for cost tracking and analytics)
 export const costItems = pgTable("cost_items", {
   id: serial("id").primaryKey(),
   projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   taskId: integer("task_id").references(() => tasks.id, { onDelete: "set null" }),
-  category: text("category").notNull(), // labor, materials, equipment, subcontractor, overhead
+  changeRequestId: integer("change_request_id").references(() => changeRequests.id, { onDelete: "set null" }), // Link to change request if cost is due to a change
+  category: text("category").notNull(), // labor, materials, equipment, subcontractor, overhead, contingency
   description: text("description").notNull(),
   budgeted: decimal("budgeted", { precision: 15, scale: 2 }).notNull(),
   actual: decimal("actual", { precision: 15, scale: 2 }).notNull().default("0"),
+  committed: decimal("committed", { precision: 15, scale: 2 }).default("0"), // Committed costs (POs, contracts) not yet invoiced
+  forecast: decimal("forecast", { precision: 15, scale: 2 }), // Forecasted cost (projected future cost)
   currency: varchar("currency", { length: 3 }).notNull().default("USD"),
-  date: timestamp("date").defaultNow().notNull(),
+  status: text("status").notNull().default("planned"), // planned, committed, invoiced, paid
+  referenceNumber: varchar("reference_number", { length: 100 }), // PO number, invoice number, contract reference
+  date: timestamp("date").defaultNow().notNull(), // Transaction/commitment date
+  invoiceDate: timestamp("invoice_date"), // When invoiced (if applicable)
+  paidDate: timestamp("paid_date"), // When paid (if applicable)
+  costCode: varchar("cost_code", { length: 50 }), // Cost code for CBS alignment
+  parentCostId: integer("parent_cost_id").references(() => costItems.id, { onDelete: "set null" }), // For hierarchical CBS
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  projectIdx: index("cost_items_project_idx").on(table.projectId),
+  taskIdx: index("cost_items_task_idx").on(table.taskId),
+  dateIdx: index("cost_items_date_idx").on(table.date),
+  costCodeIdx: index("cost_items_cost_code_idx").on(table.costCode),
+}));
+
+// Exchange Rates (Historical exchange rates from ECB or other sources)
+export const exchangeRates = pgTable("exchange_rates", {
+  id: serial("id").primaryKey(),
+  date: timestamp("date").notNull(), // Rate date (usually the date the rate is valid)
+  baseCurrency: varchar("base_currency", { length: 3 }).notNull(), // Base currency (usually EUR for ECB)
+  targetCurrency: varchar("target_currency", { length: 3 }).notNull(), // Target currency
+  rate: decimal("rate", { precision: 18, scale: 6 }).notNull(), // Exchange rate (1 base = rate target)
+  source: varchar("source", { length: 50 }).notNull().default("ECB"), // Source: ECB, manual, custom
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqueDateBaseTarget: unique("exchange_rates_unique").on(table.date, table.baseCurrency, table.targetCurrency),
+  dateIdx: index("exchange_rates_date_idx").on(table.date),
+  baseCurrencyIdx: index("exchange_rates_base_currency_idx").on(table.baseCurrency),
+  targetCurrencyIdx: index("exchange_rates_target_currency_idx").on(table.targetCurrency),
+}));
+
+// Exchange Rate Sync Log (Track sync operations)
+export const exchangeRateSyncs = pgTable("exchange_rate_syncs", {
+  id: serial("id").primaryKey(),
+  syncDate: timestamp("sync_date").notNull(), // Date of the sync operation
+  status: text("status").notNull().default("pending"), // pending, success, failed, partial
+  ratesUpdated: integer("rates_updated").default(0), // Number of rates updated
+  errorMessage: text("error_message"), // Error details if failed
+  source: varchar("source", { length: 50 }).notNull().default("ECB"), // Source used for sync
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  syncDateIdx: index("exchange_rate_syncs_date_idx").on(table.syncDate),
+}));
 
 // Resources (with pricing model)
 export const resources = pgTable("resources", {
@@ -475,6 +601,75 @@ export const resourceAssignments = pgTable("resource_assignments", {
   workMode: workModeEnum("work_mode"), // Optional override per assignment (if null, use task workMode)
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// ==================== Procurement & Inventory Management ====================
+
+// Procurement Requisitions
+export const procurementRequisitions = pgTable("procurement_requisitions", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  resourceId: integer("resource_id").references(() => resources.id, { onDelete: "set null" }),
+  requisitionNumber: varchar("requisition_number", { length: 50 }).notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  quantity: decimal("quantity", { precision: 15, scale: 2 }).notNull().default("1"),
+  unit: varchar("unit", { length: 20 }),
+  requiredDate: timestamp("required_date").notNull(),
+  estimatedCost: decimal("estimated_cost", { precision: 15, scale: 2 }),
+  currency: varchar("currency", { length: 3 }).notNull().default("USD"),
+  status: text("status").notNull().default("draft"),
+  priority: text("priority").notNull().default("medium"),
+  vendorContactId: integer("vendor_contact_id").references(() => contacts.id, { onDelete: "set null" }),
+  purchaseOrderNumber: varchar("purchase_order_number", { length: 100 }),
+  orderDate: timestamp("order_date"),
+  expectedDeliveryDate: timestamp("expected_delivery_date"),
+  receivedDate: timestamp("received_date"),
+  requestedBy: varchar("requested_by", { length: 255 }).notNull().references(() => users.id),
+  approvedBy: varchar("approved_by", { length: 255 }).references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqueRequisitionNumber: unique("procurement_requisitions_number_unique").on(table.projectId, table.requisitionNumber),
+  projectIdx: index("procurement_requisitions_project_idx").on(table.projectId),
+  statusIdx: index("procurement_requisitions_status_idx").on(table.status),
+}));
+
+// Resource Requirements
+export const resourceRequirements = pgTable("resource_requirements", {
+  id: serial("id").primaryKey(),
+  taskId: integer("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  resourceId: integer("resource_id").references(() => resources.id, { onDelete: "set null" }),
+  resourceName: text("resource_name").notNull(),
+  resourceType: text("resource_type").notNull(),
+  quantity: decimal("quantity", { precision: 15, scale: 2 }).notNull().default("1"),
+  unit: varchar("unit", { length: 20 }),
+  specifications: text("specifications"),
+  requiredDate: timestamp("required_date"),
+  createdBy: varchar("created_by", { length: 255 }).references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  taskIdx: index("resource_requirements_task_idx").on(table.taskId),
+  resourceIdx: index("resource_requirements_resource_idx").on(table.resourceId),
+}));
+
+// Inventory Allocations
+export const inventoryAllocations = pgTable("inventory_allocations", {
+  id: serial("id").primaryKey(),
+  resourceId: integer("resource_id").notNull().references(() => resources.id, { onDelete: "cascade" }),
+  projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  quantity: decimal("quantity", { precision: 15, scale: 2 }).notNull().default("1"),
+  allocatedDate: timestamp("allocated_date").defaultNow().notNull(),
+  releaseDate: timestamp("release_date"),
+  status: text("status").notNull().default("allocated"),
+  allocatedBy: varchar("allocated_by", { length: 255 }).references(() => users.id),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  resourceProjectIdx: index("inventory_allocations_resource_project_idx").on(table.resourceId, table.projectId),
+  projectIdx: index("inventory_allocations_project_idx").on(table.projectId),
+  statusIdx: index("inventory_allocations_status_idx").on(table.status),
+}));
 
 // ==================== EPC Document Control ====================
 
@@ -858,6 +1053,23 @@ export type User = typeof users.$inferSelect;
 
 // Zod Schemas for User Organizations
 export const insertUserOrganizationSchema = createInsertSchema(userOrganizations).omit({ id: true, createdAt: true });
+export const updateUserOrganizationSchema = insertUserOrganizationSchema.partial();
+export type UpdateUserOrganization = z.infer<typeof updateUserOrganizationSchema>;
+
+// Zod Schemas for User Invitations
+export const insertUserInvitationSchema = createInsertSchema(userInvitations).omit({ id: true, token: true, acceptedAt: true, createdAt: true });
+export const updateUserInvitationSchema = createInsertSchema(userInvitations).omit({ id: true, createdAt: true }).partial();
+export const selectUserInvitationSchema = createSelectSchema(userInvitations);
+export type InsertUserInvitation = z.infer<typeof insertUserInvitationSchema>;
+export type UpdateUserInvitation = z.infer<typeof updateUserInvitationSchema>;
+export type UserInvitation = typeof userInvitations.$inferSelect;
+
+// Zod Schemas for User Activity Logs
+export const insertUserActivityLogSchema = createInsertSchema(userActivityLogs).omit({ id: true, createdAt: true });
+export const selectUserActivityLogSchema = createSelectSchema(userActivityLogs);
+export type InsertUserActivityLog = z.infer<typeof insertUserActivityLogSchema>;
+export type UserActivityLog = typeof userActivityLogs.$inferSelect;
+
 export const selectUserOrganizationSchema = createSelectSchema(userOrganizations);
 export type InsertUserOrganization = z.infer<typeof insertUserOrganizationSchema>;
 export type UserOrganization = typeof userOrganizations.$inferSelect;
@@ -923,9 +1135,78 @@ export type Issue = typeof issues.$inferSelect;
 
 // Zod Schemas for Change Requests
 export const insertChangeRequestSchema = createInsertSchema(changeRequests).omit({ id: true, createdAt: true, updatedAt: true });
+export const updateChangeRequestSchema = insertChangeRequestSchema.partial();
 export const selectChangeRequestSchema = createSelectSchema(changeRequests);
 export type InsertChangeRequest = z.infer<typeof insertChangeRequestSchema>;
 export type ChangeRequest = typeof changeRequests.$inferSelect;
+
+// Zod Schemas for Change Request Approvals
+export const insertChangeRequestApprovalSchema = createInsertSchema(changeRequestApprovals).omit({ id: true, createdAt: true, updatedAt: true });
+export const updateChangeRequestApprovalSchema = insertChangeRequestApprovalSchema.partial();
+export const selectChangeRequestApprovalSchema = createSelectSchema(changeRequestApprovals);
+export type InsertChangeRequestApproval = z.infer<typeof insertChangeRequestApprovalSchema>;
+export type ChangeRequestApproval = typeof changeRequestApprovals.$inferSelect;
+
+// Zod Schemas for Change Request Tasks
+export const insertChangeRequestTaskSchema = createInsertSchema(changeRequestTasks).omit({ id: true, createdAt: true });
+export const updateChangeRequestTaskSchema = insertChangeRequestTaskSchema.partial();
+export const selectChangeRequestTaskSchema = createSelectSchema(changeRequestTasks);
+export type InsertChangeRequestTask = z.infer<typeof insertChangeRequestTaskSchema>;
+export type ChangeRequestTask = typeof changeRequestTasks.$inferSelect;
+
+// Zod Schemas for Change Request Templates
+export const insertChangeRequestTemplateSchema = createInsertSchema(changeRequestTemplates).omit({ id: true, createdAt: true, updatedAt: true, createdBy: true });
+export const updateChangeRequestTemplateSchema = insertChangeRequestTemplateSchema.partial();
+export const selectChangeRequestTemplateSchema = createSelectSchema(changeRequestTemplates);
+export type InsertChangeRequestTemplate = z.infer<typeof insertChangeRequestTemplateSchema>;
+export type ChangeRequestTemplate = typeof changeRequestTemplates.$inferSelect;
+
+// Zod Schemas for Exchange Rates
+export const insertExchangeRateSchema = createInsertSchema(exchangeRates).omit({ id: true, createdAt: true, updatedAt: true });
+export const updateExchangeRateSchema = insertExchangeRateSchema.partial();
+export const selectExchangeRateSchema = createSelectSchema(exchangeRates);
+export type InsertExchangeRate = z.infer<typeof insertExchangeRateSchema>;
+export type ExchangeRate = typeof exchangeRates.$inferSelect;
+
+// Zod Schemas for Exchange Rate Syncs
+export const insertExchangeRateSyncSchema = createInsertSchema(exchangeRateSyncs).omit({ id: true, createdAt: true });
+export const updateExchangeRateSyncSchema = insertExchangeRateSyncSchema.partial();
+export const selectExchangeRateSyncSchema = createSelectSchema(exchangeRateSyncs);
+export type InsertExchangeRateSync = z.infer<typeof insertExchangeRateSyncSchema>;
+export type ExchangeRateSync = typeof exchangeRateSyncs.$inferSelect;
+
+// Cost Breakdown Structure (CBS) - Hierarchical cost organization
+export const costBreakdownStructure = pgTable("cost_breakdown_structure", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  parentId: integer("parent_id").references(() => costBreakdownStructure.id, { onDelete: "cascade" }), // Self-referencing for hierarchy
+  code: varchar("code", { length: 50 }).notNull(), // CBS code (e.g., "1.2.3")
+  name: text("name").notNull(),
+  description: text("description"),
+  level: integer("level").notNull().default(1), // Hierarchy level (1, 2, 3, etc.)
+  budgeted: decimal("budgeted", { precision: 15, scale: 2 }).default("0"), // Budget allocated to this CBS node
+  actual: decimal("actual", { precision: 15, scale: 2 }).default("0"), // Actual costs under this CBS node (aggregated)
+  committed: decimal("committed", { precision: 15, scale: 2 }).default("0"), // Committed costs (aggregated)
+  forecast: decimal("forecast", { precision: 15, scale: 2 }).default("0"), // Forecasted costs (aggregated)
+  currency: varchar("currency", { length: 3 }).notNull().default("USD"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqueProjectCode: unique("cbs_project_code_unique").on(table.projectId, table.code),
+  projectIdx: index("cbs_project_idx").on(table.projectId),
+  parentIdx: index("cbs_parent_idx").on(table.parentId),
+}));
+
+// Link Cost Items to CBS nodes
+export const costItemCBSLinks = pgTable("cost_item_cbs_links", {
+  id: serial("id").primaryKey(),
+  costItemId: integer("cost_item_id").notNull().references(() => costItems.id, { onDelete: "cascade" }),
+  cbsId: integer("cbs_id").notNull().references(() => costBreakdownStructure.id, { onDelete: "cascade" }),
+  allocation: decimal("allocation", { precision: 5, scale: 2 }).default("100"), // Percentage allocation if cost is split across multiple CBS nodes
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqueCostItemCBS: unique("cost_item_cbs_unique").on(table.costItemId, table.cbsId),
+}));
 
 // Zod Schemas for Cost Items
 export const insertCostItemSchema = createInsertSchema(costItems).omit({ id: true, createdAt: true, updatedAt: true });
@@ -934,6 +1215,40 @@ export const selectCostItemSchema = createSelectSchema(costItems);
 export type InsertCostItem = z.infer<typeof insertCostItemSchema>;
 export type UpdateCostItem = z.infer<typeof updateCostItemSchema>;
 export type CostItem = typeof costItems.$inferSelect;
+
+// Zod Schemas for Cost Breakdown Structure
+export const insertCostBreakdownStructureSchema = createInsertSchema(costBreakdownStructure).omit({ id: true, createdAt: true, updatedAt: true });
+export const updateCostBreakdownStructureSchema = insertCostBreakdownStructureSchema.partial();
+export const selectCostBreakdownStructureSchema = createSelectSchema(costBreakdownStructure);
+export type InsertCostBreakdownStructure = z.infer<typeof insertCostBreakdownStructureSchema>;
+export type CostBreakdownStructure = typeof costBreakdownStructure.$inferSelect;
+
+// Zod Schemas for Cost Item CBS Links
+export const insertCostItemCBSLinkSchema = createInsertSchema(costItemCBSLinks).omit({ id: true, createdAt: true });
+export const selectCostItemCBSLinkSchema = createSelectSchema(costItemCBSLinks);
+export type InsertCostItemCBSLink = z.infer<typeof insertCostItemCBSLinkSchema>;
+export type CostItemCBSLink = typeof costItemCBSLinks.$inferSelect;
+
+// Zod Schemas for Procurement Requisitions
+export const insertProcurementRequisitionSchema = createInsertSchema(procurementRequisitions).omit({ id: true, createdAt: true, updatedAt: true, requisitionNumber: true });
+export const updateProcurementRequisitionSchema = insertProcurementRequisitionSchema.partial();
+export const selectProcurementRequisitionSchema = createSelectSchema(procurementRequisitions);
+export type InsertProcurementRequisition = z.infer<typeof insertProcurementRequisitionSchema>;
+export type ProcurementRequisition = typeof procurementRequisitions.$inferSelect;
+
+// Zod Schemas for Resource Requirements
+export const insertResourceRequirementSchema = createInsertSchema(resourceRequirements).omit({ id: true, createdAt: true });
+export const updateResourceRequirementSchema = insertResourceRequirementSchema.partial();
+export const selectResourceRequirementSchema = createSelectSchema(resourceRequirements);
+export type InsertResourceRequirement = z.infer<typeof insertResourceRequirementSchema>;
+export type ResourceRequirement = typeof resourceRequirements.$inferSelect;
+
+// Zod Schemas for Inventory Allocations
+export const insertInventoryAllocationSchema = createInsertSchema(inventoryAllocations).omit({ id: true, createdAt: true, updatedAt: true });
+export const updateInventoryAllocationSchema = insertInventoryAllocationSchema.partial();
+export const selectInventoryAllocationSchema = createSelectSchema(inventoryAllocations);
+export type InsertInventoryAllocation = z.infer<typeof insertInventoryAllocationSchema>;
+export type InventoryAllocation = typeof inventoryAllocations.$inferSelect;
 
 // Zod Schemas for Resources
 export const insertResourceSchema = createInsertSchema(resources).omit({ id: true, createdAt: true, updatedAt: true });

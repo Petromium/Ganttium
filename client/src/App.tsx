@@ -41,6 +41,8 @@ import PMOCalendarPage from "@/pages/PMOCalendarPage";
 import PMOInventoryPage from "@/pages/PMOInventoryPage";
 import ChatPage from "@/pages/ChatPage";
 import ContactsPage from "@/pages/ContactsPage";
+import UserManagementPage from "@/pages/UserManagementPage";
+import ChangeRequestsPage from "@/pages/ChangeRequestsPage";
 import LoginPage from "@/pages/LoginPage";
 import ForgotPasswordPage from "@/pages/ForgotPasswordPage";
 import ResetPasswordPage from "@/pages/ResetPasswordPage";
@@ -62,12 +64,7 @@ function Router() {
       <Route path="/resources" component={ResourcesPage} />
       <Route path="/risks" component={RisksPage} />
       <Route path="/issues" component={IssuesPage} />
-      <Route path="/change-requests">
-        <div className="p-6">
-          <h1 className="text-3xl font-semibold">Change Requests</h1>
-          <p className="text-muted-foreground">Change request management coming soon</p>
-        </div>
-      </Route>
+      <Route path="/change-requests" component={ChangeRequestsPage} />
       <Route path="/cost" component={CostPage} />
       <Route path="/documents" component={DocumentsPage} />
       <Route path="/analytics" component={AnalyticsPage} />
@@ -80,6 +77,7 @@ function Router() {
       <Route path="/pmo/contacts" component={ContactsPage} />
       <Route path="/pmo/calendar" component={PMOCalendarPage} />
       <Route path="/pmo/inventory" component={PMOInventoryPage} />
+      <Route path="/users" component={UserManagementPage} />
       <Route path="/admin" component={AdminDashboard} />
       <Route component={NotFound} />
     </Switch>

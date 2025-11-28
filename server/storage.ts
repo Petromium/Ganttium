@@ -25,8 +25,28 @@ import type {
   Issue,
   InsertChangeRequest,
   ChangeRequest,
+  InsertChangeRequestApproval,
+  ChangeRequestApproval,
+  InsertChangeRequestTask,
+  ChangeRequestTask,
+  InsertChangeRequestTemplate,
+  ChangeRequestTemplate,
+  InsertExchangeRate,
+  ExchangeRate,
+  InsertExchangeRateSync,
+  ExchangeRateSync,
   InsertCostItem,
   CostItem,
+  InsertCostBreakdownStructure,
+  CostBreakdownStructure,
+  InsertCostItemCBSLink,
+  CostItemCBSLink,
+  InsertProcurementRequisition,
+  ProcurementRequisition,
+  InsertResourceRequirement,
+  ResourceRequirement,
+  InsertInventoryAllocation,
+  InventoryAllocation,
   InsertResource,
   Resource,
   InsertResourceAssignment,
@@ -82,6 +102,12 @@ import type {
   InsertContactLog,
   ContactLog,
   UpdateContactLog,
+  InsertUserInvitation,
+  UserInvitation,
+  UpdateUserInvitation,
+  InsertUserActivityLog,
+  UserActivityLog,
+  UpdateUserOrganization,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -107,7 +133,29 @@ export interface IStorage {
   getUserOrganization(userId: string, organizationId: number): Promise<UserOrganization | undefined>;
   getUserOrganizations(userId: string): Promise<UserOrganization[]>;
   createUserOrganization(userOrg: InsertUserOrganization): Promise<UserOrganization>;
+  updateUserOrganization(userId: string, organizationId: number, updates: { role?: string }): Promise<UserOrganization | undefined>;
   deleteUserOrganization(userId: string, organizationId: number): Promise<void>;
+
+  // User Invitations
+  getUserInvitationById(id: number): Promise<UserInvitation | undefined>;
+  getUserInvitation(token: string): Promise<UserInvitation | undefined>;
+  getUserInvitationsByOrganization(organizationId: number): Promise<UserInvitation[]>;
+  getUserInvitationByEmail(organizationId: number, email: string): Promise<UserInvitation | undefined>;
+  createUserInvitation(invitation: InsertUserInvitation & { token: string }): Promise<UserInvitation>;
+  acceptUserInvitation(token: string, userId: string): Promise<UserOrganization>;
+  deleteUserInvitation(id: number): Promise<void>;
+
+  // User Activity Logs
+  createUserActivityLog(log: InsertUserActivityLog): Promise<UserActivityLog>;
+  getUserActivityLogs(filters: {
+    userId?: string;
+    organizationId?: number;
+    projectId?: number;
+    action?: string;
+    startDate?: Date;
+    endDate?: Date;
+    limit?: number;
+  }): Promise<UserActivityLog[]>;
 
   // Projects
   getProject(id: number): Promise<Project | undefined>;
@@ -174,13 +222,60 @@ export interface IStorage {
   updateChangeRequest(id: number, changeRequest: Partial<InsertChangeRequest>): Promise<ChangeRequest | undefined>;
   deleteChangeRequest(id: number): Promise<void>;
 
+  // Change Request Approvals (Workflow)
+  getChangeRequestApproval(id: number): Promise<ChangeRequestApproval | undefined>;
+  getChangeRequestApprovals(changeRequestId: number): Promise<ChangeRequestApproval[]>;
+  addChangeRequestApprover(approval: InsertChangeRequestApproval): Promise<ChangeRequestApproval>;
+  updateChangeRequestApproval(id: number, approval: Partial<InsertChangeRequestApproval>): Promise<ChangeRequestApproval | undefined>;
+  deleteChangeRequestApproval(id: number): Promise<void>;
+  getPendingApprovalsForUser(userId: string): Promise<(ChangeRequestApproval & { changeRequest: ChangeRequest })[]>;
+
+  // Change Request Tasks (Linkage)
+  getChangeRequestTasks(changeRequestId: number): Promise<ChangeRequestTask[]>;
+  addChangeRequestTask(link: InsertChangeRequestTask): Promise<ChangeRequestTask>;
+  deleteChangeRequestTask(id: number): Promise<void>;
+  getTasksByChangeRequest(changeRequestId: number): Promise<(ChangeRequestTask & { task: Task })[]>;
+  getChangeRequestsByTask(taskId: number): Promise<(ChangeRequestTask & { changeRequest: ChangeRequest })[]>;
+
+  // Change Request Templates
+  getChangeRequestTemplate(id: number): Promise<ChangeRequestTemplate | undefined>;
+  getChangeRequestTemplatesByOrganization(organizationId: number): Promise<ChangeRequestTemplate[]>;
+  createChangeRequestTemplate(template: InsertChangeRequestTemplate & { createdBy: string }): Promise<ChangeRequestTemplate>;
+  updateChangeRequestTemplate(id: number, template: Partial<InsertChangeRequestTemplate>): Promise<ChangeRequestTemplate | undefined>;
+  deleteChangeRequestTemplate(id: number): Promise<void>;
+
+  // Exchange Rates
+  getExchangeRate(date: Date, baseCurrency: string, targetCurrency: string): Promise<ExchangeRate | undefined>;
+  getExchangeRatesByDate(date: Date, baseCurrency?: string): Promise<ExchangeRate[]>;
+  createExchangeRate(rate: InsertExchangeRate): Promise<ExchangeRate>;
+  updateExchangeRate(id: number, rate: Partial<InsertExchangeRate>): Promise<ExchangeRate | undefined>;
+  
+  // Exchange Rate Syncs
+  getExchangeRateSync(id: number): Promise<ExchangeRateSync | undefined>;
+  getExchangeRateSyncs(limit?: number): Promise<ExchangeRateSync[]>;
+  createExchangeRateSync(sync: InsertExchangeRateSync): Promise<ExchangeRateSync>;
+
   // Cost Items
   getCostItem(id: number): Promise<CostItem | undefined>;
   getCostItemsByProject(projectId: number): Promise<CostItem[]>;
   getCostItemsByTask(taskId: number): Promise<CostItem[]>;
+  getCostItemsByChangeRequest(changeRequestId: number): Promise<CostItem[]>;
+  getCostItemsByCBS(cbsId: number): Promise<CostItem[]>;
   createCostItem(costItem: InsertCostItem): Promise<CostItem>;
   updateCostItem(id: number, costItem: Partial<InsertCostItem>): Promise<CostItem | undefined>;
   deleteCostItem(id: number): Promise<void>;
+
+  // Cost Breakdown Structure (CBS)
+  getCostBreakdownStructure(id: number): Promise<CostBreakdownStructure | undefined>;
+  getCostBreakdownStructureByProject(projectId: number): Promise<CostBreakdownStructure[]>;
+  createCostBreakdownStructure(cbs: InsertCostBreakdownStructure): Promise<CostBreakdownStructure>;
+  updateCostBreakdownStructure(id: number, cbs: Partial<InsertCostBreakdownStructure>): Promise<CostBreakdownStructure | undefined>;
+  deleteCostBreakdownStructure(id: number): Promise<void>;
+  
+  // Cost Item CBS Links
+  getCostItemCBSLinks(costItemId: number): Promise<CostItemCBSLink[]>;
+  linkCostItemToCBS(costItemId: number, cbsId: number, allocation?: number): Promise<CostItemCBSLink>;
+  unlinkCostItemFromCBS(costItemId: number, cbsId: number): Promise<void>;
 
   // Resources
   getResource(id: number): Promise<Resource | undefined>;
@@ -510,12 +605,150 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
+  async updateUserOrganization(userId: string, organizationId: number, updates: { role?: string }): Promise<UserOrganization | undefined> {
+    const [updated] = await db.update(schema.userOrganizations)
+      .set(updates)
+      .where(and(
+        eq(schema.userOrganizations.userId, userId),
+        eq(schema.userOrganizations.organizationId, organizationId)
+      ))
+      .returning();
+    return updated;
+  }
+
   async deleteUserOrganization(userId: string, organizationId: number): Promise<void> {
     await db.delete(schema.userOrganizations)
       .where(and(
         eq(schema.userOrganizations.userId, userId),
         eq(schema.userOrganizations.organizationId, organizationId)
       ));
+  }
+
+  // User Invitations
+  async getUserInvitationById(id: number): Promise<UserInvitation | undefined> {
+    const [invitation] = await db.select().from(schema.userInvitations)
+      .where(eq(schema.userInvitations.id, id));
+    return invitation;
+  }
+
+  async getUserInvitation(token: string): Promise<UserInvitation | undefined> {
+    const [invitation] = await db.select().from(schema.userInvitations)
+      .where(eq(schema.userInvitations.token, token));
+    return invitation;
+  }
+
+  async getUserInvitationsByOrganization(organizationId: number): Promise<UserInvitation[]> {
+    return await db.select().from(schema.userInvitations)
+      .where(eq(schema.userInvitations.organizationId, organizationId))
+      .orderBy(desc(schema.userInvitations.createdAt));
+  }
+
+  async getUserInvitationByEmail(organizationId: number, email: string): Promise<UserInvitation | undefined> {
+    const [invitation] = await db.select().from(schema.userInvitations)
+      .where(and(
+        eq(schema.userInvitations.organizationId, organizationId),
+        eq(schema.userInvitations.email, email),
+        isNull(schema.userInvitations.acceptedAt) // Only pending invitations
+      ))
+      .orderBy(desc(schema.userInvitations.createdAt))
+      .limit(1);
+    return invitation;
+  }
+
+  async createUserInvitation(invitation: InsertUserInvitation & { token: string }): Promise<UserInvitation> {
+    const [created] = await db.insert(schema.userInvitations).values(invitation).returning();
+    return created;
+  }
+
+  async acceptUserInvitation(token: string, userId: string): Promise<UserOrganization> {
+    // Get invitation
+    const invitation = await this.getUserInvitation(token);
+    if (!invitation) {
+      throw new Error("Invitation not found");
+    }
+    if (invitation.acceptedAt) {
+      throw new Error("Invitation already accepted");
+    }
+    if (new Date() > new Date(invitation.expiresAt)) {
+      throw new Error("Invitation has expired");
+    }
+
+    // Check if user already in organization
+    const existing = await this.getUserOrganization(userId, invitation.organizationId);
+    if (existing) {
+      // Mark invitation as accepted but don't create duplicate
+      await db.update(schema.userInvitations)
+        .set({ acceptedAt: new Date() })
+        .where(eq(schema.userInvitations.id, invitation.id));
+      return existing;
+    }
+
+    // Create user-organization relationship
+    const userOrg = await this.createUserOrganization({
+      userId,
+      organizationId: invitation.organizationId,
+      role: invitation.role,
+    });
+
+    // Mark invitation as accepted
+    await db.update(schema.userInvitations)
+      .set({ acceptedAt: new Date() })
+      .where(eq(schema.userInvitations.id, invitation.id));
+
+    return userOrg;
+  }
+
+  async deleteUserInvitation(id: number): Promise<void> {
+    await db.delete(schema.userInvitations)
+      .where(eq(schema.userInvitations.id, id));
+  }
+
+  // User Activity Logs
+  async createUserActivityLog(log: InsertUserActivityLog): Promise<UserActivityLog> {
+    const [created] = await db.insert(schema.userActivityLogs).values(log).returning();
+    return created;
+  }
+
+  async getUserActivityLogs(filters: {
+    userId?: string;
+    organizationId?: number;
+    projectId?: number;
+    action?: string;
+    startDate?: Date;
+    endDate?: Date;
+    limit?: number;
+  }): Promise<UserActivityLog[]> {
+    const conditions: any[] = [];
+
+    if (filters.userId) {
+      conditions.push(eq(schema.userActivityLogs.userId, filters.userId));
+    }
+    if (filters.organizationId) {
+      conditions.push(eq(schema.userActivityLogs.organizationId, filters.organizationId));
+    }
+    if (filters.projectId) {
+      conditions.push(eq(schema.userActivityLogs.projectId, filters.projectId));
+    }
+    if (filters.action) {
+      conditions.push(eq(schema.userActivityLogs.action, filters.action));
+    }
+    if (filters.startDate) {
+      conditions.push(sql`${schema.userActivityLogs.createdAt} >= ${filters.startDate}`);
+    }
+    if (filters.endDate) {
+      conditions.push(sql`${schema.userActivityLogs.createdAt} <= ${filters.endDate}`);
+    }
+
+    let query = db.select().from(schema.userActivityLogs);
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions)) as any;
+    }
+    query = query.orderBy(desc(schema.userActivityLogs.createdAt));
+    if (filters.limit) {
+      query = query.limit(filters.limit) as any;
+    }
+
+    return await query;
   }
 
   // Projects
@@ -976,6 +1209,175 @@ export class DatabaseStorage implements IStorage {
     await db.delete(schema.changeRequests).where(eq(schema.changeRequests.id, id));
   }
 
+  // Change Request Approvals (Workflow)
+  async getChangeRequestApproval(id: number): Promise<ChangeRequestApproval | undefined> {
+    const [approval] = await db.select().from(schema.changeRequestApprovals)
+      .where(eq(schema.changeRequestApprovals.id, id));
+    return approval;
+  }
+
+  async getChangeRequestApprovals(changeRequestId: number): Promise<ChangeRequestApproval[]> {
+    return await db.select().from(schema.changeRequestApprovals)
+      .where(eq(schema.changeRequestApprovals.changeRequestId, changeRequestId))
+      .orderBy(asc(schema.changeRequestApprovals.sequence), asc(schema.changeRequestApprovals.createdAt));
+  }
+
+  async addChangeRequestApprover(approval: InsertChangeRequestApproval): Promise<ChangeRequestApproval> {
+    const [created] = await db.insert(schema.changeRequestApprovals).values(approval).returning();
+    return created;
+  }
+
+  async updateChangeRequestApproval(id: number, approval: Partial<InsertChangeRequestApproval>): Promise<ChangeRequestApproval | undefined> {
+    const [updated] = await db.update(schema.changeRequestApprovals)
+      .set({ ...approval, updatedAt: new Date() })
+      .where(eq(schema.changeRequestApprovals.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteChangeRequestApproval(id: number): Promise<void> {
+    await db.delete(schema.changeRequestApprovals).where(eq(schema.changeRequestApprovals.id, id));
+  }
+
+  async getPendingApprovalsForUser(userId: string): Promise<(ChangeRequestApproval & { changeRequest: ChangeRequest })[]> {
+    const approvals = await db.select({
+      approval: schema.changeRequestApprovals,
+      changeRequest: schema.changeRequests,
+    })
+      .from(schema.changeRequestApprovals)
+      .innerJoin(schema.changeRequests, eq(schema.changeRequestApprovals.changeRequestId, schema.changeRequests.id))
+      .where(
+        and(
+          eq(schema.changeRequestApprovals.reviewerId, userId),
+          eq(schema.changeRequestApprovals.status, "pending")
+        )
+      )
+      .orderBy(asc(schema.changeRequestApprovals.sequence));
+
+    return approvals.map(a => ({
+      ...a.approval,
+      changeRequest: a.changeRequest,
+    }));
+  }
+
+  // Change Request Tasks (Linkage)
+  async getChangeRequestTasks(changeRequestId: number): Promise<ChangeRequestTask[]> {
+    return await db.select().from(schema.changeRequestTasks)
+      .where(eq(schema.changeRequestTasks.changeRequestId, changeRequestId));
+  }
+
+  async addChangeRequestTask(link: InsertChangeRequestTask): Promise<ChangeRequestTask> {
+    const [created] = await db.insert(schema.changeRequestTasks).values(link).returning();
+    return created;
+  }
+
+  async deleteChangeRequestTask(id: number): Promise<void> {
+    await db.delete(schema.changeRequestTasks).where(eq(schema.changeRequestTasks.id, id));
+  }
+
+  async getTasksByChangeRequest(changeRequestId: number): Promise<(ChangeRequestTask & { task: Task })[]> {
+    const results = await db.select({
+      link: schema.changeRequestTasks,
+      task: schema.tasks,
+    })
+      .from(schema.changeRequestTasks)
+      .innerJoin(schema.tasks, eq(schema.changeRequestTasks.taskId, schema.tasks.id))
+      .where(eq(schema.changeRequestTasks.changeRequestId, changeRequestId));
+
+    return results.map(r => ({
+      ...r.link,
+      task: r.task,
+    }));
+  }
+
+  async getChangeRequestsByTask(taskId: number): Promise<(ChangeRequestTask & { changeRequest: ChangeRequest })[]> {
+    const results = await db.select({
+      link: schema.changeRequestTasks,
+      changeRequest: schema.changeRequests,
+    })
+      .from(schema.changeRequestTasks)
+      .innerJoin(schema.changeRequests, eq(schema.changeRequestTasks.changeRequestId, schema.changeRequests.id))
+      .where(eq(schema.changeRequestTasks.taskId, taskId));
+
+    return results.map(r => ({
+      ...r.link,
+      changeRequest: r.changeRequest,
+    }));
+  }
+
+  // Exchange Rates
+  async getExchangeRate(date: Date, baseCurrency: string, targetCurrency: string): Promise<ExchangeRate | undefined> {
+    const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD
+    const [rate] = await db.select().from(schema.exchangeRates)
+      .where(
+        and(
+          eq(schema.exchangeRates.date, new Date(dateStr)),
+          eq(schema.exchangeRates.baseCurrency, baseCurrency.toUpperCase()),
+          eq(schema.exchangeRates.targetCurrency, targetCurrency.toUpperCase())
+        )
+      )
+      .limit(1);
+    return rate;
+  }
+
+  async getExchangeRatesByDate(date: Date, baseCurrency?: string): Promise<ExchangeRate[]> {
+    const dateStr = date.toISOString().split('T')[0]; // YYYY-MM-DD
+    const conditions: any[] = [eq(schema.exchangeRates.date, new Date(dateStr))];
+    
+    if (baseCurrency) {
+      conditions.push(eq(schema.exchangeRates.baseCurrency, baseCurrency.toUpperCase()));
+    }
+
+    return await db.select().from(schema.exchangeRates)
+      .where(and(...conditions))
+      .orderBy(schema.exchangeRates.targetCurrency);
+  }
+
+  async createExchangeRate(rate: InsertExchangeRate): Promise<ExchangeRate> {
+    // Normalize currency codes to uppercase
+    const normalizedRate = {
+      ...rate,
+      baseCurrency: rate.baseCurrency.toUpperCase(),
+      targetCurrency: rate.targetCurrency.toUpperCase(),
+      updatedAt: new Date(),
+    };
+
+    const [created] = await db.insert(schema.exchangeRates).values(normalizedRate).returning();
+    return created;
+  }
+
+  async updateExchangeRate(id: number, rate: Partial<InsertExchangeRate>): Promise<ExchangeRate | undefined> {
+    const updateData: any = { ...rate, updatedAt: new Date() };
+    
+    // Normalize currency codes if provided
+    if (rate.baseCurrency) updateData.baseCurrency = rate.baseCurrency.toUpperCase();
+    if (rate.targetCurrency) updateData.targetCurrency = rate.targetCurrency.toUpperCase();
+
+    const [updated] = await db.update(schema.exchangeRates)
+      .set(updateData)
+      .where(eq(schema.exchangeRates.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Exchange Rate Syncs
+  async getExchangeRateSync(id: number): Promise<ExchangeRateSync | undefined> {
+    const [sync] = await db.select().from(schema.exchangeRateSyncs)
+      .where(eq(schema.exchangeRateSyncs.id, id));
+    return sync;
+  }
+
+  async getExchangeRateSyncs(limit: number = 50): Promise<ExchangeRateSync[]> {
+    return await db.select().from(schema.exchangeRateSyncs)
+      .orderBy(desc(schema.exchangeRateSyncs.syncDate))
+      .limit(limit);
+  }
+
+  async createExchangeRateSync(sync: InsertExchangeRateSync): Promise<ExchangeRateSync> {
+    const [created] = await db.insert(schema.exchangeRateSyncs).values(sync).returning();
+    return created;
+  }
+
   // Cost Items
   async getCostItem(id: number): Promise<CostItem | undefined> {
     const [item] = await db.select().from(schema.costItems).where(eq(schema.costItems.id, id));
@@ -1009,6 +1411,179 @@ export class DatabaseStorage implements IStorage {
 
   async deleteCostItem(id: number): Promise<void> {
     await db.delete(schema.costItems).where(eq(schema.costItems.id, id));
+  }
+
+  async getCostItemsByCBS(cbsId: number): Promise<CostItem[]> {
+    const links = await db.select().from(schema.costItemCBSLinks)
+      .where(eq(schema.costItemCBSLinks.cbsId, cbsId));
+    
+    const costItemIds = links.map(link => link.costItemId);
+    if (costItemIds.length === 0) {
+      return [];
+    }
+
+    return await db.select().from(schema.costItems)
+      .where(inArray(schema.costItems.id, costItemIds));
+  }
+
+  // Cost Breakdown Structure (CBS)
+  async getCostBreakdownStructure(id: number): Promise<CostBreakdownStructure | undefined> {
+    const [cbs] = await db.select().from(schema.costBreakdownStructure)
+      .where(eq(schema.costBreakdownStructure.id, id));
+    return cbs;
+  }
+
+  async getCostBreakdownStructureByProject(projectId: number): Promise<CostBreakdownStructure[]> {
+    return await db.select().from(schema.costBreakdownStructure)
+      .where(eq(schema.costBreakdownStructure.projectId, projectId))
+      .orderBy(asc(schema.costBreakdownStructure.level), asc(schema.costBreakdownStructure.code));
+  }
+
+  async createCostBreakdownStructure(cbs: InsertCostBreakdownStructure): Promise<CostBreakdownStructure> {
+    const [created] = await db.insert(schema.costBreakdownStructure).values({
+      ...cbs,
+      updatedAt: new Date(),
+    }).returning();
+    return created;
+  }
+
+  async updateCostBreakdownStructure(id: number, cbs: Partial<InsertCostBreakdownStructure>): Promise<CostBreakdownStructure | undefined> {
+    const [updated] = await db.update(schema.costBreakdownStructure)
+      .set({ ...cbs, updatedAt: new Date() })
+      .where(eq(schema.costBreakdownStructure.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteCostBreakdownStructure(id: number): Promise<void> {
+    await db.delete(schema.costBreakdownStructure).where(eq(schema.costBreakdownStructure.id, id));
+  }
+
+  // Cost Item CBS Links
+  async getCostItemCBSLinks(costItemId: number): Promise<CostItemCBSLink[]> {
+    return await db.select().from(schema.costItemCBSLinks)
+      .where(eq(schema.costItemCBSLinks.costItemId, costItemId));
+  }
+
+  async linkCostItemToCBS(costItemId: number, cbsId: number, allocation: number = 100): Promise<CostItemCBSLink> {
+    const [link] = await db.insert(schema.costItemCBSLinks).values({
+      costItemId,
+      cbsId,
+      allocation: allocation.toString(),
+    }).returning();
+    return link;
+  }
+
+  async unlinkCostItemFromCBS(costItemId: number, cbsId: number): Promise<void> {
+    await db.delete(schema.costItemCBSLinks)
+      .where(
+        and(
+          eq(schema.costItemCBSLinks.costItemId, costItemId),
+          eq(schema.costItemCBSLinks.cbsId, cbsId)
+        )
+      );
+  }
+
+  // Procurement Requisitions
+  async getProcurementRequisition(id: number): Promise<ProcurementRequisition | undefined> {
+    const [requisition] = await db.select().from(schema.procurementRequisitions)
+      .where(eq(schema.procurementRequisitions.id, id));
+    return requisition;
+  }
+
+  async getProcurementRequisitionsByProject(projectId: number): Promise<ProcurementRequisition[]> {
+    return await db.select().from(schema.procurementRequisitions)
+      .where(eq(schema.procurementRequisitions.projectId, projectId))
+      .orderBy(desc(schema.procurementRequisitions.createdAt));
+  }
+
+  async createProcurementRequisition(requisition: InsertProcurementRequisition & { requisitionNumber: string; requestedBy: string }): Promise<ProcurementRequisition> {
+    const [created] = await db.insert(schema.procurementRequisitions).values({
+      ...requisition,
+      updatedAt: new Date(),
+    }).returning();
+    return created;
+  }
+
+  async updateProcurementRequisition(id: number, requisition: Partial<InsertProcurementRequisition>): Promise<ProcurementRequisition | undefined> {
+    const [updated] = await db.update(schema.procurementRequisitions)
+      .set({ ...requisition, updatedAt: new Date() })
+      .where(eq(schema.procurementRequisitions.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteProcurementRequisition(id: number): Promise<void> {
+    await db.delete(schema.procurementRequisitions).where(eq(schema.procurementRequisitions.id, id));
+  }
+
+  // Resource Requirements
+  async getResourceRequirement(id: number): Promise<ResourceRequirement | undefined> {
+    const [requirement] = await db.select().from(schema.resourceRequirements)
+      .where(eq(schema.resourceRequirements.id, id));
+    return requirement;
+  }
+
+  async getResourceRequirementsByTask(taskId: number): Promise<ResourceRequirement[]> {
+    return await db.select().from(schema.resourceRequirements)
+      .where(eq(schema.resourceRequirements.taskId, taskId))
+      .orderBy(asc(schema.resourceRequirements.requiredDate));
+  }
+
+  async createResourceRequirement(requirement: InsertResourceRequirement): Promise<ResourceRequirement> {
+    const [created] = await db.insert(schema.resourceRequirements).values(requirement).returning();
+    return created;
+  }
+
+  async updateResourceRequirement(id: number, requirement: Partial<InsertResourceRequirement>): Promise<ResourceRequirement | undefined> {
+    const [updated] = await db.update(schema.resourceRequirements)
+      .set(requirement)
+      .where(eq(schema.resourceRequirements.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteResourceRequirement(id: number): Promise<void> {
+    await db.delete(schema.resourceRequirements).where(eq(schema.resourceRequirements.id, id));
+  }
+
+  // Inventory Allocations
+  async getInventoryAllocation(id: number): Promise<InventoryAllocation | undefined> {
+    const [allocation] = await db.select().from(schema.inventoryAllocations)
+      .where(eq(schema.inventoryAllocations.id, id));
+    return allocation;
+  }
+
+  async getInventoryAllocationsByProject(projectId: number): Promise<InventoryAllocation[]> {
+    return await db.select().from(schema.inventoryAllocations)
+      .where(eq(schema.inventoryAllocations.projectId, projectId))
+      .orderBy(desc(schema.inventoryAllocations.allocatedDate));
+  }
+
+  async getInventoryAllocationsByResource(resourceId: number): Promise<InventoryAllocation[]> {
+    return await db.select().from(schema.inventoryAllocations)
+      .where(eq(schema.inventoryAllocations.resourceId, resourceId))
+      .orderBy(desc(schema.inventoryAllocations.allocatedDate));
+  }
+
+  async createInventoryAllocation(allocation: InsertInventoryAllocation & { allocatedBy?: string }): Promise<InventoryAllocation> {
+    const [created] = await db.insert(schema.inventoryAllocations).values({
+      ...allocation,
+      updatedAt: new Date(),
+    }).returning();
+    return created;
+  }
+
+  async updateInventoryAllocation(id: number, allocation: Partial<InsertInventoryAllocation>): Promise<InventoryAllocation | undefined> {
+    const [updated] = await db.update(schema.inventoryAllocations)
+      .set({ ...allocation, updatedAt: new Date() })
+      .where(eq(schema.inventoryAllocations.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteInventoryAllocation(id: number): Promise<void> {
+    await db.delete(schema.inventoryAllocations).where(eq(schema.inventoryAllocations.id, id));
   }
 
   // Resources

@@ -192,6 +192,37 @@ const defaultTemplates: Record<string, { subject: string; body: string }> = {
       </div>
     `
   },
+  'change-request-approval-needed': {
+    subject: '[{{project_name}}] Approval Required: Change Request {{cr_code}}',
+    body: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: #d69e2e; color: white; padding: 20px; text-align: center;">
+          <h1 style="margin: 0;">Approval Required</h1>
+        </div>
+        <div style="padding: 20px; background: #fffaf0;">
+          <p>Hello {{reviewer_name}},</p>
+          <p>You have been assigned as a reviewer for a change request on project <strong>{{project_name}}</strong>.</p>
+          <div style="background: white; padding: 15px; border-radius: 8px; margin: 15px 0; border-left: 4px solid #d69e2e;">
+            <h3 style="color: #d69e2e; margin-top: 0;">{{cr_code}} - {{cr_title}}</h3>
+            <p><strong>Requested By:</strong> {{requested_by}}</p>
+            <p><strong>Cost Impact:</strong> ${{cost_impact}}</p>
+            <p><strong>Schedule Impact:</strong> {{schedule_impact}} days</p>
+            <p><strong>Description:</strong></p>
+            <p style="color: #4a5568;">{{description}}</p>
+            <p><strong>Justification:</strong></p>
+            <p style="color: #4a5568;">{{justification}}</p>
+          </div>
+          <p>Please review and provide your approval decision.</p>
+          <div style="text-align: center; margin-top: 20px;">
+            <a href="{{app_url}}/change-requests" style="display: inline-block; background: #d69e2e; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px;">Review Change Request</a>
+          </div>
+        </div>
+        <div style="background: #2d3748; color: #a0aec0; padding: 15px; text-align: center; font-size: 12px;">
+          <p>This is an automated notification from EPC PMIS.</p>
+        </div>
+      </div>
+    `
+  },
   'project-update': {
     subject: '[{{project_name}}] Project Status Update',
     body: `
@@ -383,6 +414,34 @@ export function buildChangeRequestEmail(
   };
 }
 
+export function buildChangeRequestApprovalNeededEmail(
+  cr: ChangeRequest,
+  project: Project,
+  reviewer: User,
+  requester: User
+): { subject: string; body: string } {
+  const template = defaultTemplates['change-request-approval-needed'];
+  const appUrl = process.env.APP_URL || 'http://localhost:5000';
+  
+  const placeholders: EmailPlaceholders = {
+    project_name: project.name,
+    cr_code: cr.code,
+    cr_title: cr.title,
+    reviewer_name: reviewer.firstName || reviewer.email || 'Reviewer',
+    requested_by: requester.firstName || requester.email || 'Unknown',
+    cost_impact: cr.costImpact ? parseFloat(cr.costImpact.toString()).toLocaleString() : '0',
+    schedule_impact: cr.scheduleImpact || 0,
+    description: cr.description || 'No description provided',
+    justification: cr.justification || 'None provided',
+    app_url: appUrl,
+  };
+
+  return {
+    subject: replacePlaceholders(template.subject, placeholders),
+    body: replacePlaceholders(template.body, placeholders),
+  };
+}
+
 export function buildProjectUpdateEmail(
   project: Project,
   stats: {
@@ -418,6 +477,7 @@ export function getAvailablePlaceholders(templateType: string): string[] {
     'change-request-submitted': ['project_name', 'cr_code', 'cr_title', 'requested_by', 'cost_impact', 'schedule_impact', 'description', 'justification'],
     'change-request-approved': ['project_name', 'cr_code', 'cr_title', 'reviewed_by', 'reviewed_date'],
     'change-request-rejected': ['project_name', 'cr_code', 'cr_title', 'reviewed_by', 'reviewed_date'],
+    'change-request-approval-needed': ['project_name', 'cr_code', 'cr_title', 'reviewer_name', 'requested_by', 'cost_impact', 'schedule_impact', 'description', 'justification', 'app_url'],
     'project-update': ['project_name', 'overall_progress', 'tasks_completed', 'total_tasks', 'open_issues', 'active_risks'],
     'milestone-reached': ['project_name', 'milestone_name', 'completion_date', 'description'],
     'custom': [],
