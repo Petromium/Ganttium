@@ -1,3 +1,4 @@
+import { CreateProjectWizard } from "@/components/CreateProjectWizard";
 import { useState, useRef } from "react";
 import { useLocation } from "wouter";
 import { Search, Plus, Download, Upload, Bell, Moon, Sun, User, X, Building2, FolderKanban, Settings, LogOut, Mail, Shield, CheckCheck, FileJson, FileText, AlertCircle, Info } from "lucide-react";
@@ -67,6 +68,7 @@ export function TopBar() {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importResult, setImportResult] = useState<{ success: boolean; message: string; errors?: string[]; warnings?: string[] } | null>(null);
+  const [createWizardOpen, setCreateWizardOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [notifications, setNotifications] = useState<Notification[]>([
@@ -470,7 +472,7 @@ export function TopBar() {
           <DropdownMenuSeparator />
           <DropdownMenuItem 
             data-testid="menu-item-new-project"
-            onClick={() => navigate("/?action=new-project")}
+            onClick={() => setCreateWizardOpen(true)}
           >
             New Project
           </DropdownMenuItem>
@@ -518,12 +520,14 @@ export function TopBar() {
           <DropdownMenuSeparator />
           <DropdownMenuItem 
             data-testid="menu-item-new-project"
-            onClick={() => navigate("/?action=new-project")}
+            onClick={() => setCreateWizardOpen(true)}
           >
             New Project
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <CreateProjectWizard open={createWizardOpen} onOpenChange={setCreateWizardOpen} />
 
       <input
         type="file"

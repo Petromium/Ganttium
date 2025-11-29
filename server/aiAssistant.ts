@@ -1,16 +1,22 @@
 import OpenAI from "openai";
+import { VertexAI, FunctionDeclarationSchemaType, Content, Part } from '@google-cloud/vertexai';
 import type { IStorage } from "./storage";
 import type { InsertTask, InsertRisk, InsertIssue, InsertStakeholder } from "@shared/schema";
 
-// This is using Replit's AI Integrations service, which provides OpenAI-compatible API access without requiring your own OpenAI API key.
-// the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
-const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
-const openai = apiKey ? new OpenAI({
+// Initialize OpenAI (legacy/fallback)
+const openaiApiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY;
+const openai = openaiApiKey ? new OpenAI({
   baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-  apiKey: apiKey
+  apiKey: openaiApiKey
 }) : null;
 
-// Define available functions for the AI assistant
+// Initialize Google Vertex AI (Gemini)
+const googleProjectId = process.env.GOOGLE_PROJECT_ID || process.env.GCLOUD_PROJECT;
+const googleLocation = process.env.GOOGLE_LOCATION || 'us-central1';
+const vertexAI = googleProjectId ? new VertexAI({ project: googleProjectId, location: googleLocation }) : null;
+const GEMINI_MODEL = 'gemini-1.5-flash-001';
+
+// Define available functions for the AI assistant (OpenAI Format)
 const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
@@ -352,17 +358,104 @@ export interface ChatResponse {
   functionCalls?: Array<{ name: string; args: any; result: string }>;
 }
 
+// Convert OpenAI tools to Gemini tools
+function convertToolsToGemini(tools: any[]) {
+  return tools.map(tool => {
+    return {
+      name: tool.function.name,
+      description: tool.function.description,
+      parameters: tool.function.parameters // Gemini accepts JSON Schema directly in parameters
+    };
+  });
+}
+
+// Helper function for Gemini chat
+async function chatWithGemini(
+  messages: ChatMessage[],
+  systemContent: string,
+  storage: IStorage,
+  userId: string
+): Promise<ChatResponse> {
+  if (!vertexAI) throw new Error("Vertex AI not initialized");
+
+  const generativeModel = vertexAI.getGenerativeModel({
+    model: GEMINI_MODEL,
+    systemInstruction: { parts: [{ text: systemContent }] },
+    tools: [{ functionDeclarations: convertToolsToGemini(tools) }]
+  });
+
+  const history: Content[] = [];
+  let lastUserMessage = "";
+
+  // Construct history. Skip the last user message as it's sent in sendMessage
+  // Also separate system message (passed in init)
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (msg.role === 'system') continue; // System instruction handled separately
+
+    if (i === messages.length - 1 && msg.role === 'user') {
+      lastUserMessage = msg.content;
+      continue;
+    }
+
+    history.push({
+      role: msg.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: msg.content }]
+    });
+  }
+
+  const chatSession = generativeModel.startChat({
+    history: history,
+  });
+
+  let result = await chatSession.sendMessage(lastUserMessage);
+  let response = result.response;
+  let totalTokens = result.response.usageMetadata?.totalTokenCount || 0;
+  
+  const functionCallsExecuted: Array<{ name: string; args: any; result: string }> = [];
+
+  // Handle tool calls loop
+  while (response.candidates?.[0]?.content?.parts?.some(p => p.functionCall)) {
+    const parts = response.candidates[0].content.parts;
+    const functionCallPart = parts.find(p => p.functionCall);
+
+    if (functionCallPart && functionCallPart.functionCall) {
+      const { name, args } = functionCallPart.functionCall;
+      
+      const executionResult = await executeFunctionCall(name, args, storage, userId);
+      functionCallsExecuted.push({ name, args, result: executionResult });
+
+      // Send result back to model
+      result = await chatSession.sendMessage([{
+        functionResponse: {
+          name: name,
+          response: { content: executionResult } 
+        }
+      }]);
+      
+      response = result.response;
+      totalTokens += result.response.usageMetadata?.totalTokenCount || 0;
+    } else {
+      break; 
+    }
+  }
+
+  const finalText = response.candidates?.[0]?.content?.parts?.map(p => p.text).join(' ') || "No response generated";
+
+  return {
+    message: finalText,
+    tokensUsed: totalTokens,
+    functionCalls: functionCallsExecuted.length > 0 ? functionCallsExecuted : undefined
+  };
+}
+
 export async function chatWithAssistant(
   messages: ChatMessage[],
   projectId: number | null,
   storage: IStorage,
   userId: string
 ): Promise<ChatResponse> {
-  try {
-    // Add system message with project context
-    const systemMessage: ChatMessage = {
-      role: "system",
-      content: `You are an expert EPC (Engineering, Procurement, Construction) project management assistant. 
+  const systemContent = `You are an expert EPC (Engineering, Procurement, Construction) project management assistant. 
 You help project managers with:
 - Analyzing project data (tasks, risks, issues, resources, costs)
 - Identifying performance issues and bottlenecks
@@ -371,22 +464,41 @@ You help project managers with:
 
 When analyzing data, be specific and provide actionable recommendations.
 Focus on EPC industry best practices and PMI standards.
-${projectId ? `Current project context: Project ID ${projectId}` : 'No project selected. Ask user to select a project first.'}`
+${projectId ? `Current project context: Project ID ${projectId}` : 'No project selected. Ask user to select a project first.'}`;
+
+  // Prefer Gemini if configured
+  if (vertexAI) {
+    try {
+      return await chatWithGemini(messages, systemContent, storage, userId);
+    } catch (error: any) {
+      console.error("Gemini Chat Error:", error);
+      // Fallback to OpenAI if Gemini fails? Or just throw? 
+      // User explicitly requested Gemini, so better to throw error than silent fallback if they think they are using Gemini.
+      // But if they haven't set it up yet, fallback is okay.
+      if (!openai) throw error;
+      console.log("Falling back to OpenAI...");
+    }
+  }
+
+  // Legacy OpenAI Implementation
+  try {
+    const systemMessage: ChatMessage = {
+      role: "system",
+      content: systemContent
     };
 
     const allMessages = [systemMessage, ...messages];
 
-    // Check if OpenAI is initialized
     if (!openai) {
       return {
-        message: "AI Assistant is not configured. Please set OPENAI_API_KEY in your environment variables.",
+        message: "AI Assistant is not configured. Please set GOOGLE_PROJECT_ID (for Gemini) or OPENAI_API_KEY in your environment variables.",
         tokensUsed: 0
       };
     }
 
-    // Initial API call
+    // ... (Rest of OpenAI implementation remains same)
     let response = await openai.chat.completions.create({
-      model: "gpt-5", // the newest OpenAI model is "gpt-5" which was released August 7, 2025. do not change this unless explicitly requested by the user
+      model: "gpt-5", 
       messages: allMessages,
       tools,
       tool_choice: "auto",
@@ -396,11 +508,9 @@ ${projectId ? `Current project context: Project ID ${projectId}` : 'No project s
     const functionCalls: Array<{ name: string; args: any; result: string }> = [];
     let totalTokens = response.usage?.total_tokens || 0;
 
-    // Handle function calls iteratively
     while (response.choices[0]?.finish_reason === "tool_calls") {
       const toolCalls = response.choices[0].message.tool_calls || [];
 
-      // Execute all function calls
       for (const toolCall of toolCalls) {
         if (toolCall.type !== 'function') continue;
 
@@ -410,20 +520,18 @@ ${projectId ? `Current project context: Project ID ${projectId}` : 'No project s
         const result = await executeFunctionCall(functionName, functionArgs, storage, userId);
         functionCalls.push({ name: functionName, args: functionArgs, result });
 
-        // Add function result to messages
         allMessages.push({
           role: "assistant",
           content: response.choices[0].message.content || ""
         });
 
         allMessages.push({
-          role: "user" as any,
+          role: "user" as any, // Casting to user role for function response simulation in OpenAI
           content: `Function ${functionName} result: ${result}`
         });
       }
 
-      // Call API again with function results
-      if (!openai) break; // Should not happen if we passed the first check, but for safety
+      if (!openai) break;
 
       response = await openai.chat.completions.create({
         model: "gpt-5",

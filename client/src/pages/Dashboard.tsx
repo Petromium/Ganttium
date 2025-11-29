@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useProject } from "@/contexts/ProjectContext";
 import { MetricCard } from "@/components/MetricCard";
-import { ProjectModal } from "@/components/ProjectModal";
+import { CreateProjectWizard } from "@/components/CreateProjectWizard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarChart3, TrendingUp, AlertTriangle, Clock, DollarSign, FolderKanban, Activity } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
@@ -123,12 +123,12 @@ function formatTimeAgo(dateValue: string | Date | null | undefined): string {
 export default function Dashboard() {
   const { selectedProject } = useProject();
   const projectId = selectedProject?.id;
-  const [projectModalOpen, setProjectModalOpen] = useState(false);
+  const [createWizardOpen, setCreateWizardOpen] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get("action") === "new-project") {
-      setProjectModalOpen(true);
+      setCreateWizardOpen(true);
       window.history.replaceState({}, "", window.location.pathname);
     }
   }, []);
@@ -432,7 +432,7 @@ export default function Dashboard() {
         </TabsContent>
       </Tabs>
 
-      <ProjectModal open={projectModalOpen} onOpenChange={setProjectModalOpen} />
+      <CreateProjectWizard open={createWizardOpen} onOpenChange={setCreateWizardOpen} />
     </div>
   );
 }

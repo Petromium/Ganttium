@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { sql, relations } from "drizzle-orm";
 import { pgTable, text, varchar, integer, timestamp, decimal, boolean, serial, pgEnum, index, unique, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -130,7 +130,7 @@ export const users = pgTable("users", {
   email: varchar("email", { length: 255 }).unique().notNull(),
   firstName: varchar("first_name", { length: 255 }),
   lastName: varchar("last_name", { length: 255 }),
-  profileImageUrl: varchar("profile_image_url", { length: 512 }),
+  profileImageUrl: text("profile_image_url"),
   // Auth fields
   passwordHash: varchar("password_hash", { length: 255 }), // null if Google-only user
   googleId: varchar("google_id", { length: 255 }).unique(), // Google OAuth ID
@@ -584,7 +584,7 @@ export const resources = pgTable("resources", {
   description: text("description"),
   notes: text("notes"),
   tags: text("tags").array(),
-  profileImageUrl: varchar("profile_image_url", { length: 512 }),
+  profileImageUrl: text("profile_image_url"),
 
   contactId: integer("contact_id").references(() => contacts.id), // Link to Master Directory
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -1689,3 +1689,56 @@ export const selectContactLogSchema = createSelectSchema(contactLogs);
 export type InsertContactLog = z.infer<typeof insertContactLogSchema>;
 export type UpdateContactLog = z.infer<typeof updateContactLogSchema>;
 export type ContactLog = typeof contactLogs.$inferSelect;
+
+// ==================== Project Templates ====================
+
+export const projectTemplates = pgTable("project_templates", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").references(() => organizations.id),
+  userId: text("user_id").references(() => users.id), // Creator of the template
+  name: text("name").notNull(),
+  description: text("description"),
+  category: text("category").default("general"), // e.g., "Construction", "IT", "Oil & Gas"
+  
+  // The core template data - structured JSON that mimics the import format
+  // Should contain: tasks, risks, milestones, etc.
+  templateData: jsonb("template_data").notNull().default({}),
+  
+  // Metadata for display/filtering
+  metadata: jsonb("metadata").default({
+    estimatedDuration: 0, // in days
+    complexity: "medium", // low, medium, high
+    typicalTeamSize: 0,
+    industry: "general"
+  }),
+  
+  isPublic: boolean("is_public").default(false), // If true, available to all orgs (system templates)
+  usageCount: integer("usage_count").default(0),
+  
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdBy: text("created_by"),
+});
+
+export const projectTemplatesRelations = relations(projectTemplates, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [projectTemplates.organizationId],
+    references: [organizations.id],
+  }),
+  user: one(users, {
+    fields: [projectTemplates.userId],
+    references: [users.id],
+  }),
+}));
+
+// Zod Schemas for Project Templates
+export const insertProjectTemplateSchema = createInsertSchema(projectTemplates).omit({ 
+  id: true, 
+  createdAt: true, 
+  updatedAt: true, 
+  usageCount: true 
+});
+export const updateProjectTemplateSchema = insertProjectTemplateSchema.partial();
+export const selectProjectTemplateSchema = createSelectSchema(projectTemplates);
+export type InsertProjectTemplate = z.infer<typeof insertProjectTemplateSchema>;
+export type ProjectTemplate = typeof projectTemplates.$inferSelect;

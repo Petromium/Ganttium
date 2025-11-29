@@ -17,6 +17,7 @@ import { AIPromptProvider } from "@/contexts/AIPromptContext";
 import { useAuth } from "@/hooks/useAuth";
 import { initGA } from "@/lib/analytics";
 import { useAnalytics } from "@/hooks/use-analytics";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 import LandingPage from "@/pages/LandingPage";
 import Dashboard from "@/pages/Dashboard";
 import WBSPage from "@/pages/WBSPage";
@@ -195,7 +196,9 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <ThemeProvider>
-          <AppContent />
+          <ErrorBoundary>
+            <AppContent />
+          </ErrorBoundary>
         </ThemeProvider>
       </TooltipProvider>
     </QueryClientProvider>

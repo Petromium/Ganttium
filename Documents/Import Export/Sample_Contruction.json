@@ -1,0 +1,759 @@
+{
+  "version": "1.0",
+  "project": {
+    "name": "MetroCity Plaza Tower (42 Stories)",
+    "code": "MCP-CONST-2025",
+    "description": "Construction of a 42-story mixed-use commercial tower including 4 basement levels and podium retail.",
+    "status": "active",
+    "startDate": "2025-05-01T07:00:00.000Z",
+    "endDate": "2027-11-30T17:00:00.000Z",
+    "budget": "125000000.00",
+    "currency": "USD"
+  },
+  "tasks": [
+    {
+      "wbsCode": "1",
+      "name": "Pre-Construction & Mobilization",
+      "description": "Permitting, site fencing, and initial setup",
+      "status": "completed",
+      "priority": "high",
+      "progress": 100,
+      "startDate": "2025-05-01T07:00:00.000Z",
+      "endDate": "2025-07-01T17:00:00.000Z",
+      "assignedTo": "PM-EXEC-01",
+      "estimatedHours": "800.00",
+      "actualHours": "820.00",
+      "discipline": "management"
+    },
+    {
+      "wbsCode": "2",
+      "name": "Substructure Works",
+      "description": "Excavation and foundation works for 4 basement levels",
+      "status": "in-progress",
+      "priority": "critical",
+      "progress": 45,
+      "assignedTo": "CONST-DIR-02",
+      "discipline": "construction"
+    },
+    {
+      "wbsCode": "2.1",
+      "name": "Excavation & Shoring",
+      "description": "Mass excavation and secant pile wall",
+      "status": "completed",
+      "priority": "critical",
+      "progress": 100,
+      "assignedTo": "CIV-SUP-03",
+      "discipline": "civil"
+    },
+    {
+      "wbsCode": "2.2",
+      "name": "Deep Foundations",
+      "description": "Piling and Raft Foundation",
+      "status": "in-progress",
+      "priority": "critical",
+      "progress": 60,
+      "assignedTo": "STRUC-ENG-04",
+      "discipline": "structural"
+    },
+    {
+      "wbsCode": "2.2.1",
+      "name": "Piling Operations",
+      "description": "Installation of bored piles",
+      "status": "in-progress",
+      "priority": "critical",
+      "progress": 80,
+      "assignedTo": "PILE-SUP-05",
+      "discipline": "structural"
+    },
+    {
+      "wbsCode": "2.2.1.1",
+      "name": "Core Wall Piles",
+      "description": "High capacity piles for central core",
+      "status": "in-progress",
+      "priority": "critical",
+      "progress": 75,
+      "assignedTo": "PILE-SUP-05",
+      "discipline": "structural"
+    },
+    {
+      "wbsCode": "2.2.1.1.1",
+      "name": "Pile Cap Reinforcement - Zone A",
+      "description": "Rebar installation for Zone A pile caps (Level 5)",
+      "status": "not-started",
+      "priority": "high",
+      "progress": 0,
+      "assignedTo": "STEEL-FOR-06",
+      "discipline": "construction"
+    },
+    {
+      "wbsCode": "3",
+      "name": "Superstructure",
+      "description": "Vertical build from L1 to Roof",
+      "status": "not-started",
+      "priority": "high",
+      "progress": 0,
+      "assignedTo": "CONST-DIR-02",
+      "discipline": "construction"
+    },
+    {
+      "wbsCode": "4",
+      "name": "MEP & Systems",
+      "description": "Mechanical, Electrical, Plumbing",
+      "status": "not-started",
+      "priority": "medium",
+      "progress": 0,
+      "assignedTo": "MEP-LEAD-07",
+      "discipline": "mechanical"
+    },
+    {
+      "wbsCode": "5",
+      "name": "Façade & Envelope",
+      "description": "Curtain wall installation",
+      "status": "not-started",
+      "priority": "medium",
+      "progress": 0,
+      "assignedTo": "ARCH-SUP-08",
+      "discipline": "architectural"
+    }
+  ],
+  "risks": [
+    {
+      "code": "RSK-001",
+      "title": "Tower Crane Wind-Off",
+      "description": "High winds at >200ft preventing lifts",
+      "category": "weather",
+      "probability": 4,
+      "impact": "critical",
+      "status": "identified",
+      "mitigationPlan": "Schedule critical lifts for early morning windows."
+    },
+    {
+      "code": "RSK-002",
+      "title": "Steel Tariff Increase",
+      "description": "Global price hike on structural steel",
+      "category": "cost",
+      "probability": 3,
+      "impact": "high",
+      "status": "assessed",
+      "mitigationPlan": "Lock in supplier rates early."
+    },
+    {
+      "code": "RSK-003",
+      "title": "Excavation Wall Collapse",
+      "description": "Failure of secant pile shoring",
+      "category": "technical",
+      "probability": 1,
+      "impact": "critical",
+      "status": "mitigating",
+      "mitigationPlan": "Install inclinometers and monitor daily."
+    },
+    {
+      "code": "RSK-004",
+      "title": "Concrete Cold Joint",
+      "description": "Pump failure causing cold joint in raft pour",
+      "category": "quality",
+      "probability": 2,
+      "impact": "high",
+      "status": "identified",
+      "mitigationPlan": "Have 2 backup pumps on standby for major pours."
+    },
+    {
+      "code": "RSK-005",
+      "title": "Falling Debris",
+      "description": "Material falling from height to street",
+      "category": "hse",
+      "probability": 3,
+      "impact": "critical",
+      "status": "mitigating",
+      "mitigationPlan": "Install perimeter safety fans and netting."
+    },
+    {
+      "code": "RSK-006",
+      "title": "Dewatering Failure",
+      "description": "Groundwater flooding basement",
+      "category": "technical",
+      "probability": 3,
+      "impact": "high",
+      "status": "mitigating",
+      "mitigationPlan": "Redundant generator for dewatering pumps."
+    },
+    {
+      "code": "RSK-007",
+      "title": "Labor Strike",
+      "description": "Union ironworkers strike",
+      "category": "resources",
+      "probability": 2,
+      "impact": "critical",
+      "status": "identified",
+      "mitigationPlan": "Maintain good union relations."
+    },
+    {
+      "code": "RSK-008",
+      "title": "Curtain Wall Leak",
+      "description": "Water ingress testing failure",
+      "category": "quality",
+      "probability": 3,
+      "impact": "medium",
+      "status": "identified",
+      "mitigationPlan": "Perform mock-up chamber test off-site."
+    },
+    {
+      "code": "RSK-009",
+      "title": "Neighbor Noise Complaint",
+      "description": "City noise ordinance violation",
+      "category": "regulatory",
+      "probability": 5,
+      "impact": "medium",
+      "status": "mitigating",
+      "mitigationPlan": "Strict work hours and acoustic barriers."
+    },
+    {
+      "code": "RSK-010",
+      "title": "Elevator Lead Time",
+      "description": "Manufacturer delay on lift motors",
+      "category": "procurement",
+      "probability": 4,
+      "impact": "high",
+      "status": "assessed",
+      "mitigationPlan": "Order vertical transport package in Month 1."
+    },
+    {
+      "code": "RSK-011",
+      "title": "Underground Utility Strike",
+      "description": "Hitting uncharted fiber optic line",
+      "category": "construction",
+      "probability": 2,
+      "impact": "high",
+      "status": "closed",
+      "mitigationPlan": "GPR scanning complete."
+    },
+    {
+      "code": "RSK-012",
+      "title": "Permit Delay (Occupancy)",
+      "description": "City slow to issue COO",
+      "category": "regulatory",
+      "probability": 3,
+      "impact": "high",
+      "status": "identified",
+      "mitigationPlan": "Submit paperwork 6 months prior to completion."
+    },
+    {
+      "code": "RSK-013",
+      "title": "Glass Breakage",
+      "description": "Panels breaking during transit",
+      "category": "materials",
+      "probability": 3,
+      "impact": "low",
+      "status": "identified",
+      "mitigationPlan": "Order 5% attrition stock."
+    },
+    {
+      "code": "RSK-014",
+      "title": "Rebar Congestion",
+      "description": "Unable to vibrate concrete in heavy zones",
+      "category": "technical",
+      "probability": 4,
+      "impact": "medium",
+      "status": "mitigating",
+      "mitigationPlan": "Use self-consolidating concrete (SCC)."
+    },
+    {
+      "code": "RSK-015",
+      "title": "Crane Collision",
+      "description": "Two tower cranes colliding",
+      "category": "hse",
+      "probability": 1,
+      "impact": "critical",
+      "status": "mitigating",
+      "mitigationPlan": "Anti-collision software installed on cranes."
+    },
+    {
+      "code": "RSK-016",
+      "title": "Soil Contamination Found",
+      "description": "Hydrocarbons found in soil",
+      "category": "environmental",
+      "probability": 2,
+      "impact": "high",
+      "status": "identified",
+      "mitigationPlan": "Soil testing phase completed."
+    },
+    {
+      "code": "RSK-017",
+      "title": "Architectural Design Change",
+      "description": "Client changes lobby layout late",
+      "category": "management",
+      "probability": 3,
+      "impact": "medium",
+      "status": "identified",
+      "mitigationPlan": "Strict change order freeze date."
+    },
+    {
+      "code": "RSK-018",
+      "title": "Post-Tension Failure",
+      "description": "Cable snap during tensioning",
+      "category": "technical",
+      "probability": 1,
+      "impact": "critical",
+      "status": "mitigating",
+      "mitigationPlan": "Clear exclusion zones during tensioning."
+    },
+    {
+      "code": "RSK-019",
+      "title": "Hoist Breakdown",
+      "description": "Personnel hoist (Alimak) fails",
+      "category": "equipment",
+      "probability": 3,
+      "impact": "medium",
+      "status": "identified",
+      "mitigationPlan": "Preventative maintenance schedule."
+    },
+    {
+      "code": "RSK-020",
+      "title": "Fire on Site",
+      "description": "Welding spark causes fire",
+      "category": "hse",
+      "probability": 2,
+      "impact": "critical",
+      "status": "mitigating",
+      "mitigationPlan": "Hot work permits and fire watch mandatory."
+    },
+    {
+      "code": "RSK-021",
+      "title": "MEP Clash",
+      "description": "Ductwork hitting beams",
+      "category": "technical",
+      "probability": 5,
+      "impact": "medium",
+      "status": "mitigating",
+      "mitigationPlan": "BIM coordination meetings weekly."
+    },
+    {
+      "code": "RSK-022",
+      "title": "Subcontractor Insolvency",
+      "description": "Drywall sub goes bankrupt",
+      "category": "commercial",
+      "probability": 2,
+      "impact": "high",
+      "status": "identified",
+      "mitigationPlan": "Check financials before award."
+    },
+    {
+      "code": "RSK-023",
+      "title": "Traffic Congestion",
+      "description": "Concrete trucks stuck in city traffic",
+      "category": "logistics",
+      "probability": 5,
+      "impact": "medium",
+      "status": "assessed",
+      "mitigationPlan": "Night pours for large volumes."
+    },
+    {
+      "code": "RSK-024",
+      "title": "Material Theft (Copper)",
+      "description": "Theft of wire reels",
+      "category": "security",
+      "probability": 3,
+      "impact": "medium",
+      "status": "identified",
+      "mitigationPlan": "Secure storage containers and cameras."
+    },
+    {
+      "code": "RSK-025",
+      "title": "Anchor Bolt Misalignment",
+      "description": "Steel columns don't fit foundation",
+      "category": "quality",
+      "probability": 2,
+      "impact": "high",
+      "status": "mitigating",
+      "mitigationPlan": "Survey templates before pouring."
+    },
+    {
+      "code": "RSK-026",
+      "title": "Concrete Spalling",
+      "description": "Poor finish on exposed columns",
+      "category": "quality",
+      "probability": 3,
+      "impact": "low",
+      "status": "identified",
+      "mitigationPlan": "Skilled carpentry crew for formwork."
+    },
+    {
+      "code": "RSK-027",
+      "title": "Lightning Strike",
+      "description": "Strike on crane jib",
+      "category": "weather",
+      "probability": 2,
+      "impact": "medium",
+      "status": "identified",
+      "mitigationPlan": "Grounding systems and weather alerts."
+    },
+    {
+      "code": "RSK-028",
+      "title": "Silica Dust Exposure",
+      "description": "Grinding concrete without water",
+      "category": "hse",
+      "probability": 3,
+      "impact": "high",
+      "status": "mitigating",
+      "mitigationPlan": "Wet cutting only policy."
+    },
+    {
+      "code": "RSK-029",
+      "title": "Drone Privacy Issue",
+      "description": "Drone filming into neighboring apartments",
+      "category": "legal",
+      "probability": 2,
+      "impact": "low",
+      "status": "identified",
+      "mitigationPlan": "Flight path restrictions."
+    },
+    {
+      "code": "RSK-030",
+      "title": "Fuel Spill",
+      "description": "Generator fuel tank leak",
+      "category": "environmental",
+      "probability": 2,
+      "impact": "medium",
+      "status": "identified",
+      "mitigationPlan": "Double-walled tanks only."
+    },
+    {
+      "code": "RSK-031",
+      "title": "Spec Discrepancy",
+      "description": "Specs differ from Drawings",
+      "category": "technical",
+      "probability": 4,
+      "impact": "medium",
+      "status": "identified",
+      "mitigationPlan": "RFI process efficiency."
+    },
+    {
+      "code": "RSK-032",
+      "title": "Site Access Blockage",
+      "description": "Protesters or road work blocking gate",
+      "category": "logistics",
+      "probability": 2,
+      "impact": "medium",
+      "status": "identified",
+      "mitigationPlan": "Secondary gate access plan."
+    },
+    {
+      "code": "RSK-033",
+      "title": "Foundation Settlement",
+      "description": "Differential settlement exceeding limits",
+      "category": "technical",
+      "probability": 1,
+      "impact": "critical",
+      "status": "mitigating",
+      "mitigationPlan": "Load testing piles."
+    },
+    {
+      "code": "RSK-034",
+      "title": "Financing Hold",
+      "description": "Bank pauses draw payments",
+      "category": "commercial",
+      "probability": 1,
+      "impact": "critical",
+      "status": "identified",
+      "mitigationPlan": "Regular lender updates."
+    },
+    {
+      "code": "RSK-035",
+      "title": "Scaffolding Collapse",
+      "description": "Improperly tied scaffold",
+      "category": "hse",
+      "probability": 2,
+      "impact": "critical",
+      "status": "mitigating",
+      "mitigationPlan": "Daily tag inspections."
+    },
+    {
+      "code": "RSK-036",
+      "title": "BMS Integration Failure",
+      "description": "Building Management System software bugs",
+      "category": "technical",
+      "probability": 3,
+      "impact": "medium",
+      "status": "identified",
+      "mitigationPlan": "Start commissioning early."
+    },
+    {
+      "code": "RSK-037",
+      "title": "HVAC Noise",
+      "description": "Chillers too loud for roof",
+      "category": "technical",
+      "probability": 2,
+      "impact": "low",
+      "status": "identified",
+      "mitigationPlan": "Vibration isolators."
+    },
+    {
+      "code": "RSK-038",
+      "title": "Insurance Premium Hike",
+      "description": "Project insurance cost rises",
+      "category": "cost",
+      "probability": 3,
+      "impact": "medium",
+      "status": "identified",
+      "mitigationPlan": "Maintain high safety score."
+    },
+    {
+      "code": "RSK-039",
+      "title": "Power Surge",
+      "description": "Damaging sensitive electronics",
+      "category": "equipment",
+      "probability": 2,
+      "impact": "medium",
+      "status": "identified",
+      "mitigationPlan": "Surge protectors on temporary power."
+    },
+    {
+      "code": "RSK-040",
+      "title": "Waste Removal Delay",
+      "description": "Dumpsters full, no pickup",
+      "category": "logistics",
+      "probability": 3,
+      "impact": "low",
+      "status": "identified",
+      "mitigationPlan": "Multiple waste vendors."
+    },
+    {
+      "code": "RSK-041",
+      "title": "Flooring Moisture",
+      "description": "Concrete too wet for flooring adhesive",
+      "category": "quality",
+      "probability": 4,
+      "impact": "medium",
+      "status": "identified",
+      "mitigationPlan": "Dehumidifiers and moisture testing."
+    },
+    {
+      "code": "RSK-042",
+      "title": "Confined Space Incident",
+      "description": "Worker overcome in tank",
+      "category": "hse",
+      "probability": 1,
+      "impact": "critical",
+      "status": "mitigating",
+      "mitigationPlan": "Permit entry system enforced."
+    },
+    {
+      "code": "RSK-043",
+      "title": "Tower Crane Jump Fail",
+      "description": "Hydraulic failure during climbing",
+      "category": "equipment",
+      "probability": 1,
+      "impact": "critical",
+      "status": "mitigating",
+      "mitigationPlan": "Manufacturer rep on site during jumps."
+    },
+    {
+      "code": "RSK-044",
+      "title": "Pandemic Outbreak",
+      "description": "Crew illness cluster",
+      "category": "health",
+      "probability": 2,
+      "impact": "high",
+      "status": "identified",
+      "mitigationPlan": "Sanitation stations."
+    },
+    {
+      "code": "RSK-045",
+      "title": "Archaeological Find",
+      "description": "Historical ruins in excavation",
+      "category": "regulatory",
+      "probability": 1,
+      "impact": "high",
+      "status": "closed",
+      "mitigationPlan": "Cleared during geotech phase."
+    },
+    {
+      "code": "RSK-046",
+      "title": "Vibration Damage",
+      "description": "Piling causing cracks in next door building",
+      "category": "legal",
+      "probability": 3,
+      "impact": "high",
+      "status": "mitigating",
+      "mitigationPlan": "Seismographs installed on neighbors."
+    },
+    {
+      "code": "RSK-047",
+      "title": "Survey Error",
+      "description": "Building set out 1 inch off",
+      "category": "technical",
+      "probability": 1,
+      "impact": "critical",
+      "status": "identified",
+      "mitigationPlan": "Third-party surveyor verification."
+    },
+    {
+      "code": "RSK-048",
+      "title": "Night Work Ban",
+      "description": "City revokes night permit",
+      "category": "regulatory",
+      "probability": 2,
+      "impact": "high",
+      "status": "assessed",
+      "mitigationPlan": "Compress day schedule."
+    },
+    {
+      "code": "RSK-049",
+      "title": "Tile Grout Discoloration",
+      "description": "Aesthetic rejection",
+      "category": "quality",
+      "probability": 3,
+      "impact": "low",
+      "status": "identified",
+      "mitigationPlan": "Sample boards approved early."
+    },
+    {
+      "code": "RSK-050",
+      "title": "Facade Cleaning Rig Fail",
+      "description": "BMU jam during commissioning",
+      "category": "equipment",
+      "probability": 2,
+      "impact": "medium",
+      "status": "identified",
+      "mitigationPlan": "Factory acceptance test (FAT)."
+    }
+  ],
+  "issues": [
+    {
+      "code": "ISS-001",
+      "title": "Concrete Pump Breakdown",
+      "description": "Pump 2 hydraulic hose burst during pour.",
+      "priority": "critical",
+      "status": "resolved",
+      "assignedTo": "CONST-DIR-02",
+      "reportedBy": "Foreman",
+      "resolution": "Backup pump deployed within 20 mins."
+    },
+    {
+      "code": "ISS-002",
+      "title": "Drawing Discrepancy - L4 Beam",
+      "description": "Structural drawing S-201 conflicts with Arch A-104 regarding beam height.",
+      "priority": "high",
+      "status": "open",
+      "assignedTo": "STRUC-ENG-04",
+      "reportedBy": "Steel-Sub",
+      "resolution": null
+    },
+    {
+      "code": "ISS-003",
+      "title": "Missing Rebar Order",
+      "description": "5 tons of #8 bar missing from delivery.",
+      "priority": "medium",
+      "status": "in-progress",
+      "assignedTo": "PM-EXEC-01",
+      "reportedBy": "Storeman",
+      "resolution": null
+    },
+    {
+      "code": "ISS-004",
+      "title": "Safety Gate Damaged",
+      "description": "Truck backed into Gate 3.",
+      "priority": "low",
+      "status": "open",
+      "assignedTo": "CIV-SUP-03",
+      "reportedBy": "Security",
+      "resolution": null
+    },
+    {
+      "code": "ISS-005",
+      "title": "Water Main Hit",
+      "description": "Small line hit during trenching for electrical.",
+      "priority": "critical",
+      "status": "in-progress",
+      "assignedTo": "MEP-LEAD-07",
+      "reportedBy": "Excavator-Op",
+      "resolution": null
+    },
+    {
+      "code": "ISS-006",
+      "title": "Crane Cert Expired",
+      "description": "Tower Crane 1 annual inspection overdue by 2 days.",
+      "priority": "high",
+      "status": "open",
+      "assignedTo": "PM-EXEC-01",
+      "reportedBy": "Safety-Officer",
+      "resolution": null
+    },
+    {
+      "code": "ISS-007",
+      "title": "Wrong Paint Color",
+      "description": "Basement B1 painted in Grey 01 instead of White.",
+      "priority": "low",
+      "status": "open",
+      "assignedTo": "ARCH-SUP-08",
+      "reportedBy": "Architect",
+      "resolution": null
+    },
+    {
+      "code": "ISS-008",
+      "title": "Flooded Elevator Pit",
+      "description": "Rainwater accumulation in Pit 2.",
+      "priority": "medium",
+      "status": "resolved",
+      "assignedTo": "CIV-SUP-03",
+      "reportedBy": "Laborer",
+      "resolution": "Pumped out and sealed."
+    },
+    {
+      "code": "ISS-009",
+      "title": "Drone Complaint",
+      "description": "Neighbor alleges drone flew too close to balcony.",
+      "priority": "medium",
+      "status": "open",
+      "assignedTo": "PM-EXEC-01",
+      "reportedBy": "Public-Relations",
+      "resolution": null
+    },
+    {
+      "code": "ISS-010",
+      "title": "COVID-19 Positive Case",
+      "description": "Worker in carpentry crew tested positive.",
+      "priority": "high",
+      "status": "closed",
+      "assignedTo": "PM-EXEC-01",
+      "reportedBy": "HR",
+      "resolution": "Contact tracing done, crew isolated for 5 days."
+    }
+  ],
+  "stakeholders": [
+    {
+      "name": "City Council Planning Dept",
+      "role": "regulatory",
+      "organization": "Metro City",
+      "email": "planning@metrocity.gov",
+      "phone": "555-0199",
+      "influence": 5,
+      "interest": 4
+    },
+    {
+      "name": "Global Investors Group",
+      "role": "sponsor",
+      "organization": "GIG Fund",
+      "email": "invest@gig.com",
+      "phone": "555-0200",
+      "influence": 5,
+      "interest": 5
+    }
+  ],
+  "costItems": [
+    {
+      "description": "Concrete Supply",
+      "category": "materials",
+      "budgeted": "15000000.00",
+      "actual": "4000000.00",
+      "currency": "USD"
+    },
+    {
+      "description": "Tower Crane Rental",
+      "category": "equipment",
+      "budgeted": "2000000.00",
+      "actual": "500000.00",
+      "currency": "USD"
+    }
+  ]
+}

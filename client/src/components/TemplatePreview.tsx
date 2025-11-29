@@ -1,0 +1,130 @@
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { CheckCircle2, AlertTriangle, Clock, Users, BarChart } from "lucide-react";
+
+interface ProjectTemplate {
+  id: number;
+  name: string;
+  description: string;
+  category: string;
+  metadata: {
+    estimatedDuration?: number;
+    complexity?: string;
+    industry?: string;
+    taskCount?: number;
+    typicalTeamSize?: number;
+  };
+  templateData: {
+    tasks?: Array<{ name: string; wbsCode: string; description?: string; status?: string }>;
+    risks?: Array<{ title: string; impact?: string; probability?: number }>;
+  };
+}
+
+interface TemplatePreviewProps {
+  template: ProjectTemplate | null;
+}
+
+export function TemplatePreview({ template }: TemplatePreviewProps) {
+  if (!template) {
+    return (
+      <div className="h-full flex items-center justify-center text-muted-foreground bg-muted/10 rounded-lg border border-dashed">
+        Select a template to preview details
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full flex flex-col space-y-4">
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex justify-between items-start">
+            <div>
+              <CardTitle className="text-lg">{template.name}</CardTitle>
+              <div className="flex gap-2 mt-2">
+                <Badge>{template.category}</Badge>
+                <Badge variant="outline" className="capitalize">{template.metadata.industry}</Badge>
+              </div>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">{template.description}</p>
+          
+          <div className="grid grid-cols-3 gap-2 text-xs">
+            <div className="flex flex-col items-center p-2 bg-muted rounded">
+              <Clock className="h-4 w-4 mb-1 text-blue-500" />
+              <span className="font-medium">{template.metadata.estimatedDuration || "-"} Days</span>
+              <span className="text-muted-foreground scale-90">Est. Duration</span>
+            </div>
+            <div className="flex flex-col items-center p-2 bg-muted rounded">
+              <BarChart className="h-4 w-4 mb-1 text-orange-500" />
+              <span className="font-medium capitalize">{template.metadata.complexity || "Medium"}</span>
+              <span className="text-muted-foreground scale-90">Complexity</span>
+            </div>
+            <div className="flex flex-col items-center p-2 bg-muted rounded">
+              <Users className="h-4 w-4 mb-1 text-green-500" />
+              <span className="font-medium">{template.metadata.typicalTeamSize || "-"}</span>
+              <span className="text-muted-foreground scale-90">Team Size</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="flex-1 min-h-0 grid grid-cols-1 gap-4">
+        <Card className="flex flex-col overflow-hidden">
+          <CardHeader className="py-3 px-4 bg-muted/30">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <CheckCircle2 className="h-4 w-4" />
+              Included Tasks ({template.templateData.tasks?.length || 0})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex-1 p-0 overflow-hidden">
+            <ScrollArea className="h-[200px] p-4">
+              <div className="space-y-3">
+                {template.templateData.tasks?.map((task, idx) => (
+                  <div key={idx} className="flex items-start gap-3 text-sm">
+                    <span className="font-mono text-xs text-muted-foreground min-w-[24px] mt-0.5">{task.wbsCode}</span>
+                    <div>
+                      <p className="font-medium leading-none">{task.name}</p>
+                      {task.description && <p className="text-xs text-muted-foreground mt-1">{task.description}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          </CardContent>
+        </Card>
+
+        {template.templateData.risks && template.templateData.risks.length > 0 && (
+          <Card className="flex flex-col overflow-hidden">
+            <CardHeader className="py-3 px-4 bg-muted/30">
+              <CardTitle className="text-sm font-medium flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4" />
+                Common Risks ({template.templateData.risks.length})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex-1 p-0 overflow-hidden">
+              <ScrollArea className="h-[150px] p-4">
+                <div className="space-y-3">
+                  {template.templateData.risks.map((risk, idx) => (
+                    <div key={idx} className="flex items-start gap-3 text-sm">
+                      <Badge variant={risk.impact === 'critical' || risk.impact === 'high' ? 'destructive' : 'outline'} className="h-5 px-1.5 text-[10px] capitalize mt-0.5">
+                        {risk.impact || 'Medium'}
+                      </Badge>
+                      <div>
+                        <p className="font-medium leading-none">{risk.title}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}
+

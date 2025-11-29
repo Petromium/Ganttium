@@ -46,7 +46,6 @@ export default function LoginPage() {
         setError(null);
       } else {
         setLocation("/");
-        window.location.reload();
       }
     },
     onError: (error: Error) => {
@@ -61,7 +60,6 @@ export default function LoginPage() {
     },
     onSuccess: () => {
       setLocation("/");
-      window.location.reload();
     },
     onError: (error: Error) => {
       setError(error.message || "Invalid 2FA code");

@@ -108,6 +108,8 @@ import type {
   InsertUserActivityLog,
   UserActivityLog,
   UpdateUserOrganization,
+  InsertProjectTemplate,
+  ProjectTemplate,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -163,6 +165,14 @@ export interface IStorage {
   createProject(project: InsertProject): Promise<Project>;
   updateProject(id: number, project: Partial<InsertProject>): Promise<Project | undefined>;
   deleteProject(id: number): Promise<void>;
+
+  // Project Templates
+  getProjectTemplate(id: number): Promise<ProjectTemplate | undefined>;
+  getProjectTemplates(): Promise<ProjectTemplate[]>;
+  createProjectTemplate(template: InsertProjectTemplate): Promise<ProjectTemplate>;
+  updateProjectTemplate(id: number, template: Partial<InsertProjectTemplate>): Promise<ProjectTemplate | undefined>;
+  deleteProjectTemplate(id: number): Promise<void>;
+  incrementTemplateUsage(id: number): Promise<void>;
 
   // Tasks
   getTask(id: number): Promise<Task | undefined>;
@@ -778,6 +788,40 @@ export class DatabaseStorage implements IStorage {
 
   async deleteProject(id: number): Promise<void> {
     await db.delete(schema.projects).where(eq(schema.projects.id, id));
+  }
+
+  // Project Templates
+  async getProjectTemplate(id: number): Promise<ProjectTemplate | undefined> {
+    const [template] = await db.select().from(schema.projectTemplates).where(eq(schema.projectTemplates.id, id));
+    return template;
+  }
+
+  async getProjectTemplates(): Promise<ProjectTemplate[]> {
+    return await db.select().from(schema.projectTemplates)
+      .orderBy(desc(schema.projectTemplates.createdAt));
+  }
+
+  async createProjectTemplate(template: InsertProjectTemplate): Promise<ProjectTemplate> {
+    const [created] = await db.insert(schema.projectTemplates).values(template).returning();
+    return created;
+  }
+
+  async updateProjectTemplate(id: number, template: Partial<InsertProjectTemplate>): Promise<ProjectTemplate | undefined> {
+    const [updated] = await db.update(schema.projectTemplates)
+      .set({ ...template, updatedAt: new Date() })
+      .where(eq(schema.projectTemplates.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteProjectTemplate(id: number): Promise<void> {
+    await db.delete(schema.projectTemplates).where(eq(schema.projectTemplates.id, id));
+  }
+
+  async incrementTemplateUsage(id: number): Promise<void> {
+    await db.update(schema.projectTemplates)
+      .set({ usageCount: sql`${schema.projectTemplates.usageCount} + 1` })
+      .where(eq(schema.projectTemplates.id, id));
   }
 
   // Tasks

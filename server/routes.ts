@@ -4966,6 +4966,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const importData = req.body;
+      const fieldMappings = req.body.fieldMappings || {}; // Optional field mappings
       const errors: string[] = [];
       const warnings: string[] = [];
 
@@ -4977,10 +4978,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // Helper to transform data using mappings
+      const transformData = (entityType: string, item: any) => {
+        const mappings = fieldMappings[entityType] || [];
+        const transformed = { ...item };
+
+        mappings.forEach((mapping: any) => {
+          if (!mapping.isMapped) return;
+
+          const sourceValue = item[mapping.sourceField];
+          if (sourceValue === undefined) return;
+
+          if (mapping.mappingType === 'enum' && mapping.enumMappings) {
+            // Apply enum mapping
+            const mappedValue = mapping.enumMappings[String(sourceValue)] || sourceValue;
+            transformed[mapping.targetField] = mappedValue;
+          } else {
+            // Direct mapping
+            transformed[mapping.targetField] = sourceValue;
+          }
+        });
+
+        return transformed;
+      };
+
       // Helper to map values with fallback - for strict enum fields
       const mapValue = (category: string, value: string, validValues: string[], defaultValue: string): string => {
         if (!value) return defaultValue;
-        if (validValues.includes(value)) return value;
+        // Case insensitive check
+        const lowerValue = String(value).toLowerCase();
+        const match = validValues.find(v => v.toLowerCase() === lowerValue);
+        if (match) return match;
+        
         const mapped = valueMappings[category]?.[value];
         if (mapped) {
           warnings.push(`Mapped '${value}' to '${mapped}' for ${category}`);
@@ -5017,8 +5046,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       // Import tasks with hierarchy and flexible text fields
-      for (const task of sortedTasks) {
+      for (const rawTask of sortedTasks) {
         try {
+          // Apply field mapping transformation
+          const task = transformData('tasks', rawTask);
+
           const wbsCode = task.wbsCode || `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
           const parentWbsCode = getParentWbsCode(wbsCode);
           const parentId = parentWbsCode ? wbsToTaskId[parentWbsCode] : null;
@@ -5028,7 +5060,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const mappedStatus = task.status && importEnums.taskStatus.includes(task.status) ? task.status : 'not-started';
 
           // Try to map discipline to valid enum, otherwise store as flexible label
-          const disciplineEnumValue = tryMapEnum('discipline', task.discipline, importEnums.discipline);
+          const disciplineEnumValue = tryMapEnum('discipline', task.discipline?.toLowerCase(), importEnums.discipline);
           const disciplineLabelValue = sanitizeText(task.discipline, 100);
 
           // If discipline isn't a valid enum, store the original as disciplineLabel
@@ -5068,36 +5100,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
           wbsToTaskId[wbsCode] = createdTask.id;
           importedCounts.tasks++;
         } catch (taskError: any) {
-          errors.push(`Failed to import task '${task.name || task.wbsCode}': ${taskError.message}`);
+          errors.push(`Failed to import task '${rawTask.name || rawTask.wbsCode}': ${taskError.message}`);
         }
       }
 
       // Import risks
       let riskCounter = 1;
       if (importData.risks && Array.isArray(importData.risks)) {
-        for (const risk of importData.risks) {
+        for (const rawRisk of importData.risks) {
           try {
+            // Apply field mapping transformation
+            const risk = transformData('risks', rawRisk);
+
             const mappedStatus = mapValue('riskStatus', risk.status, importEnums.riskStatus, 'identified');
             const mappedImpact = mapValue('riskImpact', risk.impact, importEnums.riskImpact, 'medium');
 
             // Auto-generate code if not provided
+            // Check if code exists in import list to avoid duplicates in DB
             const riskCode = risk.code || `RISK-${String(riskCounter++).padStart(3, '0')}`;
-
-            await storage.createRisk({
-              projectId,
-              code: riskCode,
-              title: risk.title || 'Untitled Risk',
-              description: risk.description,
-              category: risk.category || 'other',
-              probability: Math.min(5, Math.max(1, parseInt(risk.probability) || 3)),
-              impact: mappedImpact as "low" | "medium" | "high" | "critical",
-              status: mappedStatus as "identified" | "assessed" | "mitigating" | "closed",
-              owner: risk.owner || null,
-              mitigationPlan: risk.mitigationPlan || risk.mitigationStrategy || risk.mitigation
-            });
-            importedCounts.risks++;
+            
+            // Try to find existing risk with this code
+            // This is a hacky check, ideally we'd have an upsert or better check
+            // But since we don't have easy access to `getRiskByCode`, we'll just wrap in try-catch
+            // and if it fails with unique constraint, we'll append a random suffix
+            
+            try {
+              await storage.createRisk({
+                projectId,
+                code: riskCode,
+                title: risk.title || 'Untitled Risk',
+                description: risk.description,
+                category: risk.category || 'other',
+                probability: Math.min(5, Math.max(1, parseInt(risk.probability) || 3)),
+                impact: mappedImpact as "low" | "medium" | "high" | "critical",
+                status: mappedStatus as "identified" | "assessed" | "mitigating" | "closed",
+                owner: risk.owner || null,
+                mitigationPlan: risk.mitigationPlan || risk.mitigationStrategy || risk.mitigation
+              });
+              importedCounts.risks++;
+            } catch (innerError: any) {
+               if (innerError.message.includes("unique constraint")) {
+                 // Retry with suffix
+                 const newCode = `${riskCode}-${Math.random().toString(36).substr(2, 4)}`;
+                 await storage.createRisk({
+                    projectId,
+                    code: newCode,
+                    title: risk.title || 'Untitled Risk',
+                    description: risk.description,
+                    category: risk.category || 'other',
+                    probability: Math.min(5, Math.max(1, parseInt(risk.probability) || 3)),
+                    impact: mappedImpact as "low" | "medium" | "high" | "critical",
+                    status: mappedStatus as "identified" | "assessed" | "mitigating" | "closed",
+                    owner: risk.owner || null,
+                    mitigationPlan: risk.mitigationPlan || risk.mitigationStrategy || risk.mitigation
+                  });
+                  importedCounts.risks++;
+                  warnings.push(`Risk '${risk.title}' code '${riskCode}' already exists, imported as '${newCode}'`);
+               } else {
+                 throw innerError;
+               }
+            }
           } catch (riskError: any) {
-            errors.push(`Failed to import risk '${risk.title}': ${riskError.message}`);
+            errors.push(`Failed to import risk '${rawRisk.title}': ${riskError.message}`);
           }
         }
       }
@@ -5105,8 +5169,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Import issues
       let issueCounter = 1;
       if (importData.issues && Array.isArray(importData.issues)) {
-        for (const issue of importData.issues) {
+        for (const rawIssue of importData.issues) {
           try {
+            // Apply field mapping transformation
+            const issue = transformData('issues', rawIssue);
+
             const mappedStatus = issue.status && importEnums.issueStatus.includes(issue.status) ? issue.status : 'open';
             const mappedPriority = mapValue('issuePriority', issue.priority, importEnums.issuePriority, 'medium');
 
@@ -5126,15 +5193,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
             importedCounts.issues++;
           } catch (issueError: any) {
-            errors.push(`Failed to import issue '${issue.title}': ${issueError.message}`);
+            errors.push(`Failed to import issue '${rawIssue.title}': ${issueError.message}`);
           }
         }
       }
 
       // Import stakeholders
       if (importData.stakeholders && Array.isArray(importData.stakeholders)) {
-        for (const stakeholder of importData.stakeholders) {
+        for (const rawStakeholder of importData.stakeholders) {
           try {
+            // Apply field mapping transformation
+            const stakeholder = transformData('stakeholders', rawStakeholder);
+
             const mappedRole = mapValue('stakeholderRole', stakeholder.role, importEnums.stakeholderRole, 'other');
 
             await storage.createStakeholder({
@@ -5149,15 +5219,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
             importedCounts.stakeholders++;
           } catch (stakeholderError: any) {
-            errors.push(`Failed to import stakeholder '${stakeholder.name}': ${stakeholderError.message}`);
+            errors.push(`Failed to import stakeholder '${rawStakeholder.name}': ${stakeholderError.message}`);
           }
         }
       }
 
       // Import cost items
       if (importData.costItems && Array.isArray(importData.costItems)) {
-        for (const costItem of importData.costItems) {
+        for (const rawCostItem of importData.costItems) {
           try {
+            // Apply field mapping transformation
+            const costItem = transformData('costItems', rawCostItem);
+
             const mappedCategory = costItem.category && importEnums.costCategory.includes(costItem.category) ? costItem.category : 'other';
 
             await storage.createCostItem({
@@ -5170,7 +5243,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             });
             importedCounts.costItems++;
           } catch (costError: any) {
-            errors.push(`Failed to import cost item '${costItem.description}': ${costError.message}`);
+            errors.push(`Failed to import cost item '${rawCostItem.description}': ${costError.message}`);
           }
         }
       }
@@ -5279,6 +5352,185 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Error getting assignee labels:", error);
       res.status(500).json({ message: "Failed to get assignee labels" });
+    }
+  });
+
+  // ===== Template API Routes =====
+
+  // Get all templates
+  app.get('/api/project-templates', isAuthenticated, async (req: any, res) => {
+    try {
+      // Get public templates AND user's templates
+      const templates = await storage.getProjectTemplates();
+      res.json(templates);
+    } catch (error: any) {
+      console.error("Error fetching templates:", error);
+      res.status(500).json({ message: "Failed to fetch templates" });
+    }
+  });
+
+  // Create a new template from an existing project
+  app.post('/api/project-templates', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const { projectId, name, description, category, isPublic } = req.body;
+
+      if (!projectId || !name) {
+        return res.status(400).json({ message: "Project ID and Name are required" });
+      }
+
+      // 1. Verify access to source project
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied to source project" });
+      }
+
+      // 2. Fetch project data to serialize
+      const project = await storage.getProject(projectId);
+      const tasks = await storage.getTasksByProject(projectId);
+      const risks = await storage.getRisksByProject(projectId);
+      
+      // 3. Construct template data JSON (similar to export format)
+      const templateData = {
+        version: "1.0.0",
+        project: {
+          name: name, // New name
+          description: description || project.description,
+          status: "planning"
+        },
+        tasks: tasks.map(t => ({
+          ...t,
+          id: undefined,
+          projectId: undefined,
+          parentId: undefined, // Will need to reconstruct hierarchy
+          assignedTo: null, 
+          startDate: null, 
+          endDate: null,
+          actualHours: 0,
+          progress: 0,
+          status: "not-started"
+        })),
+        risks: risks.map(r => ({
+          ...r,
+          id: undefined,
+          projectId: undefined,
+          owner: null,
+          status: "identified"
+        }))
+      };
+
+      // 4. Calculate metadata
+      const metadata = {
+        estimatedDuration: 0,
+        complexity: tasks.length > 50 ? "high" : tasks.length > 20 ? "medium" : "low",
+        typicalTeamSize: 0,
+        industry: category || "general",
+        taskCount: tasks.length
+      };
+
+      // 5. Save to DB
+      const template = await storage.createProjectTemplate({
+        userId,
+        organizationId: project.organizationId,
+        name,
+        description,
+        category: category || "general",
+        templateData,
+        metadata,
+        isPublic: !!isPublic
+      });
+
+      res.json(template);
+    } catch (error: any) {
+      console.error("Error creating template:", error);
+      res.status(500).json({ message: "Failed to create template" });
+    }
+  });
+
+  // Instantiate a project from a template
+  app.post('/api/project-templates/:templateId/create-project', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const templateId = parseInt(req.params.templateId);
+      const { name, startDate, organizationId } = req.body;
+
+      if (!name || !organizationId) {
+        return res.status(400).json({ message: "Name and Organization ID are required" });
+      }
+
+      // 1. Get Template
+      const template = await storage.getProjectTemplate(templateId);
+      if (!template) {
+        return res.status(404).json({ message: "Template not found" });
+      }
+
+      // 2. Create Shell Project
+      const project = await storage.createProject({
+        name,
+        description: template.description || `Created from template: ${template.name}`,
+        organizationId,
+        startDate: startDate ? new Date(startDate) : new Date(),
+        status: "planning",
+        code: `PROJ-${Date.now()}` // Simple auto-code
+      });
+
+      // 3. Import Data from Template JSON
+      const importData = template.templateData as any;
+      const wbsToTaskId: Record<string, number> = {};
+      
+      // Import Tasks
+      if (importData.tasks) {
+        const sortedTasks = [...importData.tasks].sort((a: any, b: any) => 
+          (a.wbsCode?.length || 0) - (b.wbsCode?.length || 0)
+        );
+
+        for (const taskData of sortedTasks) {
+           const parentWbs = taskData.wbsCode?.includes('.') 
+             ? taskData.wbsCode.substring(0, taskData.wbsCode.lastIndexOf('.')) 
+             : null;
+           
+           const parentId = parentWbs ? wbsToTaskId[parentWbs] : null;
+
+           const task = await storage.createTask({
+             projectId: project.id,
+             parentId,
+             name: taskData.name,
+             wbsCode: taskData.wbsCode,
+             description: taskData.description,
+             status: "not-started",
+             priority: taskData.priority || "medium",
+             discipline: taskData.discipline || "general",
+             createdBy: userId
+           });
+           
+           if (taskData.wbsCode) {
+             wbsToTaskId[taskData.wbsCode] = task.id;
+           }
+        }
+      }
+
+      // Import Risks
+      if (importData.risks) {
+        for (const riskData of importData.risks) {
+          await storage.createRisk({
+            projectId: project.id,
+            title: riskData.title,
+            description: riskData.description,
+            category: riskData.category || "other",
+            status: "identified",
+            impact: riskData.impact || "medium",
+            probability: riskData.probability || 3,
+            mitigationPlan: riskData.mitigationPlan,
+            code: `RISK-${Math.random().toString(36).substr(2, 5).toUpperCase()}`
+          });
+        }
+      }
+
+      await storage.incrementTemplateUsage(templateId);
+      res.json(project);
+
+    } catch (error: any) {
+      console.error("Error creating project from template:", error);
+      res.status(500).json({ message: "Failed to create project from template" });
     }
   });
 

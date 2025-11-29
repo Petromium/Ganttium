@@ -19,7 +19,7 @@ export function configureHelmet() {
         scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
         imgSrc: ["'self'", "data:", "https:"], // Allow data URIs and HTTPS images
         connectSrc: ["'self'", "ws:", "wss:", "*"], // Allow WebSocket connections and external APIs
-        fontSrc: ["'self'", "data:", "https://fonts.gstatic.com"],
+        fontSrc: ["'self'", "data:", "https://fonts.gstatic.com", "https://r2cdn.perplexity.ai"],
         objectSrc: ["'none'"],
         mediaSrc: ["'self'"],
         frameSrc: ["'none'"],

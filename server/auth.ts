@@ -307,15 +307,13 @@ export async function setupAuth(app: Express) {
 
             await storage.assignDemoOrgToUser(userId);
 
-            // Auto-verify in development
-            if (process.env.NODE_ENV === "development") {
-                await db.update(users).set({ emailVerified: true }).where(eq(users.id, userId));
-            }
+            // Auto-verify in development (optional, can be kept or removed based on preference)
+            // if (process.env.NODE_ENV === "development") {
+            //    await db.update(users).set({ emailVerified: true }).where(eq(users.id, userId));
+            // }
 
             res.status(201).json({
-                message: process.env.NODE_ENV === "development"
-                    ? "Account created successfully"
-                    : "Account created. Please check your email to verify your account."
+                message: "Account created. Please check your email to verify your account."
             });
         } catch (error) {
             console.error("Registration error:", error);
@@ -458,35 +456,12 @@ export async function setupAuth(app: Express) {
 
     // Get current user
     app.get("/api/auth/me", async (req: Request, res: Response) => {
-        // Dev mode bypass
+        // Dev mode bypass REMOVED to allow testing authentication
+        /*
         if (process.env.NODE_ENV === "development") {
-            try {
-                const [existingUser] = await db.select().from(users).where(eq(users.id, "dev-user-id"));
-                if (!existingUser) {
-                    await db.insert(users).values({
-                        id: "dev-user-id",
-                        email: "dev@example.com",
-                        firstName: "Dev",
-                        lastName: "User",
-                        profileImageUrl: "https://ui-avatars.com/api/?name=Dev+User",
-                        emailVerified: true,
-                    });
-                }
-                await storage.assignDemoOrgToUser("dev-user-id");
-            } catch (error) {
-                console.error("Error upserting dev user:", error);
-            }
-
-            return res.json({
-                id: "dev-user-id",
-                email: "dev@example.com",
-                firstName: "Dev",
-                lastName: "User",
-                profileImageUrl: "https://ui-avatars.com/api/?name=Dev+User",
-                emailVerified: true,
-                totpEnabled: false,
-            });
+            // ... code ...
         }
+        */
 
         if (!req.isAuthenticated() || !req.user) {
             return res.status(401).json({ message: "Not authenticated" });
@@ -728,39 +703,8 @@ export async function setupAuth(app: Express) {
 
 // Authentication middleware
 export const isAuthenticated: RequestHandler = async (req, res, next) => {
-    // Bypass auth in development mode
-    if (process.env.NODE_ENV === "development") {
-        const devUser = {
-            id: "dev-user-id",
-            email: "dev@example.com",
-            firstName: "Dev",
-            lastName: "User",
-            profileImageUrl: "https://ui-avatars.com/api/?name=Dev+User",
-            emailVerified: true,
-            totpEnabled: false,
-            pendingTotpVerification: false,
-        };
-        (req as any).user = devUser;
-
-        try {
-            const [existingUser] = await db.select().from(users).where(eq(users.id, "dev-user-id"));
-            if (!existingUser) {
-                await db.insert(users).values({
-                    id: "dev-user-id",
-                    email: "dev@example.com",
-                    firstName: "Dev",
-                    lastName: "User",
-                    profileImageUrl: "https://ui-avatars.com/api/?name=Dev+User",
-                    emailVerified: true,
-                });
-            }
-            await storage.assignDemoOrgToUser("dev-user-id");
-        } catch (error) {
-            console.error("Error upserting dev user:", error);
-        }
-
-        return next();
-    }
+    // Dev mode bypass REMOVED to allow testing authentication
+    // if (process.env.NODE_ENV === "development") { ... }
 
     if (!req.isAuthenticated() || !req.user) {
         return res.status(401).json({ message: "Unauthorized" });
