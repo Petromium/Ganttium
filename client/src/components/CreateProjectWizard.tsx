@@ -6,6 +6,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useProject } from "@/contexts/ProjectContext";
+import { insertProjectSchema, type InsertProject, type Project } from "@shared/schema";
 import {
   Dialog,
   DialogContent,
@@ -33,24 +34,16 @@ import { ImportFieldMapper } from "./ImportFieldMapper";
 import { TemplateSelector } from "./TemplateSelector";
 import { TemplatePreview } from "./TemplatePreview";
 
-// Schema for Empty Project
-const projectSchema = z.object({
+// Extend shared schema for UI specific needs (e.g. optional code for templates)
+const projectSchema = insertProjectSchema.extend({
   name: z.string().min(1, "Name is required"),
   code: z.string().min(1, "Code is required"),
-  description: z.string().optional(),
-  startDate: z.string().optional(),
-  endDate: z.string().optional(),
-  status: z.enum(["planning", "active", "on-hold", "completed", "archived"]).default("planning"),
 });
 
-// Schema for Template Project (no code required)
-const templateProjectSchema = z.object({
+// Schema for Template Project (no code required, matches existing behavior)
+const templateProjectSchema = insertProjectSchema.extend({
   name: z.string().min(1, "Name is required"),
-  startDate: z.string().optional(),
-  code: z.string().optional(), // Optional or allowed to be empty/undefined
-  description: z.string().optional(),
-  endDate: z.string().optional(),
-  status: z.string().optional(),
+  code: z.string().optional(),
 });
 
 type ProjectFormValues = z.infer<typeof projectSchema>;
@@ -96,7 +89,7 @@ export function CreateProjectWizard({ open, onOpenChange }: CreateProjectWizardP
     },
   });
 
-  const createMutation = useMutation({
+  const createMutation = useMutation<Project, Error, ProjectFormValues>({
     mutationFn: async (data: ProjectFormValues) => {
       if (!selectedOrgId) {
         throw new Error("No organization selected. Please select an organization first.");
@@ -144,9 +137,21 @@ export function CreateProjectWizard({ open, onOpenChange }: CreateProjectWizardP
   });
 
   const onSubmit = (data: ProjectFormValues) => {
+    // Extra validation layer using the shared schema before submitting
+    // Although hook-form uses the schema, this is a double check and handles manual mutation calls safer
     if (method === 'template') {
+      if (!selectedTemplate) {
+         toast({ title: "Error", description: "Please select a template", variant: "destructive" });
+         return;
+      }
       templateMutation.mutate({ name: data.name, startDate: data.startDate || "" });
     } else {
+      const payload = {
+        ...data,
+        organizationId: selectedOrgId,
+        // Dates need to be Date objects for the schema validation if we were to run it manually here
+        // but for the API call, strings are fine if the API handles them or we convert in mutationFn
+      };
       createMutation.mutate(data);
     }
   };

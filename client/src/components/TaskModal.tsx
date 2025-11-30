@@ -20,7 +20,8 @@ import {
   ArrowRight, ArrowLeft, Clock, Activity, Plus, X, Link2, GitBranch,
   Pencil, Check, Info, ChevronDown, ChevronUp, Building2
 } from "lucide-react";
-import type { Task, Risk, Issue, ResourceAssignment, Resource, Document, TaskDependency } from "@shared/schema";
+import type { Task, Risk, Issue, ResourceAssignment, Resource, Document, TaskDependency, InsertTask } from "@shared/schema";
+import { insertTaskSchema } from "@shared/schema";
 import { EditResourceModal } from "@/components/modals/EditResourceModal";
 import { ResourceLevelingModal } from "@/components/modals/ResourceLevelingModal";
 import { EditDocumentModal } from "@/components/modals/EditDocumentModal";
@@ -66,27 +67,6 @@ const DEPENDENCY_TYPES = [
   { value: "SF", label: "Start-to-Finish (SF)" },
 ];
 
-interface TaskFormData {
-  name: string;
-  description: string;
-  status: TaskStatus;
-  priority: TaskPriority;
-  startDate: string;
-  endDate: string;
-  progress: number;
-  estimatedHours: string;
-  workMode: "parallel" | "sequential";
-  discipline: string;
-  areaCode: string;
-  weightFactor: number;
-  constraintType: string;
-  baselineStart: string;
-  baselineFinish: string;
-  actualStartDate: string;
-  actualFinishDate: string;
-  responsibleContractor: string;
-}
-
 interface TaskModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -94,6 +74,7 @@ interface TaskModalProps {
   defaultStatus?: TaskStatus;
   onClose?: () => void;
   onSave?: (data: any) => void;
+  onCreate?: (task: Task) => void;
 }
 
 export function TaskModal({ 
@@ -128,10 +109,32 @@ export function TaskModal({
   const [showIssueCreation, setShowIssueCreation] = useState(false);
   const [newlyCreatedIssueId, setNewlyCreatedIssueId] = useState<number | null>(null);
   
-  const getDefaultFormData = (): TaskFormData => ({
+  // UI State uses strings for dates/decimals to match Input requirements
+  type TaskUIState = {
+    name: string;
+    description: string;
+    status: TaskStatus;
+    priority: TaskPriority;
+    startDate: string;
+    endDate: string;
+    progress: number;
+    estimatedHours: string;
+    workMode: "parallel" | "sequential";
+    discipline: string;
+    areaCode: string;
+    weightFactor: string | number;
+    constraintType: string;
+    baselineStart: string;
+    baselineFinish: string;
+    actualStartDate: string;
+    actualFinishDate: string;
+    responsibleContractor: string;
+  };
+
+  const getDefaultFormData = (): TaskUIState => ({
     name: "",
     description: "",
-    status: defaultStatus,
+    status: defaultStatus || "not-started",
     priority: "medium",
     startDate: "",
     endDate: "",
@@ -149,7 +152,7 @@ export function TaskModal({
     responsibleContractor: "",
   });
 
-  const [formData, setFormData] = useState<TaskFormData>(getDefaultFormData());
+  const [formData, setFormData] = useState<TaskUIState>(getDefaultFormData());
   
   const { data: allTasks = [] } = useQuery<Task[]>({
     queryKey: [`/api/projects/${selectedProjectId}/tasks`],
@@ -259,20 +262,26 @@ export function TaskModal({
     }
   }, [open, task, defaultStatus]);
 
-  const createMutation = useMutation({
-    mutationFn: async (data: any) => {
-      return await apiRequest("POST", `/api/tasks`, {
+  const createMutation = useMutation<Task, Error, InsertTask>({
+    mutationFn: async (data) => {
+      const res = await apiRequest("POST", `/api/tasks`, {
         ...data,
         projectId: selectedProjectId,
       });
+      return await res.json();
     },
-    onSuccess: () => {
+    onSuccess: (newTask) => {
       queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/tasks`] });
       toast({
         title: "Success",
         description: "Task created successfully",
       });
-      handleClose();
+      
+      if (onCreate) {
+        onCreate(newTask);
+      } else {
+        handleClose();
+      }
     },
     onError: (error: Error) => {
       toast({
@@ -283,19 +292,13 @@ export function TaskModal({
     },
   });
 
-  const updateMutation = useMutation({
-    mutationFn: async (data: any) => {
-      // Ensure decimal fields are sent as strings
-      const payload = {
-        ...data,
-        estimatedHours: data.estimatedHours ? String(data.estimatedHours) : null,
-        weightFactor: data.weightFactor !== undefined && data.weightFactor !== null ? String(data.weightFactor) : null,
-      };
-      const response = await apiRequest("PATCH", `/api/tasks/${task?.id}`, payload);
+  const updateMutation = useMutation<Task, Error, Partial<InsertTask>>({
+    mutationFn: async (data) => {
+      const response = await apiRequest("PATCH", `/api/tasks/${task?.id}`, data);
       return await response.json();
     },
     onSuccess: (updatedTask: Task) => {
-      // Update formData with refreshed task data, especially endDate and computedDuration
+      // Update formData with refreshed task data
       if (updatedTask) {
         setFormData(prev => ({
           ...prev,
@@ -303,17 +306,20 @@ export function TaskModal({
           startDate: updatedTask.startDate ? new Date(updatedTask.startDate).toISOString().split('T')[0] : prev.startDate,
           estimatedHours: updatedTask.estimatedHours ? String(updatedTask.estimatedHours) : prev.estimatedHours,
         }));
-        // Don't close modal if estimatedHours changed - let user see the updated endDate
+        
+        // Check if estimatedHours changed to decide whether to keep open
         const estimatedHoursChanged = task && updatedTask.estimatedHours && 
-          Number(task.estimatedHours) !== Number(updatedTask.estimatedHours);
+          String(task.estimatedHours) !== String(updatedTask.estimatedHours);
         
         if (!estimatedHoursChanged) {
-          handleClose();
+           // If we have an onCreate prop, we might want different behavior, but generally update closes modal?
+           // The user wanted seamless workflow. If update happens, maybe stay open?
+           // For now, replicate existing logic: close if not specific change.
+           handleClose();
         } else {
-          // Keep modal open but show success message
           toast({
             title: "Task Updated",
-            description: "Estimated hours updated. End date recalculated based on new duration.",
+            description: "Estimated hours updated. End date recalculated.",
           });
         }
       } else {
@@ -490,7 +496,7 @@ export function TaskModal({
     }
   };
 
-  const handleSave = () => {
+  const handleSave = (options?: { action?: 'recalculate' | 'switchTab', value?: string }) => {
     if (!formData.name.trim()) {
       toast({
         title: "Validation Error",
@@ -500,32 +506,59 @@ export function TaskModal({
       return;
     }
 
-    const taskData = {
-      name: formData.name,
-      description: formData.description || undefined,
+    // Prepare payload for Zod validation
+    // We manually map fields to ensure types match InsertTask (e.g. Dates, Strings for Decimals)
+    const payload: any = {
+      ...formData,
+      projectId: selectedProjectId,
+      // Convert strings to Date objects for schema validation (drizzle-zod expects Date for timestamp)
+      startDate: formData.startDate ? new Date(formData.startDate) : null,
+      endDate: formData.endDate ? new Date(formData.endDate) : null,
+      baselineStart: formData.baselineStart ? new Date(formData.baselineStart) : null,
+      baselineFinish: formData.baselineFinish ? new Date(formData.baselineFinish) : null,
+      actualStartDate: formData.actualStartDate ? new Date(formData.actualStartDate) : null,
+      actualFinishDate: formData.actualFinishDate ? new Date(formData.actualFinishDate) : null,
+      
+      // Ensure decimals are strings to avoid "Error 400" (Zod schema expects string for decimal)
+      estimatedHours: formData.estimatedHours ? String(formData.estimatedHours) : null,
+      weightFactor: formData.weightFactor !== undefined && formData.weightFactor !== null ? String(formData.weightFactor) : null,
+      
+      // Handle nullable fields
+      discipline: formData.discipline || null,
+      areaCode: formData.areaCode || null,
+      responsibleContractor: formData.responsibleContractor || null,
+      
+      // Explicitly set Enums to satisfy type checker
       status: formData.status,
       priority: formData.priority,
-      startDate: formData.startDate ? new Date(formData.startDate).toISOString() : undefined,
-      endDate: formData.endDate ? new Date(formData.endDate).toISOString() : undefined,
-      progress: formData.progress,
-      estimatedHours: formData.estimatedHours ? parseFloat(formData.estimatedHours) : undefined,
       workMode: formData.workMode,
-      discipline: formData.discipline || undefined,
-      areaCode: formData.areaCode || undefined,
-      weightFactor: formData.weightFactor || undefined,
-      constraintType: formData.constraintType || undefined,
-      baselineStart: formData.baselineStart ? new Date(formData.baselineStart).toISOString() : undefined,
-      baselineFinish: formData.baselineFinish ? new Date(formData.baselineFinish).toISOString() : undefined,
-      responsibleContractor: formData.responsibleContractor || undefined,
+      constraintType: formData.constraintType,
     };
 
-    if (onSave) {
-      onSave(taskData);
-      handleClose();
-    } else if (task) {
-      updateMutation.mutate(taskData);
+    // Validate against the shared schema
+    const result = insertTaskSchema.safeParse(payload);
+
+    if (!result.success) {
+      console.error("Zod Validation Errors:", result.error);
+      // Format errors for user
+      const errorMessages = result.error.issues.map(i => {
+        const field = i.path.join('.');
+        return `${field}: ${i.message}`;
+      }).join('\n');
+      
+      toast({
+        title: "Validation Error",
+        description: "Please check the following fields:\n" + errorMessages,
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // If validation passes, proceed with mutation
+    if (task) {
+      updateMutation.mutate(result.data);
     } else {
-      createMutation.mutate(taskData);
+      createMutation.mutate(result.data as InsertTask);
     }
   };
 

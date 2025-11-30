@@ -10,7 +10,8 @@ import { Loader2, FileText } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useProject } from "@/contexts/ProjectContext";
-import type { Document } from "@shared/schema";
+import type { Document, InsertDocument } from "@shared/schema";
+import { insertDocumentSchema } from "@shared/schema";
 
 interface EditDocumentModalProps {
   document: Document | null;
@@ -137,15 +138,29 @@ export function EditDocumentModal({ document, open, onOpenChange, onSuccess }: E
       return;
     }
 
-    const data = {
+    const data: any = {
       ...formData,
       description: formData.description?.trim() || null,
+      projectId: selectedProjectId,
     };
 
+    // Validate using shared schema
+    const result = insertDocumentSchema.safeParse(data);
+
+    if (!result.success) {
+      const errorMessages = result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('\n');
+      toast({
+        title: "Validation Error",
+        description: "Please check the following fields:\n" + errorMessages,
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (isEditing && document) {
-      updateMutation.mutate({ id: document.id, data });
+      updateMutation.mutate({ id: document.id, data: result.data });
     } else {
-      createMutation.mutate(data);
+      createMutation.mutate(result.data as InsertDocument);
     }
   };
 

@@ -10,7 +10,8 @@ import { Loader2, AlertTriangle } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useProject } from "@/contexts/ProjectContext";
-import type { Risk } from "@shared/schema";
+import type { Risk, InsertRisk } from "@shared/schema";
+import { insertRiskSchema } from "@shared/schema";
 
 interface EditRiskModalProps {
   risk: Risk | null;
@@ -46,7 +47,7 @@ export function EditRiskModal({ risk, open, onOpenChange, onSuccess }: EditRiskM
   const { toast } = useToast();
   const isEditing = !!risk;
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<Partial<InsertRisk>>({
     code: "",
     title: "",
     description: "",
@@ -87,28 +88,30 @@ export function EditRiskModal({ risk, open, onOpenChange, onSuccess }: EditRiskM
     });
   };
 
-  const createMutation = useMutation({
-    mutationFn: async (data: any) => {
+  const createMutation = useMutation<Risk, Error, InsertRisk>({
+    mutationFn: async (data) => {
       const response = await apiRequest("POST", "/api/risks", {
         ...data,
         projectId: selectedProjectId,
       });
       return await response.json();
     },
-    onSuccess: (createdRisk: Risk) => {
+    onSuccess: (createdRisk) => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", selectedProjectId, "risks"] });
       toast({ title: "Success", description: "Risk created successfully" });
       onOpenChange(false);
       onSuccess?.(createdRisk);
+      resetForm();
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message || "Failed to create risk", variant: "destructive" });
     },
   });
 
-  const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: number; data: any }) => {
-      return await apiRequest("PATCH", `/api/risks/${id}`, data);
+  const updateMutation = useMutation<Risk, Error, Partial<InsertRisk>>({
+    mutationFn: async (data) => {
+      const response = await apiRequest("PATCH", `/api/risks/${risk?.id}`, data);
+      return await response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", selectedProjectId, "risks"] });
@@ -122,21 +125,35 @@ export function EditRiskModal({ risk, open, onOpenChange, onSuccess }: EditRiskM
   });
 
   const handleSave = () => {
-    if (!formData.title.trim()) {
-      toast({ title: "Validation Error", description: "Title is required", variant: "destructive" });
+    // Validate using shared schema
+    const payload = {
+      ...formData,
+      projectId: selectedProjectId,
+      // Ensure probability is a number if it comes as string from input
+      probability: Number(formData.probability),
+      description: formData.description?.trim() || null,
+      mitigationPlan: formData.mitigationPlan?.trim() || null,
+      // Ensure non-empty strings
+      code: formData.code || "", 
+      title: formData.title || "",
+    };
+
+    const result = insertRiskSchema.safeParse(payload);
+
+    if (!result.success) {
+      const errorMessages = result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('\n');
+      toast({
+        title: "Validation Error",
+        description: "Please check the following fields:\n" + errorMessages,
+        variant: "destructive",
+      });
       return;
     }
 
-    const data = {
-      ...formData,
-      description: formData.description?.trim() || null,
-      mitigationPlan: formData.mitigationPlan?.trim() || null,
-    };
-
     if (isEditing && risk) {
-      updateMutation.mutate({ id: risk.id, data });
+      updateMutation.mutate(result.data);
     } else {
-      createMutation.mutate(data);
+      createMutation.mutate(result.data as InsertRisk);
     }
   };
 

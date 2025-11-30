@@ -11,7 +11,8 @@ import { Loader2, AlertCircle } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useProject } from "@/contexts/ProjectContext";
-import type { Issue } from "@shared/schema";
+import type { Issue, InsertIssue } from "@shared/schema";
+import { insertIssueSchema } from "@shared/schema";
 
 interface EditIssueModalProps {
   issue: Issue | null;
@@ -51,7 +52,7 @@ export function EditIssueModal({ issue, open, onOpenChange, onSuccess }: EditIss
   const { toast } = useToast();
   const isEditing = !!issue;
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<Partial<InsertIssue>>({
     code: "",
     title: "",
     description: "",
@@ -132,15 +133,32 @@ export function EditIssueModal({ issue, open, onOpenChange, onSuccess }: EditIss
       return;
     }
 
-    const data = {
+    // Validate using shared schema
+    const payload = {
       ...formData,
+      projectId: selectedProjectId,
       description: formData.description?.trim() || null,
+      // Ensure string fields are not empty or null if required
+      code: formData.code || "", 
+      title: formData.title || "",
     };
 
+    const result = insertIssueSchema.safeParse(payload);
+
+    if (!result.success) {
+      const errorMessages = result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('\n');
+      toast({
+        title: "Validation Error",
+        description: "Please check the following fields:\n" + errorMessages,
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (isEditing && issue) {
-      updateMutation.mutate({ id: issue.id, data });
+      updateMutation.mutate({ id: issue.id, data: result.data });
     } else {
-      createMutation.mutate(data);
+      createMutation.mutate(result.data as InsertIssue);
     }
   };
 

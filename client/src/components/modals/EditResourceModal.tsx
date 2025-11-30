@@ -18,8 +18,8 @@ import {
 } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { useProject } from "@/contexts/ProjectContext";
-import type { Resource } from "@shared/schema";
+import { insertResourceSchema } from "@shared/schema";
+import type { Resource, InsertResource } from "@shared/schema";
 
 interface EditResourceModalProps {
   resource: Resource | null;
@@ -348,7 +348,7 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
       return isNaN(num) ? null : num;
     };
 
-    const data = {
+    const data: any = {
       name: formData.name,
       type: formData.type,
       discipline: formData.discipline,
@@ -378,12 +378,26 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
       workingDays: workingDays.length > 0 ? workingDays : null,
       pricingModels: pricingModels.length > 0 ? pricingModels : null,
       calendarExceptions: calendarExceptions.length > 0 ? calendarExceptions : null,
+      projectId: selectedProjectId,
     };
 
+    // Validate using shared schema
+    const result = insertResourceSchema.safeParse(data);
+
+    if (!result.success) {
+      const errorMessages = result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join('\n');
+      toast({
+        title: "Validation Error",
+        description: "Please check the following fields:\n" + errorMessages,
+        variant: "destructive",
+      });
+      return;
+    }
+
     if (isEditing && resource) {
-      updateMutation.mutate({ id: resource.id, data });
+      updateMutation.mutate({ id: resource.id, data: result.data });
     } else {
-      createMutation.mutate(data);
+      createMutation.mutate(result.data);
     }
   };
 
