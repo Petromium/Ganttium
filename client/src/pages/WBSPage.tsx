@@ -56,11 +56,11 @@ const KANBAN_COLUMNS: { id: TaskStatus; title: string }[] = [
   { id: "completed", title: "Completed" },
 ];
 
-const ZOOM_CONFIGS: Record<ZoomLevel, { daysPerUnit: number; unitLabel: string }> = {
-  day: { daysPerUnit: 1, unitLabel: "Day" },
-  week: { daysPerUnit: 7, unitLabel: "Week" },
-  month: { daysPerUnit: 30, unitLabel: "Month" },
-  quarter: { daysPerUnit: 90, unitLabel: "Quarter" },
+const ZOOM_CONFIGS: Record<ZoomLevel, { daysPerUnit: number; unitLabel: string; minUnitWidth: number }> = {
+  day: { daysPerUnit: 1, unitLabel: "Day", minUnitWidth: 40 },
+  week: { daysPerUnit: 7, unitLabel: "Week", minUnitWidth: 100 },
+  month: { daysPerUnit: 30, unitLabel: "Month", minUnitWidth: 60 },
+  quarter: { daysPerUnit: 90, unitLabel: "Quarter", minUnitWidth: 80 },
 };
 
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -850,6 +850,9 @@ export default function WBSPage() {
     return { minDate: min, maxDate: max, totalDays: daysDiff, units: Math.ceil(daysDiff / daysPerUnit) };
   }, [filteredTasks, zoom]);
 
+  const timelineWidth = units * ZOOM_CONFIGS[zoom].minUnitWidth;
+  const containerWidth = Math.max(1000, 300 + timelineWidth);
+
   const getTaskPosition = (task: Task) => {
     if (!task.startDate || !task.endDate) return { left: 0, width: 0 };
     const start = new Date(task.startDate);
@@ -860,12 +863,15 @@ export default function WBSPage() {
   };
 
   const getUnitLabels = () => {
-    const labels: string[] = [];
+    const labels: ({ top: string; bottom: string } | string)[] = [];
     const { daysPerUnit, unitLabel } = ZOOM_CONFIGS[zoom];
     for (let i = 0; i < units; i++) {
       const unitDate = new Date(minDate.getTime() + i * daysPerUnit * 24 * 60 * 60 * 1000);
       if (zoom === "day") {
-        labels.push(unitDate.toLocaleDateString("en-US", { month: "short", day: "numeric" }));
+        labels.push({
+          top: unitDate.toLocaleDateString("en-US", { weekday: "short" }),
+          bottom: unitDate.toLocaleDateString("en-US", { day: "numeric" })
+        });
       } else if (zoom === "week") {
         labels.push(`${unitLabel} ${i + 1}`);
       } else if (zoom === "month") {
@@ -899,17 +905,20 @@ export default function WBSPage() {
     const elements: JSX.Element[] = [
       <div
         key={task.id}
-        className={`grid grid-cols-12 items-center border-b border-border ${priorityClass}`}
-        style={{ paddingLeft: `${level * 1.5}rem` }}
+        className={`grid grid-cols-[300px_1fr] items-center border-b border-border ${priorityClass}`}
       >
-        <div className="col-span-3 flex items-center gap-2 py-2 pr-2 border-r border-border bg-card">
+        <div 
+          className="flex items-center gap-2 py-2 pr-2 border-r border-border bg-card sticky left-0 z-10 h-full"
+          style={{ paddingLeft: `${(level * 1.5) + 0.5}rem` }}
+        >
           <Badge variant="outline" className="font-mono text-xs shrink-0">{task.wbsCode || `#${task.id}`}</Badge>
           <span className="text-sm font-medium truncate">{task.name}</span>
         </div>
-        <div className="col-span-9 relative h-10 bg-white dark:bg-gray-900 border-r border-border">
-          {/* Vertical grid lines for days/weeks */}
-          <div className="absolute inset-0 flex">
-            {Array.from({ length: totalDays }).map((_, dayIndex) => {
+        <div className="relative h-10 bg-white dark:bg-gray-900 border-r border-border overflow-hidden">
+          <div style={{ minWidth: `${units * ZOOM_CONFIGS[zoom].minUnitWidth}px`, height: '100%', position: 'relative' }}>
+            {/* Vertical grid lines for days/weeks */}
+            <div className="absolute inset-0 flex">
+              {Array.from({ length: totalDays }).map((_, dayIndex) => {
               const dayDate = new Date(minDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
               dayDate.setHours(0, 0, 0, 0);
               const isWeekend = dayDate.getDay() === 0 || dayDate.getDay() === 6;
@@ -949,6 +958,7 @@ export default function WBSPage() {
           ) : (
             <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground z-10">No dates set</div>
           )}
+          </div>
         </div>
       </div>
     ];
@@ -1740,15 +1750,54 @@ export default function WBSPage() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <div className="min-w-[1000px]">
-                  <div className="grid grid-cols-12 mb-4 border border-border rounded-lg overflow-hidden bg-card">
-                    <div className="col-span-3 bg-card p-3 font-semibold text-sm border-r border-border">Task</div>
-                    <div className="col-span-9 bg-card">
-                      <div className="grid text-center text-sm font-semibold border-b border-border" style={{ gridTemplateColumns: `repeat(${Math.min(units, 12)}, 1fr)` }}>
-                        {getUnitLabels().slice(0, 12).map((label, i) => (
-                          <div key={i} className="p-3 border-l border-border last:border-r-0">{label}</div>
-                        ))}
-                      </div>
+                <div className="min-w-[1000px]" style={{ minWidth: `${containerWidth}px` }}>
+                  <div className="grid grid-cols-[300px_1fr] mb-4 border border-border rounded-lg overflow-hidden bg-card">
+                    <div className="bg-card p-3 font-semibold text-sm border-r border-border sticky left-0 z-10">Task</div>
+                    <div className="bg-card overflow-x-hidden">
+                      {zoom === "day" ? (
+                        <div className="border-b border-border">
+                          <div 
+                            className="grid text-center text-xs font-semibold border-b border-border/50 bg-muted/30" 
+                            style={{ 
+                              gridTemplateColumns: `repeat(${units}, 1fr)`,
+                              minWidth: `${units * ZOOM_CONFIGS[zoom].minUnitWidth}px`
+                            }}
+                          >
+                            {getUnitLabels().map((label, i) => (
+                              <div key={`top-${i}`} className="p-1 border-l border-border last:border-r-0 truncate text-muted-foreground">
+                                {typeof label === 'object' ? label.top : ''}
+                              </div>
+                            ))}
+                          </div>
+                          <div 
+                            className="grid text-center text-sm font-semibold" 
+                            style={{ 
+                              gridTemplateColumns: `repeat(${units}, 1fr)`,
+                              minWidth: `${units * ZOOM_CONFIGS[zoom].minUnitWidth}px`
+                            }}
+                          >
+                            {getUnitLabels().map((label, i) => (
+                              <div key={`bottom-${i}`} className="p-1 border-l border-border last:border-r-0">
+                                {typeof label === 'object' ? label.bottom : ''}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div 
+                          className="grid text-center text-sm font-semibold border-b border-border" 
+                          style={{ 
+                            gridTemplateColumns: `repeat(${units}, 1fr)`,
+                            minWidth: `${units * ZOOM_CONFIGS[zoom].minUnitWidth}px`
+                          }}
+                        >
+                          {getUnitLabels().map((label, i) => (
+                            <div key={i} className="p-3 border-l border-border last:border-r-0 truncate">
+                              {typeof label === 'string' ? label : ''}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="space-y-1">{rootTasks.map(task => renderGanttTask(task))}</div>
