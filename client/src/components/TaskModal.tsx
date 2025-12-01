@@ -550,13 +550,26 @@ export function TaskModal({
     const payload: any = {
       ...formData,
       projectId: selectedProjectId,
-      // Convert strings to Date objects for schema validation (drizzle-zod expects Date for timestamp)
-      startDate: formData.startDate ? new Date(formData.startDate) : null,
-      endDate: formData.endDate ? new Date(formData.endDate) : null,
-      baselineStart: formData.baselineStart ? new Date(formData.baselineStart) : null,
-      baselineFinish: formData.baselineFinish ? new Date(formData.baselineFinish) : null,
-      actualStartDate: formData.actualStartDate ? new Date(formData.actualStartDate) : null,
-      actualFinishDate: formData.actualFinishDate ? new Date(formData.actualFinishDate) : null,
+      // Convert empty strings to null, valid date strings to Date objects for schema validation
+      // This allows flexible creation: planned dates only, baseline dates only, or effort-driven
+      startDate: formData.startDate && formData.startDate.trim() !== "" 
+        ? new Date(formData.startDate) 
+        : null,
+      endDate: formData.endDate && formData.endDate.trim() !== "" 
+        ? new Date(formData.endDate) 
+        : null,
+      baselineStart: formData.baselineStart && formData.baselineStart.trim() !== "" 
+        ? new Date(formData.baselineStart) 
+        : null,
+      baselineFinish: formData.baselineFinish && formData.baselineFinish.trim() !== "" 
+        ? new Date(formData.baselineFinish) 
+        : null,
+      actualStartDate: formData.actualStartDate && formData.actualStartDate.trim() !== "" 
+        ? new Date(formData.actualStartDate) 
+        : null,
+      actualFinishDate: formData.actualFinishDate && formData.actualFinishDate.trim() !== "" 
+        ? new Date(formData.actualFinishDate) 
+        : null,
       
       // Ensure decimals are strings to avoid "Error 400" (Zod schema expects string for decimal)
       estimatedHours: formData.estimatedHours ? String(formData.estimatedHours) : null,
@@ -890,7 +903,16 @@ export function TaskModal({
           value={activeTab} 
           onValueChange={(val) => {
             if (!isEditing && val !== "details") {
-              // If creating a new task and switching tabs, auto-create first
+              // If creating a new task and switching tabs, check if task has at least a name
+              if (!formData.name.trim()) {
+                toast({
+                  title: "Task Name Required",
+                  description: "Please enter a task name before accessing other tabs.",
+                  variant: "destructive",
+                });
+                return;
+              }
+              // Auto-create when switching tabs (will handle date validation gracefully)
               handleSave({ action: "switchTab", value: val });
             } else {
               setActiveTab(val);
@@ -905,6 +927,12 @@ export function TaskModal({
                 className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-2"
               >
                 Details
+              </TabsTrigger>
+              <TabsTrigger 
+                value="schedule" 
+                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-2"
+              >
+                Schedule
               </TabsTrigger>
               <TabsTrigger 
                 value="dependencies" 
@@ -1041,46 +1069,6 @@ export function TaskModal({
                       )}
                     </div>
                   </div>
-
-                  {/* PMI Standard Duration Info */}
-                  {task && (
-                    <div className="space-y-3 p-4 bg-accent/5 border border-accent/20 rounded-lg">
-                      <h4 className="text-sm font-semibold flex items-center gap-2">
-                        <Clock className="h-4 w-4" />
-                        Duration Information (PMI Standard)
-                      </h4>
-                      <div className="grid grid-cols-3 gap-4">
-                        <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">Baseline Duration</Label>
-                          <p className="text-sm font-medium">
-                            {(task as any).baselineDuration 
-                              ? `${(task as any).baselineDuration} days` 
-                              : "Not set"}
-                          </p>
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">Computed Duration</Label>
-                          <p className="text-sm font-medium">
-                            {(task as any).computedDuration 
-                              ? `${(task as any).computedDuration} days` 
-                              : task.estimatedHours 
-                                ? "Calculating..." 
-                                : "Not calculated"}
-                          </p>
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">Actual Duration</Label>
-                          <p className="text-sm font-medium">
-                            {(task as any).actualDuration 
-                              ? `${(task as any).actualDuration} days` 
-                              : task.status === "completed" && (task as any).actualStartDate && (task as any).actualFinishDate
-                                ? `${Math.ceil((new Date((task as any).actualFinishDate).getTime() - new Date((task as any).actualStartDate).getTime()) / (1000 * 60 * 60 * 24))} days`
-                                : "N/A"}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </div>
 
                 {/* Right Column: Meta, Status, Dates */}
@@ -1205,51 +1193,113 @@ export function TaskModal({
                       </div>
                     </CardContent>
                   </Card>
+                </div>
+              </div>
+            </TabsContent>
 
+            <TabsContent value="schedule" className="space-y-6 mt-0 h-full">
+              <div className="space-y-6">
+                {/* Info Legend */}
+                <div className="rounded-md bg-blue-50 dark:bg-blue-950 p-4 text-xs text-blue-800 dark:text-blue-200 border border-blue-200 dark:border-blue-800">
+                  <p className="font-semibold mb-2">Understanding Dates in PMI & EPC Projects:</p>
                   <div className="space-y-2">
-                    <Label htmlFor="estimated-hours">Estimated Hours</Label>
-                    <Input
-                      id="estimated-hours"
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={formData.estimatedHours}
-                      onChange={(e) => setFormData({ ...formData, estimatedHours: e.target.value })}
-                      data-testid="input-estimated-hours"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="constraint-type">Constraint Type</Label>
-                    <Select 
-                      value={formData.constraintType} 
-                      onValueChange={(value) => setFormData({ ...formData, constraintType: value })}
-                    >
-                      <SelectTrigger id="constraint-type" data-testid="select-constraint-type">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {CONSTRAINT_TYPES.map((type) => (
-                          <SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Dates Section */}
-                  <div className="space-y-4 border-t pt-4">
-                    {/* Info Legend */}
-                    <div className="rounded-md bg-blue-50 p-3 text-xs text-blue-800 border border-blue-200">
-                      <p className="font-semibold mb-1">Scheduling Modes:</p>
-                      <ul className="list-disc pl-4 space-y-1">
-                        <li><strong>Manual:</strong> Set Planned Start & End directly.</li>
-                        <li><strong>Effort-Driven:</strong> Set Start + Estimated Hours, then click <Activity className="h-3 w-3 inline mx-1"/> Recalculate Schedule.</li>
-                        <li><strong>Baseline:</strong> Use baseline dates for tracking variance against plan.</li>
+                    <div>
+                      <p className="font-medium mb-1">Baseline vs Actual (What We Show):</p>
+                      <p className="pl-2">In PMI & EPC projects, we primarily track <strong>Baseline</strong> vs <strong>Actual</strong> dates.</p>
+                      <ul className="list-disc pl-6 mt-1 space-y-1">
+                        <li><strong>Baseline:</strong> The approved plan - these are the committed dates that serve as the tracking target.</li>
+                        <li><strong>Actual:</strong> The real dates when work actually started and finished.</li>
                       </ul>
+                    </div>
+                    <div>
+                      <p className="font-medium mb-1">Planned Dates (Project Manager's Tool):</p>
+                      <p className="pl-2">Planned dates are used for calculation and planning:</p>
+                      <ul className="list-disc pl-6 mt-1 space-y-1">
+                        <li><strong>Manual:</strong> Set Planned Start & End dates directly.</li>
+                        <li><strong>Effort-Driven:</strong> Set Start date + Estimated Hours, then click <Activity className="h-3 w-3 inline mx-1"/> Recalculate Schedule to compute the end date based on resources, working days, and constraints.</li>
+                        <li><strong>Commit to Baseline:</strong> Once satisfied with the planned duration, click "Set Baseline" to commit the planned dates as the baseline (approved plan).</li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Duration Information */}
+                {task && (
+                  <div className="space-y-3 p-4 bg-accent/5 border border-accent/20 rounded-lg">
+                    <h4 className="text-sm font-semibold flex items-center gap-2">
+                      <Clock className="h-4 w-4" />
+                      Duration Information (PMI Standard)
+                    </h4>
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Baseline Duration</Label>
+                        <p className="text-sm font-medium">
+                          {(task as any).baselineDuration 
+                            ? `${(task as any).baselineDuration} days` 
+                            : "Not set"}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Computed Duration</Label>
+                        <p className="text-sm font-medium">
+                          {(task as any).computedDuration 
+                            ? `${(task as any).computedDuration} days` 
+                            : task.estimatedHours 
+                              ? "Calculating..." 
+                              : "Not calculated"}
+                        </p>
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Actual Duration</Label>
+                        <p className="text-sm font-medium">
+                          {(task as any).actualDuration 
+                            ? `${(task as any).actualDuration} days` 
+                            : task.status === "completed" && (task as any).actualStartDate && (task as any).actualFinishDate
+                              ? `${Math.ceil((new Date((task as any).actualFinishDate).getTime() - new Date((task as any).actualStartDate).getTime()) / (1000 * 60 * 60 * 24))} days`
+                              : "N/A"}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Scheduling Fields */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="estimated-hours">Estimated Hours</Label>
+                      <Input
+                        id="estimated-hours"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={formData.estimatedHours}
+                        onChange={(e) => setFormData({ ...formData, estimatedHours: e.target.value })}
+                        data-testid="input-estimated-hours"
+                      />
                     </div>
 
                     <div className="space-y-2">
-                      <Label className="text-xs font-semibold text-muted-foreground uppercase">Planned Schedule (Manual or Effort-Driven)</Label>
+                      <Label htmlFor="constraint-type">Constraint Type</Label>
+                      <Select 
+                        value={formData.constraintType} 
+                        onValueChange={(value) => setFormData({ ...formData, constraintType: value })}
+                      >
+                        <SelectTrigger id="constraint-type" data-testid="select-constraint-type">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {CONSTRAINT_TYPES.map((type) => (
+                            <SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label className="text-sm font-semibold">Planned Schedule (Manual or Effort-Driven)</Label>
                       <div className="grid grid-cols-2 gap-2">
                         <div className="space-y-1">
                           <Label htmlFor="start-date" className="text-xs">Start</Label>
@@ -1259,7 +1309,7 @@ export function TaskModal({
                             value={formData.startDate}
                             onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
                             disabled={formData.progress === 100}
-                            className="h-8 text-xs"
+                            className="h-9"
                           />
                         </div>
                         <div className="space-y-1">
@@ -1271,11 +1321,11 @@ export function TaskModal({
                               value={formData.endDate}
                               onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
                               disabled={formData.progress === 100}
-                              className="h-8 text-xs"
+                              className="h-9"
                             />
                             {/* Visual hint if estimated hours is set */}
                             {formData.estimatedHours && !formData.endDate && (
-                              <span className="absolute right-2 top-1.5 text-[10px] text-muted-foreground italic">
+                              <span className="absolute right-2 top-2 text-[10px] text-muted-foreground italic">
                                 Auto-calc
                               </span>
                             )}
@@ -1283,60 +1333,63 @@ export function TaskModal({
                         </div>
                       </div>
                     </div>
+                  </div>
+                </div>
 
-                    <div className="space-y-2">
-                      <Label className="text-xs font-semibold text-muted-foreground uppercase">Baseline (Tracking Target)</Label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="space-y-1">
-                          <Label htmlFor="baseline-start" className="text-xs">Start</Label>
-                          <Input
-                            id="baseline-start"
-                            type="date"
-                            value={formData.baselineStart}
-                            onChange={(e) => setFormData({ ...formData, baselineStart: e.target.value })}
-                            disabled={!!(task as any)?.baselineStart}
-                            className="h-8 text-xs"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label htmlFor="baseline-finish" className="text-xs">Finish</Label>
-                          <Input
-                            id="baseline-finish"
-                            type="date"
-                            value={formData.baselineFinish}
-                            onChange={(e) => setFormData({ ...formData, baselineFinish: e.target.value })}
-                            disabled={!!(task as any)?.baselineFinish}
-                            className="h-8 text-xs"
-                          />
-                        </div>
+                {/* Baseline and Actual Dates */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <Label className="text-sm font-semibold">Baseline (Tracking Target)</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label htmlFor="baseline-start" className="text-xs">Start</Label>
+                        <Input
+                          id="baseline-start"
+                          type="date"
+                          value={formData.baselineStart}
+                          onChange={(e) => setFormData({ ...formData, baselineStart: e.target.value })}
+                          disabled={!!(task as any)?.baselineStart}
+                          className="h-9"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="baseline-finish" className="text-xs">Finish</Label>
+                        <Input
+                          id="baseline-finish"
+                          type="date"
+                          value={formData.baselineFinish}
+                          onChange={(e) => setFormData({ ...formData, baselineFinish: e.target.value })}
+                          disabled={!!(task as any)?.baselineFinish}
+                          className="h-9"
+                        />
                       </div>
                     </div>
+                  </div>
 
-                    <div className="space-y-2">
-                      <Label className="text-xs font-semibold text-muted-foreground uppercase">Actual (Progress)</Label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="space-y-1">
-                          <Label htmlFor="actual-start-date" className="text-xs">Start</Label>
-                          <Input
-                            id="actual-start-date"
-                            type="date"
-                            value={formData.actualStartDate}
-                            onChange={(e) => setFormData({ ...formData, actualStartDate: e.target.value })}
-                            disabled={formData.progress === 0}
-                            className="h-8 text-xs"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <Label htmlFor="actual-finish-date" className="text-xs">Finish</Label>
-                          <Input
-                            id="actual-finish-date"
-                            type="date"
-                            value={formData.actualFinishDate}
-                            onChange={(e) => setFormData({ ...formData, actualFinishDate: e.target.value })}
-                            disabled={formData.progress < 100}
-                            className="h-8 text-xs"
-                          />
-                        </div>
+                  <div className="space-y-2">
+                    <Label className="text-sm font-semibold">Actual (Progress)</Label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="space-y-1">
+                        <Label htmlFor="actual-start-date" className="text-xs">Start</Label>
+                        <Input
+                          id="actual-start-date"
+                          type="date"
+                          value={formData.actualStartDate}
+                          onChange={(e) => setFormData({ ...formData, actualStartDate: e.target.value })}
+                          disabled={formData.progress === 0}
+                          className="h-9"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label htmlFor="actual-finish-date" className="text-xs">Finish</Label>
+                        <Input
+                          id="actual-finish-date"
+                          type="date"
+                          value={formData.actualFinishDate}
+                          onChange={(e) => setFormData({ ...formData, actualFinishDate: e.target.value })}
+                          disabled={formData.progress < 100}
+                          className="h-9"
+                        />
                       </div>
                     </div>
                   </div>
@@ -1874,9 +1927,31 @@ export function TaskModal({
                   )}
 
                   <div className="space-y-2">
-                    <h4 className="text-sm font-semibold">Available Documents</h4>
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-semibold">Available Documents</h4>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowDocumentCreation(true)}
+                        className="gap-2"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Create New
+                      </Button>
+                    </div>
                     {documents.filter(d => !linkedDocIds.includes(d.id)).length === 0 ? (
-                      <p className="text-sm text-muted-foreground py-4 text-center">No documents available to link</p>
+                      <div className="space-y-2">
+                        <p className="text-sm text-muted-foreground py-4 text-center">No documents available to link</p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowDocumentCreation(true)}
+                          className="w-full gap-2"
+                        >
+                          <Plus className="h-4 w-4" />
+                          Create New Document
+                        </Button>
+                      </div>
                     ) : (
                       <div className="grid grid-cols-1 gap-2 max-h-[200px] overflow-y-auto">
                         {documents.filter(d => !linkedDocIds.includes(d.id)).map((doc) => (
@@ -1967,9 +2042,31 @@ export function TaskModal({
                   )}
 
                   <div className="space-y-2">
-                    <h4 className="text-sm font-semibold">Available Risks</h4>
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-semibold">Available Risks</h4>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowRiskCreation(true)}
+                        className="gap-2"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Create New
+                      </Button>
+                    </div>
                     {risks.filter(r => !linkedRiskIds.includes(r.id)).length === 0 ? (
-                      <p className="text-sm text-muted-foreground py-4 text-center">No risks available to link</p>
+                      <div className="space-y-2">
+                        <p className="text-sm text-muted-foreground py-4 text-center">No risks available to link</p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowRiskCreation(true)}
+                          className="w-full gap-2"
+                        >
+                          <Plus className="h-4 w-4" />
+                          Create New Risk
+                        </Button>
+                      </div>
                     ) : (
                       <div className="grid grid-cols-1 gap-2 max-h-[200px] overflow-y-auto">
                         {risks.filter(r => !linkedRiskIds.includes(r.id)).map((risk) => (
@@ -2063,9 +2160,31 @@ export function TaskModal({
                   )}
 
                   <div className="space-y-2">
-                    <h4 className="text-sm font-semibold">Available Issues</h4>
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-semibold">Available Issues</h4>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowIssueCreation(true)}
+                        className="gap-2"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Create New
+                      </Button>
+                    </div>
                     {issues.filter(i => !linkedIssueIds.includes(i.id)).length === 0 ? (
-                      <p className="text-sm text-muted-foreground py-4 text-center">No issues available to link</p>
+                      <div className="space-y-2">
+                        <p className="text-sm text-muted-foreground py-4 text-center">No issues available to link</p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setShowIssueCreation(true)}
+                          className="w-full gap-2"
+                        >
+                          <Plus className="h-4 w-4" />
+                          Create New Issue
+                        </Button>
+                      </div>
                     ) : (
                       <div className="grid grid-cols-1 gap-2 max-h-[200px] overflow-y-auto">
                         {issues.filter(i => !linkedIssueIds.includes(i.id)).map((issue) => (

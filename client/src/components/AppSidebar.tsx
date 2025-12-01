@@ -45,7 +45,6 @@ const projectTabs = [
   { title: "AI Assistant", icon: Bot, path: "/ai-assistant" },
   { title: "Chat", icon: MessageSquare, path: "/chat" },
   { title: "Reports", icon: FileDown, path: "/reports" },
-  { title: "Email Templates", icon: Mail, path: "/email-templates" },
   { title: "Documents", icon: FileText, path: "/documents" },
   { title: "Analytics", icon: BarChart3, path: "/analytics" },
 ];
@@ -53,7 +52,7 @@ const projectTabs = [
 const pmoTabs = [
   { title: "Dashboard", icon: LayoutDashboard, path: "/pmo/dashboard" },
   { title: "Projects", icon: FolderKanban, path: "/pmo/projects" },
-  { title: "Contacts Directory", icon: Contact, path: "/pmo/contacts" },
+  { title: "Contacts", icon: Contact, path: "/pmo/contacts" },
   { title: "Calendar", icon: Calendar, path: "/pmo/calendar" },
   { title: "Inventory", icon: Package, path: "/pmo/inventory" },
   { title: "Settings", icon: Settings, path: "/settings" },

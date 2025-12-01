@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useProject } from "@/contexts/ProjectContext";
 import { insertResourceSchema } from "@shared/schema";
 import type { Resource, InsertResource } from "@shared/schema";
 

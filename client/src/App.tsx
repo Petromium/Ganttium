@@ -70,7 +70,10 @@ function Router() {
       <Route path="/documents" component={DocumentsPage} />
       <Route path="/analytics" component={AnalyticsPage} />
       <Route path="/reports" component={ReportsPage} />
-      <Route path="/email-templates" component={EmailTemplatesPage} />
+      <Route path="/email-templates" component={() => {
+        window.location.href = "/settings?tab=email-templates";
+        return null;
+      }} />
       <Route path="/ai-assistant" component={AIAssistantPage} />
       <Route path="/chat" component={ChatPage} />
       <Route path="/settings" component={SettingsPage} />
