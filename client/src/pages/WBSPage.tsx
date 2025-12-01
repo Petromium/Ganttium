@@ -858,8 +858,17 @@ export default function WBSPage() {
     const start = new Date(task.startDate);
     const end = new Date(task.endDate);
     const startOffset = Math.floor((start.getTime() - minDate.getTime()) / (1000 * 60 * 60 * 24));
-    const duration = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-    return { left: (startOffset / totalDays) * 100, width: Math.max((duration / totalDays) * 100, 1) };
+    const duration = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+    return { left: (startOffset / totalDays) * 100, width: (duration / totalDays) * 100 };
+  };
+
+  const getBaselinePosition = (task: Task) => {
+    if (!(task as any).baselineStart || !(task as any).baselineFinish) return null;
+    const start = new Date((task as any).baselineStart);
+    const end = new Date((task as any).baselineFinish);
+    const startOffset = Math.floor((start.getTime() - minDate.getTime()) / (1000 * 60 * 60 * 24));
+    const duration = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+    return { left: (startOffset / totalDays) * 100, width: (duration / totalDays) * 100 };
   };
 
   const getUnitLabels = () => {
@@ -914,37 +923,29 @@ export default function WBSPage() {
           <Badge variant="outline" className="font-mono text-xs shrink-0">{task.wbsCode || `#${task.id}`}</Badge>
           <span className="text-sm font-medium truncate">{task.name}</span>
         </div>
-        <div className="relative h-10 bg-white dark:bg-gray-900 border-r border-border overflow-hidden">
-          <div style={{ minWidth: `${units * ZOOM_CONFIGS[zoom].minUnitWidth}px`, height: '100%', position: 'relative' }}>
-            {/* Vertical grid lines for days/weeks */}
-            <div className="absolute inset-0 flex">
-              {Array.from({ length: totalDays }).map((_, dayIndex) => {
-              const dayDate = new Date(minDate.getTime() + dayIndex * 24 * 60 * 60 * 1000);
-              dayDate.setHours(0, 0, 0, 0);
-              const isWeekend = dayDate.getDay() === 0 || dayDate.getDay() === 6;
-              const isToday = dayDate.getTime() === today.getTime();
-              const { daysPerUnit } = ZOOM_CONFIGS[zoom];
-              const isUnitBoundary = dayIndex % daysPerUnit === 0;
-              
-              return (
-                <div
-                  key={dayIndex}
-                  className={cn(
-                    "border-l",
-                    isUnitBoundary ? "border-border" : "border-border/30",
-                    isWeekend && "bg-muted/10",
-                    isToday && "bg-primary/5"
-                  )}
-                  style={{ width: `${100 / totalDays}%` }}
-                >
-                  {isToday && (
-                    <div className="absolute left-0 top-0 bottom-0 w-0.5 bg-primary z-10" />
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          
+        <div className="relative h-full bg-white dark:bg-gray-900 border-r border-border overflow-hidden">
+          <div style={{ 
+            minWidth: `${units * ZOOM_CONFIGS[zoom].minUnitWidth}px`, 
+            height: '100%', 
+            position: 'relative',
+            backgroundImage: `linear-gradient(to right, transparent calc(100% - 1px), hsl(var(--border)) calc(100% - 1px))`,
+            backgroundSize: `${ZOOM_CONFIGS[zoom].minUnitWidth}px 100%` 
+          }}>
+            
+          {/* Baseline Bar (Bottom) */}
+          {baselinePos && (
+            <div
+              className="absolute h-3 bg-muted/50 border border-muted-foreground/30 top-9 rounded-sm overflow-hidden"
+              style={{
+                left: `${baselinePos.left}%`,
+                width: `${baselinePos.width}%`,
+                background: "repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(0,0,0,0.05) 5px, rgba(0,0,0,0.05) 10px)"
+              }}
+              title={`Baseline: ${new Date((task as any).baselineStart).toLocaleDateString()} - ${new Date((task as any).baselineFinish).toLocaleDateString()}`}
+            />
+          )}
+
+          {/* Plan/Actual Bar (Top) */}
           {hasValidDates ? (
             <div
               className={`absolute top-1/2 -translate-y-1/2 h-6 rounded-md ${getStatusBgColor(task.status)} flex items-center px-2 text-white text-xs font-semibold shadow-md hover:shadow-lg cursor-pointer transition-all overflow-hidden z-20`}

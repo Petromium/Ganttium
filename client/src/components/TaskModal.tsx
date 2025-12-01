@@ -83,11 +83,13 @@ export function TaskModal({
   task, 
   defaultStatus = "not-started",
   onClose,
-  onSave 
+  onSave,
+  onCreate
 }: TaskModalProps) {
   const { selectedProjectId } = useProject();
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("details");
+  const [pendingAction, setPendingAction] = useState<{ action: 'recalculate' | 'switchTab', value?: string } | null>(null);
   const [selectedPredecessor, setSelectedPredecessor] = useState<string>("");
   const [selectedSuccessor, setSelectedSuccessor] = useState<string>("");
   const [predecessorLag, setPredecessorLag] = useState<number>(0);
@@ -279,7 +281,19 @@ export function TaskModal({
       
       if (onCreate) {
         onCreate(newTask);
-      } else {
+      }
+      
+      // Handle pending actions (e.g. switch tab or recalculate)
+      if (pendingAction) {
+        if (pendingAction.action === 'switchTab' && pendingAction.value) {
+          setActiveTab(pendingAction.value);
+        } else if (pendingAction.action === 'recalculate') {
+          // If we had a recalculate request, we might want to trigger it or just let them know
+          toast({ title: "Schedule", description: "Task created. You can now recalculate schedule." });
+        }
+        setPendingAction(null);
+      } else if (!onCreate) {
+        // Only close if no pending action and no custom onCreate handler
         handleClose();
       }
     },
@@ -558,6 +572,9 @@ export function TaskModal({
     if (task) {
       updateMutation.mutate(result.data);
     } else {
+      if (options) {
+        setPendingAction(options);
+      }
       createMutation.mutate(result.data as InsertTask);
     }
   };
@@ -832,7 +849,18 @@ export function TaskModal({
           </div>
         </DialogHeader>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
+        <Tabs 
+          value={activeTab} 
+          onValueChange={(val) => {
+            if (!isEditing && val !== "details") {
+              // If creating a new task and switching tabs, auto-create first
+              handleSave({ action: "switchTab", value: val });
+            } else {
+              setActiveTab(val);
+            }
+          }} 
+          className="flex-1 flex flex-col min-h-0"
+        >
           <div className="px-6 pt-2 border-b shrink-0 bg-background">
             <TabsList className="w-full justify-start h-auto p-0 bg-transparent border-b-0 rounded-none">
               <TabsTrigger 
@@ -843,35 +871,30 @@ export function TaskModal({
               </TabsTrigger>
               <TabsTrigger 
                 value="dependencies" 
-                disabled={!isEditing}
                 className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-2"
               >
                 Dependencies {isEditing && (predecessors.length + successors.length > 0) && `(${predecessors.length + successors.length})`}
               </TabsTrigger>
               <TabsTrigger 
                 value="resources" 
-                disabled={!isEditing}
                 className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-2"
               >
                 Resources {isEditing && assignments.length > 0 && `(${assignments.length})`}
               </TabsTrigger>
               <TabsTrigger 
                 value="documents" 
-                disabled={!isEditing}
                 className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-2"
               >
                 Documents {isEditing && taskDocuments.length > 0 && `(${taskDocuments.length})`}
               </TabsTrigger>
               <TabsTrigger 
                 value="risks" 
-                disabled={!isEditing}
                 className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-2"
               >
                 Risks {isEditing && taskRisks.length > 0 && `(${taskRisks.length})`}
               </TabsTrigger>
               <TabsTrigger 
                 value="issues" 
-                disabled={!isEditing}
                 className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-2"
               >
                 Issues {isEditing && taskIssues.length > 0 && `(${taskIssues.length})`}
@@ -1139,8 +1162,18 @@ export function TaskModal({
 
                   {/* Dates Section */}
                   <div className="space-y-4 border-t pt-4">
+                    {/* Info Legend */}
+                    <div className="rounded-md bg-blue-50 p-3 text-xs text-blue-800 border border-blue-200">
+                      <p className="font-semibold mb-1">Scheduling Modes:</p>
+                      <ul className="list-disc pl-4 space-y-1">
+                        <li><strong>Manual:</strong> Set Planned Start & End directly.</li>
+                        <li><strong>Effort-Driven:</strong> Set Start + Estimated Hours, then click <Activity className="h-3 w-3 inline mx-1"/> Recalculate Schedule.</li>
+                        <li><strong>Baseline:</strong> Use baseline dates for tracking variance against plan.</li>
+                      </ul>
+                    </div>
+
                     <div className="space-y-2">
-                      <Label className="text-xs font-semibold text-muted-foreground uppercase">Planned</Label>
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase">Planned Schedule (Manual or Effort-Driven)</Label>
                       <div className="grid grid-cols-2 gap-2">
                         <div className="space-y-1">
                           <Label htmlFor="start-date" className="text-xs">Start</Label>
@@ -1155,20 +1188,28 @@ export function TaskModal({
                         </div>
                         <div className="space-y-1">
                           <Label htmlFor="end-date" className="text-xs">End</Label>
-                          <Input
-                            id="end-date"
-                            type="date"
-                            value={formData.endDate}
-                            onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
-                            disabled={formData.progress === 100}
-                            className="h-8 text-xs"
-                          />
+                          <div className="relative">
+                            <Input
+                              id="end-date"
+                              type="date"
+                              value={formData.endDate}
+                              onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
+                              disabled={formData.progress === 100}
+                              className="h-8 text-xs"
+                            />
+                            {/* Visual hint if estimated hours is set */}
+                            {formData.estimatedHours && !formData.endDate && (
+                              <span className="absolute right-2 top-1.5 text-[10px] text-muted-foreground italic">
+                                Auto-calc
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>
 
                     <div className="space-y-2">
-                      <Label className="text-xs font-semibold text-muted-foreground uppercase">Baseline</Label>
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase">Baseline (Tracking Target)</Label>
                       <div className="grid grid-cols-2 gap-2">
                         <div className="space-y-1">
                           <Label htmlFor="baseline-start" className="text-xs">Start</Label>
@@ -1196,7 +1237,7 @@ export function TaskModal({
                     </div>
 
                     <div className="space-y-2">
-                      <Label className="text-xs font-semibold text-muted-foreground uppercase">Actual</Label>
+                      <Label className="text-xs font-semibold text-muted-foreground uppercase">Actual (Progress)</Label>
                       <div className="grid grid-cols-2 gap-2">
                         <div className="space-y-1">
                           <Label htmlFor="actual-start-date" className="text-xs">Start</Label>
@@ -1988,120 +2029,131 @@ export function TaskModal({
           <Button variant="outline" onClick={handleClose} disabled={isLoading} data-testid="button-cancel">
             Cancel
           </Button>
-          {isEditing && task && (
-            <>
-              <Button
-                variant="outline"
-                onClick={async () => {
-                  try {
-                    // Check if constraint is applied
-                    const hasConstraint = formData.constraintType !== "asap" && (task as any).constraintDate;
-                    
-                    const baselineData: any = {
-                      baselineStart: formData.startDate,
-                      baselineFinish: formData.endDate,
-                    };
-                    
-                    // Include computedDuration if available
-                    if ((task as any).computedDuration) {
-                      baselineData.baselineDuration = (task as any).computedDuration;
-                    }
-                    
-                    const response = await apiRequest("PATCH", `/api/tasks/${task.id}`, baselineData);
-                    const updatedTask = await response.json();
-                    
-                    // Update formData with refreshed baseline dates
-                    setFormData(prev => ({
-                      ...prev,
-                      baselineStart: updatedTask.baselineStart ? new Date(updatedTask.baselineStart).toISOString().split('T')[0] : prev.baselineStart,
-                      baselineFinish: updatedTask.baselineFinish ? new Date(updatedTask.baselineFinish).toISOString().split('T')[0] : prev.baselineFinish,
-                    }));
-                    
-                    queryClient.invalidateQueries({ queryKey: [`/api/tasks/${task.id}`] });
-                    toast({
-                      title: "Baseline Set",
-                      description: hasConstraint 
-                        ? "Baseline dates set from planned dates (constraint may override)."
-                        : "Baseline dates set from planned dates.",
-                    });
-                  } catch (error: any) {
-                    console.error("Set baseline error:", error);
-                    toast({
-                      title: "Error",
-                      description: error?.message || "Failed to set baseline.",
-                      variant: "destructive",
-                    });
-                  }
-                }}
-                disabled={isLoading || !formData.startDate || !formData.endDate || formData.progress === 100}
-                data-testid="button-set-baseline"
-                title={!formData.startDate || !formData.endDate ? "Set planned dates first" : formData.progress === 100 ? "Task completed - baseline locked" : ""}
-              >
-                Set Baseline
-              </Button>
-              <Button 
-                variant="outline" 
-                onClick={async () => {
-                  try {
-                    // Send current form data to update the task first, which triggers recalculation
-                    // This ensures the calculation is based on the values currently in the form
-                    // Note: Send decimals as strings to ensure compatibility with Zod schema for decimal columns
-                    const response = await apiRequest("PATCH", `/api/tasks/${task.id}`, {
-                      ...formData,
-                      estimatedHours: formData.estimatedHours ? String(formData.estimatedHours) : null,
-                      weightFactor: formData.weightFactor !== undefined && formData.weightFactor !== null ? String(formData.weightFactor) : null,
-                    });
-                    
-                    // Check if response is actually JSON
-                    const contentType = response.headers.get("content-type");
-                    if (!contentType || !contentType.includes("application/json")) {
-                      const text = await response.text();
-                      console.error("Non-JSON response received:", text.substring(0, 200));
-                      throw new Error(`Server returned ${response.status}: Expected JSON but got ${contentType}`);
-                    }
-                    
-                    // The PATCH endpoint returns the updated task object directly
-                    const updatedTask = await response.json();
-                    
-                    // Update formData with refreshed task data, especially endDate and computedDuration
-                    if (updatedTask) {
-                      setFormData(prev => ({
-                        ...prev,
-                        endDate: updatedTask.endDate ? new Date(updatedTask.endDate).toISOString().split('T')[0] : prev.endDate,
-                        startDate: updatedTask.startDate ? new Date(updatedTask.startDate).toISOString().split('T')[0] : prev.startDate,
-                        estimatedHours: updatedTask.estimatedHours ? String(updatedTask.estimatedHours) : prev.estimatedHours,
-                      }));
-                    }
-                    
-                    toast({
-                      title: "Schedule Recalculated",
-                      description: "Task updated and schedule recalculated based on new values.",
-                    });
-                    
-                    queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/tasks`] });
-                    queryClient.invalidateQueries({ queryKey: [`/api/tasks/${task.id}`] });
-                  } catch (error: any) {
-                    // Parse error message from the error string (format: "500: error message")
-                    const errorMatch = error?.message?.match(/^\d+:\s*(.+)$/);
-                    const errorMessage = errorMatch?.[1] || error?.message || "Failed to recalculate schedule.";
-                    console.error("Recalculate schedule error:", error);
-                    toast({
-                      title: "Error",
-                      description: errorMessage,
-                      variant: "destructive",
-                    });
-                  }
-                }}
-                disabled={isLoading || formData.progress === 100}
-                data-testid="button-recalculate-schedule"
-                title={formData.progress === 100 ? "Task completed - calculations disabled" : ""}
-              >
-                <Activity className="h-4 w-4 mr-2" />
-                Recalculate Schedule
-              </Button>
-            </>
-          )}
-          <Button onClick={handleSave} disabled={isLoading} data-testid="button-save-task">
+          
+          {/* Show Set Baseline - disabled if not created yet */}
+          <Button
+            variant="outline"
+            onClick={async () => {
+              if (!isEditing || !task) {
+                // Should be disabled, but as a fallback
+                return;
+              }
+              try {
+                // Check if constraint is applied
+                const hasConstraint = formData.constraintType !== "asap" && (task as any).constraintDate;
+                
+                const baselineData: any = {
+                  baselineStart: formData.startDate,
+                  baselineFinish: formData.endDate,
+                };
+                
+                // Include computedDuration if available
+                if ((task as any).computedDuration) {
+                  baselineData.baselineDuration = (task as any).computedDuration;
+                }
+                
+                const response = await apiRequest("PATCH", `/api/tasks/${task.id}`, baselineData);
+                const updatedTask = await response.json();
+                
+                // Update formData with refreshed baseline dates
+                setFormData(prev => ({
+                  ...prev,
+                  baselineStart: updatedTask.baselineStart ? new Date(updatedTask.baselineStart).toISOString().split('T')[0] : prev.baselineStart,
+                  baselineFinish: updatedTask.baselineFinish ? new Date(updatedTask.baselineFinish).toISOString().split('T')[0] : prev.baselineFinish,
+                }));
+                
+                queryClient.invalidateQueries({ queryKey: [`/api/tasks/${task.id}`] });
+                toast({
+                  title: "Baseline Set",
+                  description: hasConstraint 
+                    ? "Baseline dates set from planned dates (constraint may override)."
+                    : "Baseline dates set from planned dates.",
+                });
+              } catch (error: any) {
+                console.error("Set baseline error:", error);
+                toast({
+                  title: "Error",
+                  description: error?.message || "Failed to set baseline.",
+                  variant: "destructive",
+                });
+              }
+            }}
+            disabled={isLoading || !isEditing || !formData.startDate || !formData.endDate || formData.progress === 100}
+            data-testid="button-set-baseline"
+            title={!isEditing ? "Create task first" : !formData.startDate || !formData.endDate ? "Set planned dates first" : formData.progress === 100 ? "Task completed - baseline locked" : ""}
+          >
+            Set Baseline
+          </Button>
+
+          {/* Recalculate Schedule - Works for both Create (auto-save) and Edit */}
+          <Button 
+            variant="outline" 
+            onClick={async () => {
+              if (!isEditing || !task) {
+                // If creating, save first with recalculate action
+                handleSave({ action: 'recalculate' });
+                return;
+              }
+              
+              try {
+                // Send current form data to update the task first, which triggers recalculation
+                // This ensures the calculation is based on the values currently in the form
+                // Note: Send decimals as strings to ensure compatibility with Zod schema for decimal columns
+                const response = await apiRequest("PATCH", `/api/tasks/${task.id}`, {
+                  ...formData,
+                  estimatedHours: formData.estimatedHours ? String(formData.estimatedHours) : null,
+                  weightFactor: formData.weightFactor !== undefined && formData.weightFactor !== null ? String(formData.weightFactor) : null,
+                });
+                
+                // Check if response is actually JSON
+                const contentType = response.headers.get("content-type");
+                if (!contentType || !contentType.includes("application/json")) {
+                  const text = await response.text();
+                  console.error("Non-JSON response received:", text.substring(0, 200));
+                  throw new Error(`Server returned ${response.status}: Expected JSON but got ${contentType}`);
+                }
+                
+                // The PATCH endpoint returns the updated task object directly
+                const updatedTask = await response.json();
+                
+                // Update formData with refreshed task data, especially endDate and computedDuration
+                if (updatedTask) {
+                  setFormData(prev => ({
+                    ...prev,
+                    endDate: updatedTask.endDate ? new Date(updatedTask.endDate).toISOString().split('T')[0] : prev.endDate,
+                    startDate: updatedTask.startDate ? new Date(updatedTask.startDate).toISOString().split('T')[0] : prev.startDate,
+                    estimatedHours: updatedTask.estimatedHours ? String(updatedTask.estimatedHours) : prev.estimatedHours,
+                  }));
+                }
+                
+                toast({
+                  title: "Schedule Recalculated",
+                  description: "Task updated and schedule recalculated based on new values.",
+                });
+                
+                queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/tasks`] });
+                queryClient.invalidateQueries({ queryKey: [`/api/tasks/${task.id}`] });
+              } catch (error: any) {
+                // Parse error message from the error string (format: "500: error message")
+                const errorMatch = error?.message?.match(/^\d+:\s*(.+)$/);
+                const errorMessage = errorMatch?.[1] || error?.message || "Failed to recalculate schedule.";
+                console.error("Recalculate schedule error:", error);
+                toast({
+                  title: "Error",
+                  description: errorMessage,
+                  variant: "destructive",
+                });
+              }
+            }}
+            disabled={isLoading || formData.progress === 100}
+            data-testid="button-recalculate-schedule"
+            title={formData.progress === 100 ? "Task completed - calculations disabled" : ""}
+          >
+            <Activity className="h-4 w-4 mr-2" />
+            Recalculate Schedule
+          </Button>
+
+          <Button onClick={() => handleSave()} disabled={isLoading} data-testid="button-save-task">
             {isLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             {isEditing ? "Update Task" : "Create Task"}
           </Button>

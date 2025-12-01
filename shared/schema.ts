@@ -1086,7 +1086,10 @@ export type UpdateProject = z.infer<typeof updateProjectSchema>;
 export type Project = typeof projects.$inferSelect;
 
 // Zod Schemas for Tasks
-export const insertTaskSchema = createInsertSchema(tasks).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertTaskSchema = createInsertSchema(tasks).omit({ id: true, createdAt: true, updatedAt: true }).extend({
+  wbsCode: z.string().optional(),
+  createdBy: z.string().optional(),
+});
 export const updateTaskSchema = insertTaskSchema.partial();
 export const selectTaskSchema = createSelectSchema(tasks);
 export type InsertTask = z.infer<typeof insertTaskSchema>;

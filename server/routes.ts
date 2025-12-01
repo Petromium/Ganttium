@@ -692,7 +692,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(task);
     } catch (error) {
       console.error("Error creating task:", error);
-      res.status(400).json({ message: "Failed to create task" });
+      if (error instanceof z.ZodError) {
+         console.error("Zod Validation Error:", JSON.stringify(error.errors, null, 2));
+         return res.status(400).json({ message: "Validation error", errors: error.errors });
+      }
+      res.status(400).json({ message: "Failed to create task", details: (error as Error).message });
     }
   });
 
@@ -4156,7 +4160,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const projectId = parseInt(req.params.projectId);
       
       // Fetch all tasks for the project
-      const tasks = await storage.getTasks(projectId);
+      const tasks = await storage.getTasksByProject(projectId);
       const taskIds = tasks.map(t => t.id);
       
       if (taskIds.length === 0) {
