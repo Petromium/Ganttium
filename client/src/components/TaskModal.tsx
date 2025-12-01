@@ -110,6 +110,7 @@ export function TaskModal({
   
   const [showIssueCreation, setShowIssueCreation] = useState(false);
   const [newlyCreatedIssueId, setNewlyCreatedIssueId] = useState<number | null>(null);
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   
   // UI State uses strings for dates/decimals to match Input requirements
   type TaskUIState = {
@@ -178,6 +179,12 @@ export function TaskModal({
 
   const { data: documents = [] } = useQuery<Document[]>({
     queryKey: [`/api/projects/${selectedProjectId}/documents`],
+    enabled: !!selectedProjectId && open,
+  });
+
+  // Fetch project users for assignment
+  const { data: projectUsers = [] } = useQuery<Array<{ id: string; name: string; email?: string }>>({
+    queryKey: [`/api/projects/${selectedProjectId}/users`],
     enabled: !!selectedProjectId && open,
   });
 
@@ -261,6 +268,18 @@ export function TaskModal({
       setPredecessorLag(0);
       setSuccessorLag(0);
       setEditingDependency(null);
+      // Initialize selected users from task.assignedTo
+      // For multiple users, we'll parse from assignedToName or use assignedTo
+      if (task?.assignedTo) {
+        // If assignedToName contains "(X users)", parse multiple users
+        // Otherwise, just use assignedTo
+        const userIds = task.assignedToName?.includes('users') 
+          ? [] // TODO: Parse from a proper multi-user field when implemented
+          : [task.assignedTo];
+        setSelectedUserIds(userIds);
+      } else {
+        setSelectedUserIds([]);
+      }
     }
   }, [open, task, defaultStatus]);
 
@@ -547,6 +566,15 @@ export function TaskModal({
       priority: formData.priority,
       workMode: formData.workMode,
       constraintType: formData.constraintType,
+      
+      // Handle user assignment
+      // Store first user in assignedTo, all users comma-separated in assignedToName
+      assignedTo: selectedUserIds.length > 0 ? selectedUserIds[0] : null,
+      assignedToName: selectedUserIds.length > 0 
+        ? selectedUserIds.length === 1
+          ? projectUsers.find(u => u.id === selectedUserIds[0])?.name || null
+          : `${projectUsers.filter(u => selectedUserIds.includes(u.id)).map(u => u.name).join(', ')} (${selectedUserIds.length} users)`
+        : null,
     };
 
     // Validate against the shared schema
@@ -1081,6 +1109,45 @@ export function TaskModal({
                             <SelectItem value="on-hold">On Hold</SelectItem>
                           </SelectContent>
                         </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="task-assigned-users">Assigned Users</Label>
+                        <div className="space-y-2">
+                          {projectUsers.length === 0 ? (
+                            <div className="text-sm text-muted-foreground py-2">No users available</div>
+                          ) : (
+                            <>
+                              <div className="max-h-32 overflow-y-auto border rounded-md p-2 space-y-1">
+                                {projectUsers.map(user => (
+                                  <div key={user.id} className="flex items-center gap-2">
+                                    <Checkbox
+                                      id={`user-${user.id}`}
+                                      checked={selectedUserIds.includes(user.id)}
+                                      onCheckedChange={(checked) => {
+                                        setSelectedUserIds(prev => 
+                                          checked 
+                                            ? [...prev, user.id]
+                                            : prev.filter(id => id !== user.id)
+                                        );
+                                      }}
+                                    />
+                                    <Label 
+                                      htmlFor={`user-${user.id}`}
+                                      className="text-sm font-normal cursor-pointer flex-1"
+                                    >
+                                      {user.name} {user.email && <span className="text-muted-foreground">({user.email})</span>}
+                                    </Label>
+                                  </div>
+                                ))}
+                              </div>
+                              {selectedUserIds.length > 0 && (
+                                <div className="text-xs text-muted-foreground">
+                                  {selectedUserIds.length} user{selectedUserIds.length > 1 ? 's' : ''} selected
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
                       </div>
 
                       <div className="space-y-2">

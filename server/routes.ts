@@ -614,6 +614,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ===== Task Routes =====
+  // Get users for a project (from project's organization)
+  app.get('/api/projects/:projectId/users', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+
+      // Check project access
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      const project = await storage.getProject(projectId);
+      if (!project) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      // Get users from project's organization
+      const users = await storage.getUsersByOrganization(project.organizationId);
+      
+      // Return simplified user data for assignment
+      const usersForAssignment = users.map(user => ({
+        id: user.id,
+        name: user.name || user.email?.split('@')[0] || 'Unknown',
+        email: user.email,
+      }));
+
+      res.json(usersForAssignment);
+    } catch (error) {
+      console.error("Error fetching project users:", error);
+      res.status(500).json({ message: "Failed to fetch users" });
+    }
+  });
+
   app.get('/api/projects/:projectId/tasks', isAuthenticated, async (req: any, res) => {
     try {
       const userId = getUserId(req);
@@ -629,6 +662,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching tasks:", error);
       res.status(500).json({ message: "Failed to fetch tasks" });
+    }
+  });
+
+  app.post('/api/projects/:projectId/tasks/recalculate-wbs', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+      
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+      
+      const tasks = await storage.getTasksByProject(projectId);
+      
+      // Build hierarchy map
+      const childrenMap = new Map<number | null, typeof tasks>();
+      
+      tasks.forEach(task => {
+        const parentId = task.parentId || null;
+        if (!childrenMap.has(parentId)) {
+          childrenMap.set(parentId, []);
+        }
+        childrenMap.get(parentId)!.push(task);
+      });
+      
+      // Calculate WBS codes recursively
+      const calculateWBS = async (parentId: number | null, prefix: string = ""): Promise<void> => {
+        const children = (childrenMap.get(parentId) || []).sort((a, b) => {
+          // Sort by existing WBS code or creation order
+          if (a.wbsCode && b.wbsCode) {
+            return a.wbsCode.localeCompare(b.wbsCode);
+          }
+          return (a.id || 0) - (b.id || 0);
+        });
+        
+        for (let index = 0; index < children.length; index++) {
+          const task = children[index];
+          const wbsCode = prefix ? `${prefix}.${index + 1}` : `${index + 1}`;
+          
+          if (task.wbsCode !== wbsCode) {
+            await storage.updateTask(task.id, { wbsCode });
+          }
+          
+          await calculateWBS(task.id, wbsCode);
+        }
+      };
+      
+      await calculateWBS(null);
+      
+      res.json({ message: "WBS codes recalculated successfully" });
+    } catch (error) {
+      console.error("Error recalculating WBS:", error);
+      res.status(500).json({ message: "Failed to recalculate WBS codes" });
     }
   });
 
@@ -1328,6 +1414,71 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Bulk assign resources to tasks
+  // Bulk assign users to tasks
+  app.post('/api/bulk/tasks/assign-users', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const { taskIds, userIds } = req.body;
+
+      if (!Array.isArray(taskIds) || taskIds.length === 0) {
+        return res.status(400).json({ message: "At least 1 task required" });
+      }
+
+      if (!Array.isArray(userIds) || userIds.length === 0) {
+        return res.status(400).json({ message: "At least 1 user required" });
+      }
+
+      // Fetch all tasks and verify they exist and belong to the same project
+      const tasks = await Promise.all(taskIds.map((id: number) => storage.getTask(id)));
+      const validTasks = tasks.filter(t => t !== null);
+
+      if (validTasks.length === 0) {
+        return res.status(404).json({ message: "No valid tasks found" });
+      }
+
+      // Verify all tasks belong to the same project
+      const projectId = validTasks[0]!.projectId;
+      const allSameProject = validTasks.every(t => t!.projectId === projectId);
+      if (!allSameProject) {
+        return res.status(400).json({ message: "All tasks must belong to the same project" });
+      }
+
+      // Check user has access to this project
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Get user names for assignedToName
+      const users = await Promise.all(userIds.map((id: string) => storage.getUser(id)));
+      const validUsers = users.filter(u => u !== null);
+      const userNames = validUsers.map(u => u!.name || u!.email?.split('@')[0] || 'Unknown').join(', ');
+
+      // Store multiple user IDs as comma-separated string in assignedTo
+      // First user ID goes to assignedTo, rest are stored in assignedToName for now
+      // TODO: Consider creating a proper task_user_assignments table for better normalization
+      const assignedTo = userIds[0] || null;
+      const assignedToName = userIds.length > 1 ? `${userNames} (${userIds.length} users)` : userNames;
+
+      // Update all validated tasks
+      let updatedCount = 0;
+      for (const task of validTasks) {
+        await storage.updateTask(task!.id, { 
+          assignedTo,
+          assignedToName: assignedToName || null
+        });
+        updatedCount++;
+      }
+
+      // Notify connected clients
+      wsManager.notifyProjectUpdate(projectId, "task-updated", { count: updatedCount }, userId);
+
+      res.json({ success: true, updated: updatedCount });
+    } catch (error) {
+      console.error("Error bulk assigning users to tasks:", error);
+      res.status(500).json({ message: "Failed to assign users to tasks" });
+    }
+  });
+
   app.post('/api/bulk/resource-assignments', isAuthenticated, async (req: any, res) => {
     try {
       const userId = getUserId(req);

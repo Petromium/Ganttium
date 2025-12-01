@@ -14,17 +14,63 @@ import crypto from "crypto";
 import type { Express, RequestHandler, Request, Response, NextFunction } from "express";
 import connectPg from "connect-pg-simple";
 import { storage } from "./storage";
-import { db } from "./db";
-import { users } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { db, pool } from "./db";
+import { users, sessions } from "@shared/schema";
+import { eq, sql } from "drizzle-orm";
 import { authLimiter, passwordResetLimiter } from "./middleware/security";
+import { logger } from "./services/cloudLogging";
 
 // Session configuration
 const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
+const SESSION_COOKIE_NAME = "sessionId"; // Consistent cookie name
+
+/**
+ * PERMANENT FIX: Ensure sessions table exists in database
+ * This function creates the sessions table if it doesn't exist, using the exact schema
+ * required by connect-pg-simple. This ensures sessions persist across server restarts.
+ */
+async function ensureSessionsTableExists(): Promise<void> {
+    try {
+        // Use raw SQL execution through Drizzle
+        await db.execute(sql`SELECT 1 FROM sessions LIMIT 1`);
+        logger.info("[AUTH] Sessions table exists and is accessible");
+    } catch (error: any) {
+        // Table doesn't exist or error accessing it - create it
+        if (error.code === "42P01" || error.message?.includes("does not exist") || (error.message?.includes("relation") && error.message?.includes("does not exist"))) {
+            logger.warn("[AUTH] Sessions table not found, creating it...");
+            try {
+                // Create sessions table with exact schema required by connect-pg-simple
+                await db.execute(sql.raw(`
+                    CREATE TABLE IF NOT EXISTS sessions (
+                        sid VARCHAR NOT NULL PRIMARY KEY,
+                        sess JSON NOT NULL,
+                        expire TIMESTAMP NOT NULL
+                    )
+                `));
+                
+                // Create index on expire for performance
+                await db.execute(sql.raw(`
+                    CREATE INDEX IF NOT EXISTS IDX_session_expire ON sessions(expire)
+                `));
+                
+                logger.info("[AUTH] Sessions table created successfully");
+            } catch (createError: any) {
+                logger.error("[AUTH] Failed to create sessions table", createError);
+                // Don't throw - let connect-pg-simple handle it with createTableIfMissing
+                // But log the error for debugging
+            }
+        } else {
+            logger.error("[AUTH] Error checking sessions table", error);
+            // Re-throw if it's a different error (connection issue, etc.)
+            throw error;
+        }
+    }
+}
+
 const pgStore = connectPg(session);
 export const sessionStore = new pgStore({
     conString: process.env.DATABASE_URL,
-    createTableIfMissing: false,
+    createTableIfMissing: true, // Fallback: let connect-pg-simple create if our function fails
     ttl: sessionTtl,
     tableName: "sessions",
 });
@@ -69,13 +115,13 @@ export function getSession() {
         store: sessionStore,
         resave: false,
         saveUninitialized: false,
+        name: SESSION_COOKIE_NAME, // Don't use default "connect.sid" for security
         cookie: {
             httpOnly: true,
             secure: isProduction, // Requires HTTPS in production
             sameSite: isProduction ? "strict" : "lax", // CSRF protection
             maxAge: sessionTtl,
         },
-        name: "sessionId", // Don't use default "connect.sid" for security
     });
 }
 
@@ -96,6 +142,16 @@ declare global {
 }
 
 export async function setupAuth(app: Express) {
+    // PERMANENT FIX: Ensure sessions table exists BEFORE setting up session middleware
+    try {
+        await ensureSessionsTableExists();
+        logger.info("[AUTH] Session infrastructure verified and ready");
+    } catch (error) {
+        logger.error("[AUTH] CRITICAL: Failed to initialize sessions table", error);
+        // Continue anyway - connect-pg-simple will try to create it
+        // But log the error so we know there's a problem
+    }
+
     app.set("trust proxy", 1);
     app.use(getSession());
     app.use(passport.initialize());
@@ -445,10 +501,22 @@ export async function setupAuth(app: Express) {
     app.post("/api/auth/logout", (req: Request, res: Response) => {
         req.logout((err) => {
             if (err) {
+                logger.error("[AUTH] Logout error", err);
                 return res.status(500).json({ message: "Logout failed" });
             }
             req.session.destroy((destroyErr) => {
-                res.clearCookie("connect.sid");
+                if (destroyErr) {
+                    logger.error("[AUTH] Session destroy error", destroyErr);
+                }
+                // PERMANENT FIX: Clear the correct cookie name
+                res.clearCookie(SESSION_COOKIE_NAME, {
+                    httpOnly: true,
+                    secure: process.env.NODE_ENV === "production",
+                    sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
+                    path: "/",
+                });
+                // Also clear the default cookie name in case of migration issues
+                res.clearCookie("connect.sid", { path: "/" });
                 res.json({ message: "Logged out successfully" });
             });
         });
@@ -463,24 +531,39 @@ export async function setupAuth(app: Express) {
         }
         */
 
-        if (!req.isAuthenticated() || !req.user) {
-            return res.status(401).json({ message: "Not authenticated" });
-        }
+        // PERMANENT FIX: Better error handling for session issues
+        try {
+            if (!req.isAuthenticated() || !req.user) {
+                // Check if session exists but user deserialization failed
+                if (req.session && !req.user) {
+                    logger.warn("[AUTH] Session exists but user deserialization failed - clearing session");
+                    req.session.destroy(() => {});
+                }
+                return res.status(401).json({ message: "Not authenticated" });
+            }
 
-        const user = req.user as Express.User;
-        if (user.pendingTotpVerification) {
-            return res.status(401).json({ message: "2FA verification required", requires2FA: true });
-        }
+            const user = req.user as Express.User;
+            if (user.pendingTotpVerification) {
+                return res.status(401).json({ message: "2FA verification required", requires2FA: true });
+            }
 
-        res.json({
-            id: user.id,
-            email: user.email,
-            firstName: user.firstName,
-            lastName: user.lastName,
-            profileImageUrl: user.profileImageUrl,
-            emailVerified: user.emailVerified,
-            totpEnabled: user.totpEnabled,
-        });
+            res.json({
+                id: user.id,
+                email: user.email,
+                firstName: user.firstName,
+                lastName: user.lastName,
+                profileImageUrl: user.profileImageUrl,
+                emailVerified: user.emailVerified,
+                totpEnabled: user.totpEnabled,
+            });
+        } catch (error) {
+            logger.error("[AUTH] Error in /api/auth/me", error);
+            // Clear potentially corrupted session
+            if (req.session) {
+                req.session.destroy(() => {});
+            }
+            res.status(500).json({ message: "Authentication check failed" });
+        }
     });
 
     // ===== 2FA SETUP ROUTES =====

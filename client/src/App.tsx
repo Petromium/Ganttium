@@ -93,22 +93,70 @@ function AuthenticatedApp() {
   } as React.CSSProperties;
 
   const rightPanelRef = useRef<ImperativePanelHandle | null>(null);
-  const [isRightCollapsed, setIsRightCollapsed] = useState(false);
-  const [rightSize, setRightSize] = useState(30);
-  const [previousRightSize, setPreviousRightSize] = useState(30);
+  
+  // localStorage key for persisting sidebar width
+  const SIDEBAR_WIDTH_KEY = "rightSidebarWidth";
   const COLLAPSED_SIZE = 2;
+  
+  // Optimal default width: 320px (typical widget width + padding) converted to percentage
+  // Calculate dynamically based on viewport, with fallback to 25% (320px on 1280px screen)
+  const calculateOptimalDefault = (): number => {
+    if (typeof window === "undefined") return 25;
+    const viewportWidth = window.innerWidth;
+    const optimalPixels = 320; // Optimal widget width
+    const percentage = (optimalPixels / viewportWidth) * 100;
+    // Clamp between 20% and 35% for reasonable bounds
+    return Math.max(20, Math.min(35, percentage));
+  };
+
+  // Read saved width from localStorage on mount
+  const getSavedWidth = (): number | null => {
+    if (typeof window === "undefined") return null;
+    const saved = localStorage.getItem(SIDEBAR_WIDTH_KEY);
+    if (saved) {
+      const parsed = parseFloat(saved);
+      // Validate saved value is reasonable (between min and max allowed)
+      if (!isNaN(parsed) && parsed >= 20 && parsed <= 40) {
+        return parsed;
+      }
+    }
+    return null;
+  };
+
+  // Calculate initial default size (used for both state and ResizablePanel defaultSize)
+  const initialDefaultSize = (() => {
+    const saved = getSavedWidth();
+    return saved || calculateOptimalDefault();
+  })();
+
+  // Initialize state with saved width or optimal default
+  const [isRightCollapsed, setIsRightCollapsed] = useState(false);
+  const [rightSize, setRightSize] = useState(initialDefaultSize);
+  const [previousRightSize, setPreviousRightSize] = useState(initialDefaultSize);
+
+  // Save width to localStorage when it changes (but not when collapsed)
+  useEffect(() => {
+    if (!isRightCollapsed && rightSize > COLLAPSED_SIZE) {
+      localStorage.setItem(SIDEBAR_WIDTH_KEY, rightSize.toString());
+    }
+  }, [rightSize, isRightCollapsed]);
 
   const handleCollapseRight = () => {
     setPreviousRightSize(rightSize);
     setIsRightCollapsed(true);
-    // Shrink the right panel to a compact size (~1/3 of the previous 10% collapsed width)
+    // Shrink the right panel to a compact size
     rightPanelRef.current?.resize(COLLAPSED_SIZE);
   };
 
   const handleExpandRight = () => {
     setIsRightCollapsed(false);
-    // Restore to the previous size (or a sensible default)
-    rightPanelRef.current?.resize(previousRightSize || 30);
+    // Restore to saved width, or previous size, or optimal default
+    const savedWidth = getSavedWidth();
+    const targetSize = savedWidth || previousRightSize || calculateOptimalDefault();
+    // Use setTimeout to ensure panel is ready for resize
+    setTimeout(() => {
+      rightPanelRef.current?.resize(targetSize);
+    }, 10);
   };
 
   return (
@@ -133,7 +181,7 @@ function AuthenticatedApp() {
                     <ResizableHandle withHandle className="hidden lg:flex" />
                     <ResizablePanel
                       ref={rightPanelRef}
-                      defaultSize={30}
+                      defaultSize={initialDefaultSize}
                       minSize={COLLAPSED_SIZE}
                       maxSize={40}
                       className="hidden lg:flex"

@@ -14,6 +14,11 @@ interface TableRowCardProps {
   expanded?: boolean;
   onToggleExpand?: () => void;
   className?: string;
+  draggable?: boolean;
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDragLeave?: () => void;
+  onDrop?: (e: React.DragEvent) => void;
 }
 
 export function TableRowCard({
@@ -26,6 +31,11 @@ export function TableRowCard({
   expanded,
   onToggleExpand,
   className,
+  draggable,
+  onDragStart,
+  onDragOver,
+  onDragLeave,
+  onDrop,
 }: TableRowCardProps) {
   const pointerEventRef = useRef<{ shiftKey: boolean } | null>(null);
 
@@ -49,9 +59,15 @@ export function TableRowCard({
     <Card
       className={cn(
         "p-1.5 sm:p-3 md:p-4 mb-2 cursor-pointer hover-elevate active-elevate-2 transition-shadow",
+        draggable && "cursor-move",
         className
       )}
       onClick={onClick}
+      draggable={draggable}
+      onDragStart={onDragStart}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
       data-testid={`row-card-${id}`}
     >
       <div className="flex items-center gap-1 sm:gap-3">

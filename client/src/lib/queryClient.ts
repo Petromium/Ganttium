@@ -55,7 +55,7 @@ export const queryClient = new QueryClient({
       refetchOnWindowFocus: false,
       staleTime: Infinity,
       retry: (failureCount, error: any) => {
-        if (error.message.includes("401")) return false;
+        if (error.message.includes("401") || error.message.includes("429")) return false;
         return failureCount < 3;
       },
     },

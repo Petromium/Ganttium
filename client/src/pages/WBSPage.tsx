@@ -9,7 +9,7 @@ import {
   GanttChartSquare, AlertCircle, Plus, Clock, AlertTriangle, 
   Loader2, ZoomIn, ZoomOut, ChevronLeft, ChevronRight, X,
   Link2, CheckCircle2, Percent, Users, FileText, AlertOctagon, Trash2, ChevronDown, Activity,
-  Calendar, MessageSquare
+  Calendar, MessageSquare, Settings, ChevronUp, User
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -97,11 +97,32 @@ export default function WBSPage() {
   const [disciplineFilters, setDisciplineFilters] = useState<string[]>([]);
   const [dateRangeStart, setDateRangeStart] = useState<string>("");
   const [dateRangeEnd, setDateRangeEnd] = useState<string>("");
+  const [baselineDateStart, setBaselineDateStart] = useState<string>("");
+  const [baselineDateEnd, setBaselineDateEnd] = useState<string>("");
+  const [actualDateStart, setActualDateStart] = useState<string>("");
+  const [actualDateEnd, setActualDateEnd] = useState<string>("");
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [baselineDialogOpen, setBaselineDialogOpen] = useState(false);
   const [selectedResources, setSelectedResources] = useState<number[]>([]);
   const [selectedRisks, setSelectedRisks] = useState<number[]>([]);
   const [selectedIssues, setSelectedIssues] = useState<number[]>([]);
+  const [selectedUsers, setSelectedUsers] = useState<string[]>([]);
+  
+  // Mouse drag state for Gantt chart panning
+  const ganttScrollRef = useRef<HTMLDivElement>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, scrollLeft: 0 });
+  
+  // Drag and drop state for hierarchy
+  const [draggedTaskIds, setDraggedTaskIds] = useState<number[]>([]);
+  const [dropTargetId, setDropTargetId] = useState<number | null>(null);
+  const [dragOverTaskId, setDragOverTaskId] = useState<number | null>(null);
+  
+  // Gantt bar display settings
+  const [ganttSettingsOpen, setGanttSettingsOpen] = useState(false);
+  const [showBarStartDate, setShowBarStartDate] = useState(true);
+  const [showBarEndDate, setShowBarEndDate] = useState(true);
+  const [showBarProgress, setShowBarProgress] = useState(true);
 
   const { 
     data: tasks = [], 
@@ -139,6 +160,12 @@ export default function WBSPage() {
     enabled: !!selectedProjectId,
   });
 
+  // Fetch project users for assignment
+  const { data: projectUsers = [] } = useQuery<Array<{ id: string; name: string; email?: string }>>({
+    queryKey: [`/api/projects/${selectedProjectId}/users`],
+    enabled: !!selectedProjectId,
+  });
+
   // Fetch all task relationships for efficient count computation
   const { data: relationships } = useQuery<{
     taskRisks: TaskRisk[];
@@ -171,14 +198,14 @@ export default function WBSPage() {
   });
 
   const updateTaskMutation = useMutation({
-    mutationFn: async ({ taskId, status }: { taskId: number; status: TaskStatus }) => {
-      await apiRequest("PATCH", `/api/tasks/${taskId}`, { status });
+    mutationFn: async ({ taskId, ...updates }: { taskId: number; status?: TaskStatus; parentId?: number | null }) => {
+      await apiRequest("PATCH", `/api/tasks/${taskId}`, updates);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/tasks`] });
     },
     onError: (error: Error) => {
-      toast({ title: "Error", description: error.message || "Failed to update task status", variant: "destructive" });
+      toast({ title: "Error", description: error.message || "Failed to update task", variant: "destructive" });
     },
   });
 
@@ -249,6 +276,21 @@ export default function WBSPage() {
     },
   });
 
+  const bulkUserAssignMutation = useMutation({
+    mutationFn: async ({ taskIds, userIds }: { taskIds: number[]; userIds: string[] }) => {
+      await apiRequest("POST", `/api/bulk/tasks/assign-users`, { taskIds, userIds });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/tasks`] });
+      setSelectedTasks([]);
+      setSelectedUsers([]);
+      toast({ title: "Success", description: "Users assigned successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message || "Failed to assign users", variant: "destructive" });
+    },
+  });
+
   const bulkRiskLinkMutation = useMutation({
     mutationFn: async ({ taskIds, riskIds }: { taskIds: number[]; riskIds: number[] }) => {
       await apiRequest("POST", `/api/bulk/task-risks`, { taskIds, riskIds });
@@ -294,6 +336,19 @@ export default function WBSPage() {
     },
   });
 
+  const recalculateWBSMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("POST", `/api/projects/${selectedProjectId}/tasks/recalculate-wbs`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/tasks`] });
+      toast({ title: "Success", description: "WBS codes recalculated successfully" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Error", description: error.message || "Failed to recalculate WBS", variant: "destructive" });
+    },
+  });
+
   const bulkBaselineMutation = useMutation({
     mutationFn: async (taskIds: number[]) => {
       const res = await apiRequest("POST", `/api/bulk/tasks/baseline`, { taskIds });
@@ -326,8 +381,10 @@ export default function WBSPage() {
     if (priorityFilters.length > 0) count++;
     if (disciplineFilters.length > 0) count++;
     if (dateRangeStart || dateRangeEnd) count++;
+    if (baselineDateStart || baselineDateEnd) count++;
+    if (actualDateStart || actualDateEnd) count++;
     return count;
-  }, [statusFilters, priorityFilters, disciplineFilters, dateRangeStart, dateRangeEnd]);
+  }, [statusFilters, priorityFilters, disciplineFilters, dateRangeStart, dateRangeEnd, baselineDateStart, baselineDateEnd, actualDateStart, actualDateEnd]);
 
   const filteredTasks = useMemo(() => {
     let result = tasks;
@@ -363,8 +420,28 @@ export default function WBSPage() {
       result = result.filter(t => t.endDate && new Date(t.endDate) <= endDate);
     }
 
+    if (baselineDateStart) {
+      const startDate = new Date(baselineDateStart);
+      result = result.filter(t => (t as any).baselineStart && new Date((t as any).baselineStart) >= startDate);
+    }
+
+    if (baselineDateEnd) {
+      const endDate = new Date(baselineDateEnd);
+      result = result.filter(t => (t as any).baselineFinish && new Date((t as any).baselineFinish) <= endDate);
+    }
+
+    if (actualDateStart) {
+      const startDate = new Date(actualDateStart);
+      result = result.filter(t => t.actualStartDate && new Date(t.actualStartDate) >= startDate);
+    }
+
+    if (actualDateEnd) {
+      const endDate = new Date(actualDateEnd);
+      result = result.filter(t => t.actualFinishDate && new Date(t.actualFinishDate) <= endDate);
+    }
+
     return result;
-  }, [tasks, searchQuery, statusFilters, priorityFilters, disciplineFilters, dateRangeStart, dateRangeEnd]);
+  }, [tasks, searchQuery, statusFilters, priorityFilters, disciplineFilters, dateRangeStart, dateRangeEnd, baselineDateStart, baselineDateEnd, actualDateStart, actualDateEnd]);
 
   const clearFilters = () => {
     setStatusFilters([]);
@@ -372,6 +449,10 @@ export default function WBSPage() {
     setDisciplineFilters([]);
     setDateRangeStart("");
     setDateRangeEnd("");
+    setBaselineDateStart("");
+    setBaselineDateEnd("");
+    setActualDateStart("");
+    setActualDateEnd("");
   };
 
   const toggleStatusFilter = (status: TaskStatus) => {
@@ -547,13 +628,27 @@ export default function WBSPage() {
     const startDate = task.startDate ? new Date(task.startDate) : null;
     const endDate = task.endDate ? new Date(task.endDate) : null;
 
+    // Check if task has siblings below (for tree connector rendering)
+    const hasSiblingsBelow = (() => {
+      const parentId = task.parentId;
+      const siblings = filteredTasks.filter(t => t.parentId === parentId);
+      siblings.sort((a, b) => (a.wbsCode || "").localeCompare(b.wbsCode || ""));
+      const taskIndex = siblings.findIndex(t => t.id === task.id);
+      return taskIndex < siblings.length - 1;
+    })();
+
+    // Calculate connector line position based on level
+    const connectorLeft = level > 0 ? (level - 1) * 24 + 12 : 0;
+
     return (
-      <div key={task.id}>
+      <div key={task.id} className="relative">
+        {/* Task row with increased indentation - tree lines removed */}
         <div className={cn(
+          "relative z-10",
           level === 0 && "ml-0",
-          level === 1 && "ml-3 sm:ml-6",
-          level === 2 && "ml-6 sm:ml-12",
-          level >= 3 && "ml-9 sm:ml-[4.5rem]"
+          level === 1 && "ml-6 sm:ml-8",      // 24px/32px
+          level === 2 && "ml-12 sm:ml-16",    // 48px/64px
+          level >= 3 && "ml-18 sm:ml-24"      // 72px/96px
         )}>
           <TableRowCard
             id={task.id.toString()}
@@ -562,29 +657,72 @@ export default function WBSPage() {
             expanded={isExpanded}
             onToggleExpand={hasChildren ? () => handleToggleExpand(task.id) : undefined}
             expandable={hasChildren}
+            draggable={selectedTasks.includes(task.id)}
+            onDragStart={(e) => handleDragStartHierarchy(e, task.id)}
+            onDragOver={(e) => handleDragOverHierarchy(e, task.id)}
+            onDragLeave={handleDragLeaveHierarchy}
+            onDrop={(e) => handleDropHierarchy(e, task.id)}
+            className={cn(
+              dragOverTaskId === task.id && "ring-2 ring-primary ring-offset-2",
+              selectedTasks.includes(task.id) && "bg-accent/50"
+            )}
             data-testid={`row-task-${task.id}`}
           >
-            {/* Mobile: Enhanced Stack Layout */}
+            {/* Mobile: Reorganized Stack Layout - PM-focused */}
             <div className="sm:hidden space-y-2 cursor-pointer" onClick={() => handleEditTask(task)}>
-              {/* Header Row: Name + Status */}
+              {/* Header Row: Name + Status + Priority */}
               <div className="flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0 pr-2">
                   <div className="font-semibold text-sm leading-tight break-words">{task.name}</div>
                   <div className="text-xs text-muted-foreground mt-0.5">{task.wbsCode}</div>
                 </div>
-                <Badge variant={getStatusColor(task.status)} className="shrink-0 text-xs h-5 px-2" data-testid={`badge-status-${task.id}`}>
-                  {task.status.replace("-", " ")}
-                </Badge>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Badge variant={getStatusColor(task.status)} className="text-xs h-5 px-2 shrink-0" data-testid={`badge-status-${task.id}`}>
+                    {task.status.replace("-", " ")}
+                  </Badge>
+                  <Badge variant={getPriorityColor(task.priority)} className="text-xs h-5 px-2 shrink-0" data-testid={`badge-priority-${task.id}`}>
+                    {task.priority}
+                  </Badge>
+                </div>
               </div>
 
-              {/* Progress Bar - Compact (half width) with segmented indicator */}
-              <div className="space-y-1">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-muted-foreground">Progress</span>
-                  <span className="font-medium">{task.progress}%</span>
+              {/* Metrics + Progress Row */}
+              <div className="flex items-center gap-3">
+                {/* Metrics icons on the left */}
+                <div className="flex items-center gap-2 shrink-0">
+                  {resourceCount > 0 && (
+                    <div className="flex items-center gap-0.5" title={`${resourceCount} resource(s)`}>
+                      <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground font-medium">{resourceCount}</span>
+                    </div>
+                  )}
+                  {riskCount > 0 && (
+                    <div className="flex items-center gap-0.5" title={`${riskCount} risk(s)`}>
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+                      <span className="text-xs text-amber-600 font-medium">{riskCount}</span>
+                    </div>
+                  )}
+                  {issueCount > 0 && (
+                    <div className="flex items-center gap-0.5" title={`${issueCount} issue(s)`}>
+                      <AlertCircle className="h-3.5 w-3.5 text-red-600" />
+                      <span className="text-xs text-red-600 font-medium">{issueCount}</span>
+                    </div>
+                  )}
+                  {documentCount > 0 && (
+                    <div className="flex items-center gap-0.5" title={`${documentCount} document(s)`}>
+                      <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground font-medium">{documentCount}</span>
+                    </div>
+                  )}
+                  {hasChat && (
+                    <div className="flex items-center gap-0.5" title="Has chat messages">
+                      <MessageSquare className="h-3.5 w-3.5 text-blue-600" />
+                    </div>
+                  )}
                 </div>
-                <div className="flex items-center gap-2">
-                  {/* Segmented progress indicator */}
+                
+                {/* Progress bar */}
+                <div className="flex-1 flex items-center gap-2">
                   <div className="flex gap-0.5">
                     {[0, 25, 50, 75, 100].map((threshold) => (
                       <div
@@ -596,73 +734,64 @@ export default function WBSPage() {
                       />
                     ))}
                   </div>
+                  <span className="text-xs font-medium">{task.progress}%</span>
                 </div>
               </div>
 
-              {/* Dates & Duration Row */}
-              {(startDate || endDate || duration) && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
-                  {startDate && (
-                    <div className="flex items-center gap-1">
-                      <Calendar className="h-3 w-3 shrink-0" />
-                      <span className="whitespace-nowrap">{startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                    </div>
-                  )}
-                  {endDate && (
-                    <>
-                      <span className="shrink-0">→</span>
-                      <span className="whitespace-nowrap">{endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                    </>
-                  )}
-                  {duration && (
-                    <Badge variant="outline" className="h-4 px-1.5 text-[10px] shrink-0">
-                      {duration}d
-                    </Badge>
-                  )}
-                </div>
-              )}
-
-              {/* Metrics Row: Resources, Risks, Issues, Documents, Chat */}
-              <div className="flex items-center gap-2 flex-wrap">
-                {resourceCount > 0 && (
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <Users className="h-3 w-3 shrink-0" />
-                    <span>{resourceCount}</span>
+              {/* Baseline & Actual Dates Row */}
+              <div className="flex flex-col gap-0.5 text-xs text-muted-foreground">
+                {/* Baseline Dates */}
+                {(task as any).baselineStart && (task as any).baselineFinish ? (
+                  <div className="flex items-center gap-1 whitespace-nowrap">
+                    <span className="font-medium text-[10px] w-12 shrink-0">Baseline</span>
+                    <span>
+                      {new Date((task as any).baselineStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - 
+                      {new Date((task as any).baselineFinish).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </span>
+                    <span className="text-[10px]">-</span>
+                    <span className="text-[10px]">
+                      {Math.ceil((new Date((task as any).baselineFinish).getTime() - new Date((task as any).baselineStart).getTime()) / (1000 * 60 * 60 * 24))} days
+                    </span>
                   </div>
-                )}
-                {riskCount > 0 && (
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <AlertTriangle className="h-3 w-3 shrink-0 text-amber-600" />
-                    <span>{riskCount}</span>
+                ) : null}
+                
+                {/* Actual Dates */}
+                {task.actualStartDate && task.actualFinishDate ? (
+                  <div className="flex items-center gap-1 whitespace-nowrap">
+                    <span className="font-medium text-[10px] w-12 shrink-0">Actual</span>
+                    <span>
+                      {new Date(task.actualStartDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - 
+                      {new Date(task.actualFinishDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </span>
+                    <span className="text-[10px]">-</span>
+                    <span className="text-[10px]">
+                      {Math.ceil((new Date(task.actualFinishDate).getTime() - new Date(task.actualStartDate).getTime()) / (1000 * 60 * 60 * 24))} days
+                    </span>
                   </div>
-                )}
-                {issueCount > 0 && (
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <AlertCircle className="h-3 w-3 shrink-0 text-red-600" />
-                    <span>{issueCount}</span>
+                ) : null}
+                
+                {/* Fallback to planned dates if no baseline/actual */}
+                {!((task as any).baselineStart && (task as any).baselineFinish) && !(task.actualStartDate && task.actualFinishDate) && startDate && endDate ? (
+                  <div className="flex items-center gap-1 whitespace-nowrap">
+                    <span className="font-medium text-[10px] w-12 shrink-0">Planned</span>
+                    <span>
+                      {startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - 
+                      {endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </span>
+                    {duration && (
+                      <>
+                        <span className="text-[10px]">-</span>
+                        <span className="text-[10px]">{duration} days</span>
+                      </>
+                    )}
                   </div>
-                )}
-                {documentCount > 0 && (
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <FileText className="h-3 w-3 shrink-0" />
-                    <span>{documentCount}</span>
-                  </div>
-                )}
-                {hasChat && (
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <MessageSquare className="h-3 w-3 shrink-0 text-blue-600" />
-                    <span>Chat</span>
-                  </div>
-                )}
+                ) : null}
               </div>
 
-              {/* Footer: Priority + Assignee */}
-              <div className="flex items-center justify-between gap-2 pt-1 border-t border-border/50">
-                <Badge variant={getPriorityColor(task.priority)} className="h-5 px-2 text-xs shrink-0" data-testid={`badge-priority-${task.id}`}>
-                  {task.priority}
-                </Badge>
-                {task.assignedTo && (
-                  <div className="flex items-center gap-1.5 min-w-0">
+              {/* Assignee Row */}
+              <div className="flex items-center gap-2 pt-1 border-t border-border/50">
+                {task.assignedTo ? (
+                  <div className="flex items-center gap-1.5">
                     <Avatar className="h-4 w-4 shrink-0">
                       <AvatarFallback className="text-[9px]">{getInitials(task.assignedTo)}</AvatarFallback>
                     </Avatar>
@@ -670,31 +799,71 @@ export default function WBSPage() {
                       {task.assignedToName || "Assigned"}
                     </span>
                   </div>
+                ) : (
+                  <span className="text-xs text-muted-foreground italic">Unassigned</span>
                 )}
               </div>
             </div>
 
-            {/* Desktop: Enhanced Grid Layout */}
+            {/* Desktop: Left-aligned Task Name, Right-aligned Everything Else */}
             <div 
-              className="hidden sm:grid grid-cols-[2fr,auto,1.5fr,auto,auto,80px] gap-4 items-center flex-1 cursor-pointer"
+              className="hidden sm:flex items-center justify-between gap-4 flex-1 cursor-pointer min-w-0"
               onClick={() => handleEditTask(task)}
             >
-              {/* Task Info */}
-              <div>
-                <div className="font-medium">{task.name}</div>
+              {/* Task Info - Left aligned, indentation handled by parent */}
+              <div className="min-w-0 flex-1">
+                <div className="font-medium truncate">{task.name}</div>
                 <div className="text-sm text-muted-foreground">{task.wbsCode}</div>
               </div>
 
-              {/* Status Badge */}
-              <Badge variant={getStatusColor(task.status)} className="h-5 px-2" data-testid={`badge-status-${task.id}`}>
-                {task.status.replace("-", " ")}
-              </Badge>
+              {/* Right Side: All other elements aligned to the right */}
+              <div className="flex items-center gap-3 shrink-0">
+                {/* Status Badge */}
+                <Badge variant={getStatusColor(task.status)} className="h-5 px-2 shrink-0" data-testid={`badge-status-${task.id}`}>
+                  {task.status.replace("-", " ")}
+                </Badge>
 
-              {/* Progress Bar - Compact + Metrics */}
-              <div className="space-y-1.5">
-              <div className="flex items-center gap-2">
-                  {/* Segmented progress indicator */}
-                  <div className="flex gap-0.5">
+                {/* Priority/Risk Badge */}
+                <Badge variant={getPriorityColor(task.priority)} className="h-5 px-2 shrink-0" data-testid={`badge-priority-${task.id}`}>
+                  {task.priority}
+                </Badge>
+
+                {/* Metrics Icons */}
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {resourceCount > 0 && (
+                    <div className="flex items-center gap-0.5" title={`${resourceCount} resource(s)`}>
+                      <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground font-medium">{resourceCount}</span>
+                    </div>
+                  )}
+                  {riskCount > 0 && (
+                    <div className="flex items-center gap-0.5" title={`${riskCount} risk(s)`}>
+                      <AlertTriangle className="h-3.5 w-3.5 text-amber-600" />
+                      <span className="text-xs text-amber-600 font-medium">{riskCount}</span>
+                    </div>
+                  )}
+                  {issueCount > 0 && (
+                    <div className="flex items-center gap-0.5" title={`${issueCount} issue(s)`}>
+                      <AlertCircle className="h-3.5 w-3.5 text-red-600" />
+                      <span className="text-xs text-red-600 font-medium">{issueCount}</span>
+                    </div>
+                  )}
+                  {documentCount > 0 && (
+                    <div className="flex items-center gap-0.5" title={`${documentCount} document(s)`}>
+                      <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span className="text-xs text-muted-foreground font-medium">{documentCount}</span>
+                    </div>
+                  )}
+                  {hasChat && (
+                    <div className="flex items-center gap-0.5" title="Has chat messages">
+                      <MessageSquare className="h-3.5 w-3.5 text-blue-600" />
+                    </div>
+                  )}
+                </div>
+                
+                {/* Progress bar */}
+                <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex gap-0.5 shrink-0">
                     {[0, 25, 50, 75, 100].map((threshold) => (
                       <div
                         key={threshold}
@@ -704,88 +873,89 @@ export default function WBSPage() {
                         )}
                       />
                     ))}
-                </div>
+                  </div>
                   <span className="text-sm font-medium w-10 text-right shrink-0">{task.progress}%</span>
-              </div>
-                {/* Inline metrics below progress */}
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  {resourceCount > 0 && (
-                    <div className="flex items-center gap-1">
-                      <Users className="h-3 w-3" />
-                      <span>{resourceCount}</span>
+                </div>
+
+                {/* Baseline & Actual Dates */}
+                <div className="text-xs text-muted-foreground min-w-[200px] flex flex-col items-end shrink-0 gap-0.5">
+                  {/* Baseline Dates */}
+                  {(task as any).baselineStart && (task as any).baselineFinish ? (
+                    <div className="flex items-center gap-1 whitespace-nowrap">
+                      <span className="font-medium text-[10px] w-12 shrink-0">Baseline</span>
+                      <span>
+                        {new Date((task as any).baselineStart).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - 
+                        {new Date((task as any).baselineFinish).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </span>
+                      <span className="text-[10px]">-</span>
+                      <span className="text-[10px]">
+                        {Math.ceil((new Date((task as any).baselineFinish).getTime() - new Date((task as any).baselineStart).getTime()) / (1000 * 60 * 60 * 24))} days
+                      </span>
                     </div>
-                  )}
-                  {riskCount > 0 && (
-                    <div className="flex items-center gap-1">
-                      <AlertTriangle className="h-3 w-3 text-amber-600" />
-                      <span>{riskCount}</span>
+                  ) : null}
+                  
+                  {/* Actual Dates */}
+                  {task.actualStartDate && task.actualFinishDate ? (
+                    <div className="flex items-center gap-1 whitespace-nowrap">
+                      <span className="font-medium text-[10px] w-12 shrink-0">Actual</span>
+                      <span>
+                        {new Date(task.actualStartDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - 
+                        {new Date(task.actualFinishDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </span>
+                      <span className="text-[10px]">-</span>
+                      <span className="text-[10px]">
+                        {Math.ceil((new Date(task.actualFinishDate).getTime() - new Date(task.actualStartDate).getTime()) / (1000 * 60 * 60 * 24))} days
+                      </span>
                     </div>
-                  )}
-                  {issueCount > 0 && (
-                    <div className="flex items-center gap-1">
-                      <AlertCircle className="h-3 w-3 text-red-600" />
-                      <span>{issueCount}</span>
+                  ) : null}
+                  
+                  {/* Fallback to planned dates if no baseline/actual */}
+                  {!((task as any).baselineStart && (task as any).baselineFinish) && !(task.actualStartDate && task.actualFinishDate) && startDate && endDate ? (
+                    <div className="flex items-center gap-1 whitespace-nowrap">
+                      <span className="font-medium text-[10px] w-12 shrink-0">Planned</span>
+                      <span>
+                        {startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - 
+                        {endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </span>
+                      {duration && (
+                        <>
+                          <span className="text-[10px]">-</span>
+                          <span className="text-[10px]">{duration} days</span>
+                        </>
+                      )}
                     </div>
-                  )}
-                  {documentCount > 0 && (
-                    <div className="flex items-center gap-1">
-                      <FileText className="h-3 w-3" />
-                      <span>{documentCount}</span>
-                    </div>
-                  )}
-                  {hasChat && (
-                    <div className="flex items-center gap-1">
-                      <MessageSquare className="h-3 w-3 text-blue-600" />
-                    </div>
+                  ) : null}
+                </div>
+
+                {/* Assignee */}
+                <div className="flex items-center shrink-0">
+                  {task.assignedTo ? (
+                    <>
+                      <Avatar className="h-6 w-6 shrink-0">
+                        <AvatarFallback className="text-xs">{getInitials(task.assignedTo)}</AvatarFallback>
+                      </Avatar>
+                      <span className="text-sm text-muted-foreground truncate max-w-[80px] ml-1">
+                        {task.assignedToName || "Assigned"}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="text-sm text-muted-foreground italic">Unassigned</span>
                   )}
                 </div>
-              </div>
-
-              {/* Dates & Duration */}
-              <div className="text-xs text-muted-foreground min-w-[140px] flex flex-col items-start">
-                {startDate && endDate ? (
-                  <div className="flex items-center gap-1">
-                    <Calendar className="h-3 w-3 shrink-0" />
-                    <span className="whitespace-nowrap">
-                      {startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - 
-                      {endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                    </span>
-                  </div>
-                ) : startDate ? (
-                  <div className="flex items-center gap-1">
-                    <Calendar className="h-3 w-3 shrink-0" />
-                    <span className="whitespace-nowrap">Starts {startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>
-                  </div>
-                ) : null}
-                {duration && (
-                  <div className="text-[10px] mt-0.5">{duration} days</div>
-                )}
-              </div>
-
-              {/* Priority Badge */}
-              <Badge variant={getPriorityColor(task.priority)} className="h-5 px-2" data-testid={`badge-priority-${task.id}`}>
-                {task.priority}
-              </Badge>
-
-              {/* Assignee */}
-              <div className="flex items-center gap-2">
-                {task.assignedTo ? (
-                  <>
-                    <Avatar className="h-6 w-6">
-                      <AvatarFallback className="text-xs">{getInitials(task.assignedTo)}</AvatarFallback>
-                    </Avatar>
-                    <span className="text-sm text-muted-foreground truncate max-w-[80px]">
-                      {task.assignedToName || "Assigned"}
-                    </span>
-                  </>
-                ) : (
-                  <span className="text-sm text-muted-foreground">Unassigned</span>
-                )}
               </div>
             </div>
           </TableRowCard>
         </div>
-        {isExpanded && children.map(child => renderListTask(child, level + 1))}
+        {/* Render children in a wrapper to ensure vertical lines connect properly */}
+        {isExpanded && children.length > 0 && (
+          <div className="relative">
+            {children.map((child, index) => (
+              <div key={child.id} className="relative">
+                {renderListTask(child, level + 1)}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   };
@@ -812,6 +982,188 @@ export default function WBSPage() {
   };
 
   const handleDragEnd = () => setDraggedTaskId(null);
+
+  // Drag handlers for hierarchy reorganization
+  const handleDragStartHierarchy = (e: React.DragEvent, taskId: number) => {
+    if (!selectedTasks.includes(taskId)) {
+      setSelectedTasks([taskId]);
+      setDraggedTaskIds([taskId]);
+    } else {
+      setDraggedTaskIds(selectedTasks);
+    }
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", taskId.toString());
+    e.stopPropagation();
+  };
+
+  const handleDragOverHierarchy = (e: React.DragEvent, targetTaskId: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Prevent dropping on self or descendants
+    const isDescendant = (taskId: number, ancestorId: number): boolean => {
+      const task = filteredTasks.find(t => t.id === taskId);
+      if (!task || !task.parentId) return false;
+      if (task.parentId === ancestorId) return true;
+      return isDescendant(task.parentId, ancestorId);
+    };
+    
+    const canDrop = draggedTaskIds.every(id => 
+      id !== targetTaskId && !isDescendant(targetTaskId, id)
+    );
+    
+    if (canDrop) {
+      setDragOverTaskId(targetTaskId);
+      e.dataTransfer.dropEffect = "move";
+    } else {
+      setDragOverTaskId(null);
+      e.dataTransfer.dropEffect = "none";
+    }
+  };
+
+  const handleDragLeaveHierarchy = () => {
+    setDragOverTaskId(null);
+  };
+
+  const handleDropHierarchy = async (e: React.DragEvent, targetTaskId: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (draggedTaskIds.length === 0 || dragOverTaskId !== targetTaskId) return;
+    
+    // Update parentId for all dragged tasks
+    try {
+      const updatePromises = draggedTaskIds.map(taskId => 
+        updateTaskMutation.mutateAsync({ 
+          taskId, 
+          parentId: targetTaskId 
+        })
+      );
+      
+      await Promise.all(updatePromises);
+      await recalculateWBSMutation.mutateAsync();
+      toast({ title: "Success", description: `${draggedTaskIds.length} task(s) moved successfully` });
+      setSelectedTasks([]);
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to move tasks", variant: "destructive" });
+    }
+    
+    setDraggedTaskIds([]);
+    setDragOverTaskId(null);
+    setDropTargetId(null);
+  };
+
+  const handleMakeChildOf = async (parentId: number) => {
+    try {
+      const updatePromises = selectedTasks.map(taskId => 
+        updateTaskMutation.mutateAsync({ 
+          taskId, 
+          parentId 
+        })
+      );
+      
+      await Promise.all(updatePromises);
+      await recalculateWBSMutation.mutateAsync();
+      toast({ title: "Success", description: `${selectedTasks.length} task(s) moved successfully` });
+      setSelectedTasks([]);
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to move tasks", variant: "destructive" });
+    }
+  };
+
+  const canMoveUp = (): boolean => {
+    return selectedTasks.some(taskId => {
+      const task = filteredTasks.find(t => t.id === taskId);
+      return task && task.parentId !== null;
+    });
+  };
+
+  const canMoveDown = (): boolean => {
+    return selectedTasks.some(taskId => {
+      const task = filteredTasks.find(t => t.id === taskId);
+      if (!task || !task.parentId) return false;
+      
+      const siblings = filteredTasks
+        .filter(t => t.parentId === task.parentId)
+        .sort((a, b) => (a.wbsCode || "").localeCompare(b.wbsCode || ""));
+      
+      const taskIndex = siblings.findIndex(t => t.id === taskId);
+      return taskIndex > 0; // Has previous sibling
+    });
+  };
+
+  const handleMoveUpLevel = async () => {
+    if (selectedTasks.length === 0 || !canMoveUp()) return;
+    
+    try {
+      const updates = await Promise.all(
+        selectedTasks.map(async (taskId) => {
+          const task = filteredTasks.find(t => t.id === taskId);
+          if (!task || !task.parentId) return null;
+          
+          const parent = filteredTasks.find(t => t.id === task.parentId);
+          return {
+            taskId,
+            parentId: parent?.parentId || null
+          };
+        })
+      );
+      
+      const validUpdates = updates.filter(u => u !== null) as { taskId: number; parentId: number | null }[];
+      
+      await Promise.all(validUpdates.map(update => 
+        updateTaskMutation.mutateAsync({ 
+          taskId: update.taskId, 
+          parentId: update.parentId 
+        })
+      ));
+      await recalculateWBSMutation.mutateAsync();
+      toast({ title: "Success", description: "Tasks moved up level successfully" });
+      setSelectedTasks([]);
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to move tasks", variant: "destructive" });
+    }
+  };
+
+  const handleMoveDownLevel = async () => {
+    if (selectedTasks.length === 0 || !canMoveDown()) return;
+    
+    try {
+      const updates = await Promise.all(
+        selectedTasks.map(async (taskId) => {
+          const task = filteredTasks.find(t => t.id === taskId);
+          if (!task || !task.parentId) return null;
+          
+          const siblings = filteredTasks
+            .filter(t => t.parentId === task.parentId)
+            .sort((a, b) => (a.wbsCode || "").localeCompare(b.wbsCode || ""));
+          
+          const taskIndex = siblings.findIndex(t => t.id === taskId);
+          if (taskIndex <= 0) return null;
+          
+          const previousSibling = siblings[taskIndex - 1];
+          return {
+            taskId,
+            parentId: previousSibling.id
+          };
+        })
+      );
+      
+      const validUpdates = updates.filter(u => u !== null) as { taskId: number; parentId: number }[];
+      
+      await Promise.all(validUpdates.map(update => 
+        updateTaskMutation.mutateAsync({ 
+          taskId: update.taskId, 
+          parentId: update.parentId 
+        })
+      ));
+      await recalculateWBSMutation.mutateAsync();
+      toast({ title: "Success", description: "Tasks moved down level successfully" });
+      setSelectedTasks([]);
+    } catch (error) {
+      toast({ title: "Error", description: "Failed to move tasks", variant: "destructive" });
+    }
+  };
 
   const groupedTasks: Record<TaskStatus, Task[]> = {
     "not-started": [],
@@ -871,6 +1223,15 @@ export default function WBSPage() {
     return { left: (startOffset / totalDays) * 100, width: (duration / totalDays) * 100 };
   };
 
+  const getActualPosition = (task: Task) => {
+    if (!task.actualStartDate || !task.actualFinishDate) return null;
+    const start = new Date(task.actualStartDate);
+    const end = new Date(task.actualFinishDate);
+    const startOffset = Math.floor((start.getTime() - minDate.getTime()) / (1000 * 60 * 60 * 24));
+    const duration = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)));
+    return { left: (startOffset / totalDays) * 100, width: (duration / totalDays) * 100 };
+  };
+
   const getUnitLabels = () => {
     const labels: ({ top: string; bottom: string } | string)[] = [];
     const { daysPerUnit, unitLabel } = ZOOM_CONFIGS[zoom];
@@ -882,9 +1243,19 @@ export default function WBSPage() {
           bottom: unitDate.toLocaleDateString("en-US", { day: "numeric" })
         });
       } else if (zoom === "week") {
-        labels.push(`${unitLabel} ${i + 1}`);
+        // Two-row header for week: Week number on top, date range on bottom
+        const weekStart = new Date(unitDate);
+        const weekEnd = new Date(unitDate.getTime() + 6 * 24 * 60 * 60 * 1000);
+        labels.push({
+          top: `W${i + 1}`,
+          bottom: `${weekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" })} - ${weekEnd.toLocaleDateString("en-US", { day: "numeric" })}`
+        });
       } else if (zoom === "month") {
-        labels.push(unitDate.toLocaleDateString("en-US", { month: "short", year: "2-digit" }));
+        // Two-row header for month: Month name on top, year on bottom
+        labels.push({
+          top: unitDate.toLocaleDateString("en-US", { month: "short" }),
+          bottom: unitDate.toLocaleDateString("en-US", { year: "numeric" })
+        });
       } else {
         labels.push(`Q${Math.floor(unitDate.getMonth() / 3) + 1} ${unitDate.getFullYear()}`);
       }
@@ -905,58 +1276,204 @@ export default function WBSPage() {
 
   const renderGanttTask = (task: Task, level = 0): JSX.Element[] => {
     const children = getChildren(task.id);
-    const { left, width } = getTaskPosition(task);
-    const hasValidDates = task.startDate && task.endDate;
+    const baselinePos = getBaselinePosition(task);
+    const actualPos = getActualPosition(task);
+    const hasBaseline = baselinePos !== null;
+    const hasActual = actualPos !== null;
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const priorityClass = task.priority === "critical" ? "border-l-4 border-l-red-500" : task.priority === "high" ? "border-l-4 border-l-orange-500" : "";
+    
+    // Calculate vertical positioning for two bars (Baseline + Actual)
+    const barCount = [hasBaseline, hasActual].filter(Boolean).length;
     
     const elements: JSX.Element[] = [
       <div
         key={task.id}
         className={`grid grid-cols-[300px_1fr] items-center border-b border-border ${priorityClass}`}
+        style={{ minHeight: '80px' }} // Increased row height to comfortably accommodate 3 bars
       >
         <div 
-          className="flex items-center gap-2 py-2 pr-2 border-r border-border bg-card sticky left-0 z-10 h-full"
+          className="flex items-center gap-2 py-4 pr-2 border-r border-border bg-card sticky left-0 z-30 h-full"
           style={{ paddingLeft: `${(level * 1.5) + 0.5}rem` }}
         >
           <Badge variant="outline" className="font-mono text-xs shrink-0">{task.wbsCode || `#${task.id}`}</Badge>
           <span className="text-sm font-medium truncate">{task.name}</span>
         </div>
         <div className="relative h-full bg-white dark:bg-gray-900 border-r border-border overflow-hidden">
-          <div style={{ 
-            minWidth: `${units * ZOOM_CONFIGS[zoom].minUnitWidth}px`, 
-            height: '100%', 
-            position: 'relative',
-            backgroundImage: `linear-gradient(to right, transparent calc(100% - 1px), hsl(var(--border)) calc(100% - 1px))`,
-            backgroundSize: `${ZOOM_CONFIGS[zoom].minUnitWidth}px 100%` 
-          }}>
+          {/* Grid lines - optimized CSS-only approach with perfect alignment */}
+          <div 
+            className="absolute inset-0 pointer-events-none"
+            style={{ 
+              minWidth: `${units * ZOOM_CONFIGS[zoom].minUnitWidth}px`,
+              height: '100%',
+              backgroundImage: `repeating-linear-gradient(
+                to right,
+                transparent 0,
+                transparent calc(${ZOOM_CONFIGS[zoom].minUnitWidth}px - 1px),
+                hsl(var(--border)) calc(${ZOOM_CONFIGS[zoom].minUnitWidth}px - 1px),
+                hsl(var(--border)) ${ZOOM_CONFIGS[zoom].minUnitWidth}px
+              )`,
+              backgroundSize: `${ZOOM_CONFIGS[zoom].minUnitWidth}px 100%`,
+              backgroundPosition: '0 0',
+              backgroundRepeat: 'repeat'
+            }}
+          />
+          <div 
+            className="relative"
+            style={{ 
+              minWidth: `${units * ZOOM_CONFIGS[zoom].minUnitWidth}px`, 
+              height: '100%', 
+              position: 'relative',
+              overflow: 'hidden'
+            }}
+          >
             
-          {/* Baseline Bar (Bottom) */}
-          {baselinePos && (
-            <div
-              className="absolute h-3 bg-muted/50 border border-muted-foreground/30 top-9 rounded-sm overflow-hidden"
-              style={{
-                left: `${baselinePos.left}%`,
-                width: `${baselinePos.width}%`,
-                background: "repeating-linear-gradient(45deg, transparent, transparent 5px, rgba(0,0,0,0.05) 5px, rgba(0,0,0,0.05) 10px)"
-              }}
-              title={`Baseline: ${new Date((task as any).baselineStart).toLocaleDateString()} - ${new Date((task as any).baselineFinish).toLocaleDateString()}`}
-            />
-          )}
+          {/* Baseline Bar (Top) - Approved plan with status colors and progress */}
+          {hasBaseline ? (() => {
+            // Calculate actual pixel width for comparison
+            const baselineBarWidthPx = (baselinePos!.width / 100) * timelineWidth;
+            const minWidthForDates = 150; // Minimum width to show dates inside bar
+            const showDatesInside = baselineBarWidthPx > minWidthForDates;
+            const baselineStartDate = new Date((task as any).baselineStart).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+            const baselineEndDate = new Date((task as any).baselineFinish).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+            
+            return (
+              <>
+                {/* Dates outside bar (left side) - shown when bar is too small */}
+                {!showDatesInside && showBarStartDate && (
+                  <div
+                    className="absolute text-[10px] text-muted-foreground font-medium whitespace-nowrap z-10"
+                    style={{
+                      left: `${baselinePos!.left}%`,
+                      top: hasActual ? 'calc(50% - 20px)' : 'calc(50% - 12px)',
+                      transform: 'translateX(-100%)',
+                      paddingRight: '4px'
+                    }}
+                  >
+                    {baselineStartDate}
+                  </div>
+                )}
+                
+                {/* Baseline bar */}
+                <div
+                  className={`absolute h-6 rounded-md ${getStatusBgColor(task.status)} flex items-center px-2 text-white text-xs font-semibold shadow-md hover:shadow-lg cursor-pointer transition-all overflow-hidden z-10`}
+                  style={{ 
+                    left: `${baselinePos!.left}%`, 
+                    width: `${baselinePos!.width}%`, 
+                    minWidth: "40px",
+                    top: hasActual ? 'calc(50% - 20px)' : 'calc(50% - 12px)',
+                    maxWidth: '100%'
+                  }}
+                  onClick={() => handleEditTask(task)}
+                  data-testid={`gantt-bar-baseline-${task.id}`}
+                  title={`Baseline: ${baselineStartDate} - ${baselineEndDate}`}
+                >
+                  {/* Dates inside bar - shown when bar is wide enough */}
+                  {showDatesInside && (
+                    <div className="flex items-center justify-between w-full gap-1">
+                      {showBarStartDate && (
+                        <span className="truncate text-[10px]">{baselineStartDate}</span>
+                      )}
+                      {showBarProgress && (
+                        <span className="truncate font-bold">{task.progress || 0}%</span>
+                      )}
+                      {showBarEndDate && (
+                        <span className="truncate text-[10px]">{baselineEndDate}</span>
+                      )}
+                    </div>
+                  )}
+                  {/* Progress overlay */}
+                  <div className="absolute inset-0 bg-white/20 rounded-md pointer-events-none" style={{ width: `${task.progress || 0}%` }}></div>
+                </div>
+                
+                {/* Dates outside bar (right side) - shown when bar is too small */}
+                {!showDatesInside && showBarEndDate && (
+                  <div
+                    className="absolute text-[10px] text-muted-foreground font-medium whitespace-nowrap z-10"
+                    style={{
+                      left: `${baselinePos!.left + baselinePos!.width}%`,
+                      top: hasActual ? 'calc(50% - 20px)' : 'calc(50% - 12px)',
+                      paddingLeft: '4px'
+                    }}
+                  >
+                    {baselineEndDate}
+                  </div>
+                )}
+              </>
+            );
+          })() : null}
 
-          {/* Plan/Actual Bar (Top) */}
-          {hasValidDates ? (
-            <div
-              className={`absolute top-1/2 -translate-y-1/2 h-6 rounded-md ${getStatusBgColor(task.status)} flex items-center px-2 text-white text-xs font-semibold shadow-md hover:shadow-lg cursor-pointer transition-all overflow-hidden z-20`}
-              style={{ left: `${left}%`, width: `${width}%`, minWidth: "40px" }}
-              onClick={() => handleEditTask(task)}
-              data-testid={`gantt-bar-${task.id}`}
-            >
-              <div className="flex items-center justify-between w-full"><span className="truncate">{task.progress || 0}%</span></div>
-              <div className="absolute inset-0 bg-white/20 rounded-md pointer-events-none" style={{ width: `${task.progress || 0}%` }}></div>
-            </div>
-          ) : (
+          {/* Actual Bar (Bottom) - Actual dates - ORANGE */}
+          {hasActual ? (() => {
+            // Calculate actual pixel width for comparison
+            const actualBarWidthPx = (actualPos!.width / 100) * timelineWidth;
+            const minWidthForDates = 150; // Minimum width to show dates inside bar
+            const showDatesInside = actualBarWidthPx > minWidthForDates;
+            const actualStartDate = new Date(task.actualStartDate!).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+            const actualEndDate = new Date(task.actualFinishDate!).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+            
+            return (
+              <>
+                {/* Dates outside bar (left side) - shown when bar is too small */}
+                {!showDatesInside && showBarStartDate && (
+                  <div
+                    className="absolute text-[10px] text-muted-foreground font-medium whitespace-nowrap z-20"
+                    style={{
+                      left: `${actualPos!.left}%`,
+                      top: hasBaseline ? 'calc(50% + 16px)' : 'calc(50% - 2px)',
+                      transform: 'translateX(-100%)',
+                      paddingRight: '4px'
+                    }}
+                  >
+                    {actualStartDate}
+                  </div>
+                )}
+                
+                {/* Actual bar */}
+                <div
+                  className="absolute h-4 bg-orange-500 border-2 border-orange-600 rounded-sm overflow-hidden z-20 shadow-sm flex items-center px-1"
+                  style={{
+                    left: `${actualPos!.left}%`,
+                    width: `${actualPos!.width}%`,
+                    top: hasBaseline ? 'calc(50% + 16px)' : 'calc(50% - 2px)',
+                    minWidth: "24px",
+                    maxWidth: '100%'
+                  }}
+                  title={`Actual: ${actualStartDate} - ${actualEndDate}`}
+                >
+                  {/* Dates inside bar - shown when bar is wide enough */}
+                  {showDatesInside && (
+                    <div className="flex items-center gap-1 text-[10px] text-white font-semibold w-full justify-between">
+                      {showBarStartDate && (
+                        <span className="truncate">{actualStartDate}</span>
+                      )}
+                      {showBarEndDate && (
+                        <span className="truncate ml-auto">{actualEndDate}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+                
+                {/* Dates outside bar (right side) - shown when bar is too small */}
+                {!showDatesInside && showBarEndDate && (
+                  <div
+                    className="absolute text-[10px] text-muted-foreground font-medium whitespace-nowrap z-20"
+                    style={{
+                      left: `${actualPos!.left + actualPos!.width}%`,
+                      top: hasBaseline ? 'calc(50% + 16px)' : 'calc(50% - 2px)',
+                      paddingLeft: '4px'
+                    }}
+                  >
+                    {actualEndDate}
+                  </div>
+                )}
+              </>
+            );
+          })() : null}
+
+          {/* No dates message - only show if no bars exist */}
+          {!hasBaseline && !hasActual && (
             <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground z-10">No dates set</div>
           )}
           </div>
@@ -1135,6 +1652,48 @@ export default function WBSPage() {
               )}
             </Button>
           </PopoverTrigger>
+          
+          {/* Gantt Settings button - Only show in Gantt view */}
+          {viewMode === "gantt" && (
+            <Popover open={ganttSettingsOpen} onOpenChange={setGanttSettingsOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="icon" className="h-9 w-9" data-testid="button-gantt-settings">
+                  <Settings className="h-4 w-4" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-64" align="end">
+                <div className="space-y-4">
+                  <h4 className="font-semibold">Gantt Bar Display</h4>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="show-start-date" className="text-sm cursor-pointer">Show Start Date</Label>
+                      <Checkbox 
+                        id="show-start-date"
+                        checked={showBarStartDate}
+                        onCheckedChange={(checked) => setShowBarStartDate(checked === true)}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="show-end-date" className="text-sm cursor-pointer">Show End Date</Label>
+                      <Checkbox 
+                        id="show-end-date"
+                        checked={showBarEndDate}
+                        onCheckedChange={(checked) => setShowBarEndDate(checked === true)}
+                      />
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="show-progress" className="text-sm cursor-pointer">Show Progress %</Label>
+                      <Checkbox 
+                        id="show-progress"
+                        checked={showBarProgress}
+                        onCheckedChange={(checked) => setShowBarProgress(checked === true)}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+          )}
             <PopoverContent className="w-[calc(100vw-2rem)] sm:w-80" align="end">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
@@ -1209,7 +1768,7 @@ export default function WBSPage() {
               )}
 
               <div className="space-y-2">
-                <Label className="text-sm font-medium">Date Range</Label>
+                <Label className="text-sm font-medium">Planned Date Range</Label>
                 <div className="grid grid-cols-2 gap-2">
                   <div>
                     <Label className="text-xs text-muted-foreground">Start After</Label>
@@ -1229,6 +1788,58 @@ export default function WBSPage() {
                       onChange={(e) => setDateRangeEnd(e.target.value)}
                       className="h-8 text-sm"
                       data-testid="filter-date-end"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Baseline Date Range</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Start After</Label>
+                    <Input 
+                      type="date"
+                      value={baselineDateStart}
+                      onChange={(e) => setBaselineDateStart(e.target.value)}
+                      className="h-8 text-sm"
+                      data-testid="filter-baseline-date-start"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">End Before</Label>
+                    <Input 
+                      type="date"
+                      value={baselineDateEnd}
+                      onChange={(e) => setBaselineDateEnd(e.target.value)}
+                      className="h-8 text-sm"
+                      data-testid="filter-baseline-date-end"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Actual Date Range</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Start After</Label>
+                    <Input 
+                      type="date"
+                      value={actualDateStart}
+                      onChange={(e) => setActualDateStart(e.target.value)}
+                      className="h-8 text-sm"
+                      data-testid="filter-actual-date-start"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">End Before</Label>
+                    <Input 
+                      type="date"
+                      value={actualDateEnd}
+                      onChange={(e) => setActualDateEnd(e.target.value)}
+                      className="h-8 text-sm"
+                      data-testid="filter-actual-date-end"
                     />
                   </div>
                 </div>
@@ -1469,6 +2080,57 @@ export default function WBSPage() {
           </DropdownMenuContent>
         </DropdownMenu>
 
+        {/* Users Dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              disabled={selectedTasks.length === 0}
+              className="shrink-0"
+              data-testid="dropdown-users"
+            >
+              <User className="h-4 w-4 mr-1" />
+              <span className="hidden xs:inline">Assign Users</span>
+              <span className="xs:hidden">Users</span>
+              <ChevronDown className="h-3 w-3 ml-1" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="max-h-64 overflow-y-auto">
+            <DropdownMenuLabel>Assign Users</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {projectUsers.length === 0 ? (
+              <div className="px-2 py-1.5 text-sm text-muted-foreground">No users available</div>
+            ) : (
+              <>
+                {projectUsers.map(user => (
+                  <DropdownMenuCheckboxItem
+                    key={user.id}
+                    checked={selectedUsers.includes(user.id)}
+                    onCheckedChange={(checked) => {
+                      setSelectedUsers(prev => 
+                        checked ? [...prev, user.id] : prev.filter(id => id !== user.id)
+                      );
+                    }}
+                    data-testid={`menu-user-${user.id}`}
+                  >
+                    {user.name} {user.email && <span className="text-muted-foreground">({user.email})</span>}
+                  </DropdownMenuCheckboxItem>
+                ))}
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  disabled={selectedUsers.length === 0}
+                  onClick={() => bulkUserAssignMutation.mutate({ taskIds: selectedTasks, userIds: selectedUsers })}
+                  className="font-medium"
+                  data-testid="menu-apply-users"
+                >
+                  Apply ({selectedUsers.length} selected)
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
         {/* Risks Dropdown */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -1568,6 +2230,73 @@ export default function WBSPage() {
             )}
           </DropdownMenuContent>
         </DropdownMenu>
+
+        {/* Hierarchy Management Dropdown */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              disabled={selectedTasks.length === 0}
+              className="shrink-0"
+              data-testid="dropdown-hierarchy"
+            >
+              <ChevronDown className="h-4 w-4 mr-1 rotate-[-90deg]" />
+              <span className="hidden xs:inline">Make Child Of</span>
+              <span className="xs:hidden">Child</span>
+              <ChevronDown className="h-3 w-3 ml-1" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="max-h-64 overflow-y-auto w-64">
+            <DropdownMenuLabel>Select Parent Task</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            {filteredTasks
+              .filter(t => !selectedTasks.includes(t.id)) // Can't be parent of self
+              .map(task => (
+                <DropdownMenuItem
+                  key={task.id}
+                  onClick={() => handleMakeChildOf(task.id)}
+                  data-testid={`menu-parent-${task.id}`}
+                >
+                  <span className="font-mono text-xs mr-2">{task.wbsCode || `#${task.id}`}</span>
+                  <span className="truncate">{task.name}</span>
+                </DropdownMenuItem>
+              ))}
+            {filteredTasks.filter(t => !selectedTasks.includes(t.id)).length === 0 && (
+              <div className="px-2 py-1.5 text-sm text-muted-foreground">No available parent tasks</div>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Move Up Level Button */}
+        <Button 
+          variant="outline" 
+          size="sm" 
+          disabled={selectedTasks.length === 0 || !canMoveUp()}
+          onClick={handleMoveUpLevel}
+          className="shrink-0"
+          data-testid="button-move-up-level"
+          title="Move selected tasks up one level (promote)"
+        >
+          <ChevronUp className="h-4 w-4 mr-1" />
+          <span className="hidden xs:inline">Move Up Level</span>
+          <span className="xs:hidden">Up</span>
+        </Button>
+
+        {/* Move Down Level Button */}
+        <Button 
+          variant="outline" 
+          size="sm" 
+          disabled={selectedTasks.length === 0 || !canMoveDown()}
+          onClick={handleMoveDownLevel}
+          className="shrink-0"
+          data-testid="button-move-down-level"
+          title="Move selected tasks down one level (demote)"
+        >
+          <ChevronDown className="h-4 w-4 mr-1" />
+          <span className="hidden xs:inline">Move Down Level</span>
+          <span className="xs:hidden">Down</span>
+        </Button>
 
             {/* Recalculate Button */}
         <Button 
@@ -1750,7 +2479,28 @@ export default function WBSPage() {
                 <p className="text-muted-foreground">Create tasks with start and end dates to see them on the Gantt chart</p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <div 
+                ref={ganttScrollRef}
+                className="overflow-x-auto cursor-grab active:cursor-grabbing select-none"
+                onMouseDown={(e) => {
+                  if (ganttScrollRef.current && e.button === 0) {
+                    setIsDragging(true);
+                    setDragStart({
+                      x: e.pageX,
+                      scrollLeft: ganttScrollRef.current.scrollLeft
+                    });
+                    e.preventDefault();
+                  }
+                }}
+                onMouseMove={(e) => {
+                  if (!isDragging || !ganttScrollRef.current) return;
+                  e.preventDefault();
+                  const walk = (e.pageX - dragStart.x) * 2; // Scroll speed multiplier
+                  ganttScrollRef.current.scrollLeft = dragStart.scrollLeft - walk;
+                }}
+                onMouseUp={() => setIsDragging(false)}
+                onMouseLeave={() => setIsDragging(false)}
+              >
                 <div className="min-w-[1000px]" style={{ minWidth: `${containerWidth}px` }}>
                   <div className="grid grid-cols-[300px_1fr] mb-4 border border-border rounded-lg overflow-hidden bg-card">
                     <div className="bg-card p-3 font-semibold text-sm border-r border-border sticky left-0 z-10">Task</div>
@@ -1785,31 +2535,81 @@ export default function WBSPage() {
                           </div>
                         </div>
                       ) : (
-                        <div 
-                          className="grid text-center text-sm font-semibold border-b border-border" 
-                          style={{ 
-                            gridTemplateColumns: `repeat(${units}, 1fr)`,
-                            minWidth: `${units * ZOOM_CONFIGS[zoom].minUnitWidth}px`
-                          }}
-                        >
-                          {getUnitLabels().map((label, i) => (
-                            <div key={i} className="p-3 border-l border-border last:border-r-0 truncate">
-                              {typeof label === 'string' ? label : ''}
+                        // Two-row headers for week and month views
+                        (zoom === "week" || zoom === "month") ? (
+                          <div className="border-b border-border">
+                            <div 
+                              className="grid text-center text-xs font-semibold border-b border-border/50 bg-muted/30" 
+                              style={{ 
+                                gridTemplateColumns: `repeat(${units}, 1fr)`,
+                                minWidth: `${units * ZOOM_CONFIGS[zoom].minUnitWidth}px`
+                              }}
+                            >
+                              {getUnitLabels().map((label, i) => (
+                                <div key={`top-${i}`} className="p-1 border-l border-border last:border-r-0 truncate text-muted-foreground">
+                                  {typeof label === 'object' ? label.top : ''}
+                                </div>
+                              ))}
                             </div>
-                          ))}
-                        </div>
+                            <div 
+                              className="grid text-center text-sm font-semibold" 
+                              style={{ 
+                                gridTemplateColumns: `repeat(${units}, 1fr)`,
+                                minWidth: `${units * ZOOM_CONFIGS[zoom].minUnitWidth}px`
+                              }}
+                            >
+                              {getUnitLabels().map((label, i) => (
+                                <div key={`bottom-${i}`} className="p-1 border-l border-border last:border-r-0">
+                                  {typeof label === 'object' ? label.bottom : ''}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : (
+                          <div 
+                            className="grid text-center text-sm font-semibold border-b border-border" 
+                            style={{ 
+                              gridTemplateColumns: `repeat(${units}, 1fr)`,
+                              minWidth: `${units * ZOOM_CONFIGS[zoom].minUnitWidth}px`
+                            }}
+                          >
+                            {getUnitLabels().map((label, i) => (
+                              <div key={i} className="p-3 border-l border-border last:border-r-0 truncate">
+                                {typeof label === 'string' ? label : ''}
+                              </div>
+                            ))}
+                          </div>
+                        )
                       )}
                     </div>
                   </div>
                   <div className="space-y-1">{rootTasks.map(task => renderGanttTask(task))}</div>
-                  <div className="mt-6 p-4 bg-accent/5 border border-accent/20 rounded-lg">
+                  <div className="sticky bottom-0 mt-6 p-4 bg-accent/5 border border-accent/20 rounded-lg backdrop-blur-sm bg-background/95 z-50 shadow-lg">
                     <h3 className="text-sm font-semibold mb-3">Legend</h3>
-                    <div className="flex flex-wrap items-center gap-4 text-sm">
-                      <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-green-500"></div><span>Completed</span></div>
-                      <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-blue-500"></div><span>In Progress</span></div>
-                      <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-purple-500"></div><span>In Review</span></div>
-                      <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-amber-500"></div><span>On Hold</span></div>
-                      <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-gray-400"></div><span>Not Started</span></div>
+                    <div className="space-y-3">
+                      <div>
+                        <h4 className="text-xs font-medium mb-2 text-muted-foreground">Task Status Colors</h4>
+                        <div className="flex flex-wrap items-center gap-4 text-sm">
+                          <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-green-500"></div><span>Completed</span></div>
+                          <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-blue-500"></div><span>In Progress</span></div>
+                          <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-purple-500"></div><span>In Review</span></div>
+                          <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-amber-500"></div><span>On Hold</span></div>
+                          <div className="flex items-center gap-2"><div className="w-4 h-4 rounded bg-gray-400"></div><span>Not Started</span></div>
+                        </div>
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-medium mb-2 text-muted-foreground">Gantt Bars</h4>
+                        <div className="flex flex-wrap items-center gap-4 text-sm">
+                          <div className="flex items-center gap-2">
+                            <div className="w-4 h-6 rounded bg-blue-500"></div>
+                            <span>Baseline (Approved Plan)</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="w-4 h-3 rounded bg-orange-500 border border-orange-600"></div>
+                            <span>Actual (Actual Start/Finish)</span>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1876,3 +2676,4 @@ export default function WBSPage() {
     </div>
   );
 }
+
