@@ -11,6 +11,12 @@ import type {
   UserOrganization,
   InsertProject,
   Project,
+  InsertProjectStatus,
+  ProjectStatus,
+  UpdateProjectStatus,
+  InsertKanbanColumn,
+  KanbanColumn,
+  UpdateKanbanColumn,
   InsertTask,
   Task,
   InsertTaskDependency,
@@ -165,6 +171,23 @@ export interface IStorage {
   createProject(project: InsertProject): Promise<Project>;
   updateProject(id: number, project: Partial<InsertProject>): Promise<Project | undefined>;
   deleteProject(id: number): Promise<void>;
+  duplicateProject(projectId: number, newName: string, newCode: string): Promise<Project>;
+
+  // Project Statuses (Custom Statuses)
+  getProjectStatus(id: number): Promise<ProjectStatus | undefined>;
+  getProjectStatusesByProject(projectId: number): Promise<ProjectStatus[]>;
+  createProjectStatus(status: InsertProjectStatus): Promise<ProjectStatus>;
+  updateProjectStatus(id: number, status: Partial<UpdateProjectStatus>): Promise<ProjectStatus | undefined>;
+  deleteProjectStatus(id: number): Promise<void>;
+  reorderProjectStatuses(projectId: number, statusIds: number[]): Promise<void>;
+
+  // Kanban Columns
+  getKanbanColumn(id: number): Promise<KanbanColumn | undefined>;
+  getKanbanColumnsByProject(projectId: number): Promise<KanbanColumn[]>;
+  createKanbanColumn(column: InsertKanbanColumn): Promise<KanbanColumn>;
+  updateKanbanColumn(id: number, column: Partial<UpdateKanbanColumn>): Promise<KanbanColumn | undefined>;
+  deleteKanbanColumn(id: number): Promise<void>;
+  reorderKanbanColumns(projectId: number, columnIds: number[]): Promise<void>;
 
   // Project Templates
   getProjectTemplate(id: number): Promise<ProjectTemplate | undefined>;
@@ -788,6 +811,199 @@ export class DatabaseStorage implements IStorage {
 
   async deleteProject(id: number): Promise<void> {
     await db.delete(schema.projects).where(eq(schema.projects.id, id));
+  }
+
+  async duplicateProject(projectId: number, newName: string, newCode: string): Promise<Project> {
+    const project = await this.getProject(projectId);
+    if (!project) throw new Error("Project not found");
+
+    // Create new project
+    const newProject = await this.createProject({
+      organizationId: project.organizationId,
+      name: newName,
+      code: newCode,
+      description: project.description || undefined,
+      status: "active",
+      startDate: project.startDate || undefined,
+      endDate: project.endDate || undefined,
+      budget: project.budget || undefined,
+      currency: project.currency,
+    });
+
+    // Copy project statuses
+    const statuses = await this.getProjectStatusesByProject(projectId);
+    for (const status of statuses) {
+      await this.createProjectStatus({
+        projectId: newProject.id,
+        name: status.name,
+        code: status.code,
+        color: status.color || undefined,
+        order: status.order,
+        isActive: status.isActive,
+      });
+    }
+
+    // Copy kanban columns
+    const columns = await this.getKanbanColumnsByProject(projectId);
+    for (const column of columns) {
+      await this.createKanbanColumn({
+        projectId: newProject.id,
+        name: column.name,
+        statusId: column.statusId || undefined,
+        customStatusId: column.customStatusId || undefined,
+        order: column.order,
+        isActive: column.isActive,
+      });
+    }
+
+    // Copy tasks (with hierarchy)
+    const tasks = await this.getTasksByProject(projectId);
+    const taskMap = new Map<number, number>(); // old task id -> new task id
+    
+    // First pass: create all tasks
+    const rootTasks = tasks.filter(t => !t.parentId);
+    const createTaskRecursive = async (task: Task, parentId: number | null = null) => {
+      const newTask = await this.createTask({
+        projectId: newProject.id,
+        parentId: parentId,
+        wbsCode: task.wbsCode,
+        name: task.name,
+        description: task.description || undefined,
+        status: task.status,
+        customStatusId: task.customStatusId || undefined,
+        priority: task.priority,
+        startDate: task.startDate || undefined,
+        endDate: task.endDate || undefined,
+        estimatedHours: task.estimatedHours || undefined,
+        actualHours: task.actualHours || undefined,
+        progress: task.progress,
+        assignedTo: task.assignedTo || undefined,
+        assignedToName: task.assignedToName || undefined,
+        createdBy: task.createdBy,
+        discipline: task.discipline || undefined,
+        disciplineLabel: task.disciplineLabel || undefined,
+        areaCode: task.areaCode || undefined,
+        weightFactor: task.weightFactor || undefined,
+        constraintType: task.constraintType || undefined,
+        constraintDate: task.constraintDate || undefined,
+        baselineStart: task.baselineStart || undefined,
+        baselineFinish: task.baselineFinish || undefined,
+        actualStartDate: task.actualStartDate || undefined,
+        actualFinishDate: task.actualFinishDate || undefined,
+        workMode: task.workMode || undefined,
+        isMilestone: task.isMilestone,
+        isCriticalPath: task.isCriticalPath,
+      });
+      taskMap.set(task.id, newTask.id);
+      
+      // Create children
+      const children = tasks.filter(t => t.parentId === task.id);
+      for (const child of children) {
+        await createTaskRecursive(child, newTask.id);
+      }
+    };
+
+    for (const rootTask of rootTasks) {
+      await createTaskRecursive(rootTask);
+    }
+
+    // Copy dependencies (second pass)
+    const dependencies = await this.getDependenciesByProject(projectId);
+    for (const dep of dependencies) {
+      const newPredecessorId = taskMap.get(dep.predecessorId);
+      const newSuccessorId = taskMap.get(dep.successorId);
+      if (newPredecessorId && newSuccessorId) {
+        await this.createTaskDependency({
+          projectId: newProject.id,
+          predecessorId: newPredecessorId,
+          successorId: newSuccessorId,
+          type: dep.type,
+          lagDays: dep.lagDays,
+        });
+      }
+    }
+
+    return newProject;
+  }
+
+  // Project Statuses (Custom Statuses)
+  async getProjectStatus(id: number): Promise<ProjectStatus | undefined> {
+    const [status] = await db.select().from(schema.projectStatuses).where(eq(schema.projectStatuses.id, id));
+    return status;
+  }
+
+  async getProjectStatusesByProject(projectId: number): Promise<ProjectStatus[]> {
+    return await db.select().from(schema.projectStatuses)
+      .where(eq(schema.projectStatuses.projectId, projectId))
+      .orderBy(asc(schema.projectStatuses.order), asc(schema.projectStatuses.id));
+  }
+
+  async createProjectStatus(status: InsertProjectStatus): Promise<ProjectStatus> {
+    const [created] = await db.insert(schema.projectStatuses).values(status).returning();
+    return created;
+  }
+
+  async updateProjectStatus(id: number, status: Partial<UpdateProjectStatus>): Promise<ProjectStatus | undefined> {
+    const [updated] = await db.update(schema.projectStatuses)
+      .set({ ...status, updatedAt: new Date() })
+      .where(eq(schema.projectStatuses.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteProjectStatus(id: number): Promise<void> {
+    await db.delete(schema.projectStatuses).where(eq(schema.projectStatuses.id, id));
+  }
+
+  async reorderProjectStatuses(projectId: number, statusIds: number[]): Promise<void> {
+    for (let i = 0; i < statusIds.length; i++) {
+      await db.update(schema.projectStatuses)
+        .set({ order: i, updatedAt: new Date() })
+        .where(and(
+          eq(schema.projectStatuses.id, statusIds[i]),
+          eq(schema.projectStatuses.projectId, projectId)
+        ));
+    }
+  }
+
+  // Kanban Columns
+  async getKanbanColumn(id: number): Promise<KanbanColumn | undefined> {
+    const [column] = await db.select().from(schema.kanbanColumns).where(eq(schema.kanbanColumns.id, id));
+    return column;
+  }
+
+  async getKanbanColumnsByProject(projectId: number): Promise<KanbanColumn[]> {
+    return await db.select().from(schema.kanbanColumns)
+      .where(eq(schema.kanbanColumns.projectId, projectId))
+      .orderBy(asc(schema.kanbanColumns.order), asc(schema.kanbanColumns.id));
+  }
+
+  async createKanbanColumn(column: InsertKanbanColumn): Promise<KanbanColumn> {
+    const [created] = await db.insert(schema.kanbanColumns).values(column).returning();
+    return created;
+  }
+
+  async updateKanbanColumn(id: number, column: Partial<UpdateKanbanColumn>): Promise<KanbanColumn | undefined> {
+    const [updated] = await db.update(schema.kanbanColumns)
+      .set({ ...column, updatedAt: new Date() })
+      .where(eq(schema.kanbanColumns.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteKanbanColumn(id: number): Promise<void> {
+    await db.delete(schema.kanbanColumns).where(eq(schema.kanbanColumns.id, id));
+  }
+
+  async reorderKanbanColumns(projectId: number, columnIds: number[]): Promise<void> {
+    for (let i = 0; i < columnIds.length; i++) {
+      await db.update(schema.kanbanColumns)
+        .set({ order: i, updatedAt: new Date() })
+        .where(and(
+          eq(schema.kanbanColumns.id, columnIds[i]),
+          eq(schema.kanbanColumns.projectId, projectId)
+        ));
+    }
   }
 
   // Project Templates

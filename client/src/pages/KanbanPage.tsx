@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,11 +11,12 @@ import { useProject } from "@/contexts/ProjectContext";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { TaskModal } from "@/components/TaskModal";
-import type { Task } from "@shared/schema";
+import type { Task, KanbanColumn, ProjectStatus } from "@shared/schema";
 
 type TaskStatus = "not-started" | "in-progress" | "review" | "completed" | "on-hold";
 
-const columns: { id: TaskStatus; title: string }[] = [
+// Default columns fallback
+const DEFAULT_COLUMNS: { id: TaskStatus; title: string }[] = [
   { id: "not-started", title: "Not Started" },
   { id: "in-progress", title: "In Progress" },
   { id: "review", title: "In Review" },
@@ -28,11 +29,31 @@ export default function KanbanPage() {
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | undefined>();
   const [defaultStatus, setDefaultStatus] = useState<TaskStatus>("not-started");
+  const [defaultCustomStatusId, setDefaultCustomStatusId] = useState<number | null>(null);
   const [draggedTaskId, setDraggedTaskId] = useState<number | null>(null);
+
+  // Fetch custom kanban columns
+  const { 
+    data: kanbanColumns = [], 
+    isLoading: isLoadingColumns 
+  } = useQuery<KanbanColumn[]>({
+    queryKey: [`/api/projects/${selectedProjectId}/kanban-columns`],
+    enabled: !!selectedProjectId,
+    retry: 1,
+  });
+
+  // Fetch custom project statuses (for display)
+  const { 
+    data: projectStatuses = [] 
+  } = useQuery<ProjectStatus[]>({
+    queryKey: [`/api/projects/${selectedProjectId}/statuses`],
+    enabled: !!selectedProjectId,
+    retry: 1,
+  });
 
   const { 
     data: tasks = [], 
-    isLoading, 
+    isLoading: isLoadingTasks, 
     error 
   } = useQuery<Task[]>({
     queryKey: [`/api/projects/${selectedProjectId}/tasks`],
@@ -40,9 +61,14 @@ export default function KanbanPage() {
     retry: 1,
   });
 
+  const isLoading = isLoadingTasks || isLoadingColumns;
+
   const updateTaskMutation = useMutation({
-    mutationFn: async ({ taskId, status }: { taskId: number; status: TaskStatus }) => {
-      await apiRequest("PATCH", `/api/tasks/${taskId}`, { status });
+    mutationFn: async ({ taskId, status, customStatusId }: { taskId: number; status?: TaskStatus; customStatusId?: number | null }) => {
+      const updateData: any = {};
+      if (status !== undefined) updateData.status = status;
+      if (customStatusId !== undefined) updateData.customStatusId = customStatusId;
+      await apiRequest("PATCH", `/api/tasks/${taskId}`, updateData);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/tasks`] });
@@ -56,19 +82,62 @@ export default function KanbanPage() {
     },
   });
 
-  const groupedTasks: Record<TaskStatus, Task[]> = {
-    "not-started": [],
-    "in-progress": [],
-    "review": [],
-    "completed": [],
-    "on-hold": [],
-  };
-
-  tasks.forEach((task) => {
-    if (groupedTasks[task.status as TaskStatus]) {
-      groupedTasks[task.status as TaskStatus].push(task);
+  // Build columns from custom kanban columns or use defaults
+  const columns = useMemo(() => {
+    const activeColumns = kanbanColumns.filter(col => col.isActive).sort((a, b) => a.order - b.order);
+    
+    if (activeColumns.length > 0) {
+      return activeColumns.map(col => ({
+        id: col.id,
+        title: col.name,
+        statusId: col.statusId,
+        customStatusId: col.customStatusId,
+      }));
     }
-  });
+    
+    // Fallback to default columns
+    return DEFAULT_COLUMNS.map(col => ({
+      id: col.id,
+      title: col.title,
+      statusId: col.id as TaskStatus,
+      customStatusId: null,
+    }));
+  }, [kanbanColumns]);
+
+  // Group tasks by column
+  const groupedTasks = useMemo(() => {
+    const grouped: Record<number | string, Task[]> = {};
+    
+    columns.forEach(col => {
+      const key = col.customStatusId || col.statusId || col.id;
+      grouped[key] = [];
+    });
+
+    tasks.forEach((task) => {
+      // Find matching column
+      const matchingColumn = columns.find(col => {
+        if (col.customStatusId) {
+          return task.customStatusId === col.customStatusId;
+        } else if (col.statusId) {
+          return task.status === col.statusId && !task.customStatusId;
+        }
+        return false;
+      });
+
+      if (matchingColumn) {
+        const key = matchingColumn.customStatusId || matchingColumn.statusId || matchingColumn.id;
+        if (!grouped[key]) grouped[key] = [];
+        grouped[key].push(task);
+      } else {
+        // Fallback: group by status if no custom columns match
+        const fallbackKey = task.status;
+        if (!grouped[fallbackKey]) grouped[fallbackKey] = [];
+        grouped[fallbackKey].push(task);
+      }
+    });
+
+    return grouped;
+  }, [tasks, columns]);
 
   const handleDragStart = (e: React.DragEvent, taskId: number) => {
     setDraggedTaskId(taskId);
@@ -80,12 +149,26 @@ export default function KanbanPage() {
     e.dataTransfer.dropEffect = "move";
   };
 
-  const handleDrop = (e: React.DragEvent, targetStatus: TaskStatus) => {
+  const handleDrop = (e: React.DragEvent, column: { id: number | string; statusId?: TaskStatus | null; customStatusId?: number | null }) => {
     e.preventDefault();
     if (draggedTaskId !== null) {
       const task = tasks.find(t => t.id === draggedTaskId);
-      if (task && task.status !== targetStatus) {
-        updateTaskMutation.mutate({ taskId: draggedTaskId, status: targetStatus });
+      if (!task) {
+        setDraggedTaskId(null);
+        return;
+      }
+
+      const currentMatches = task.customStatusId === column.customStatusId && task.status === (column.statusId || task.status);
+      const newStatusId = column.statusId;
+      const newCustomStatusId = column.customStatusId;
+
+      // Check if status actually changed
+      if (task.customStatusId !== newCustomStatusId || task.status !== newStatusId) {
+        updateTaskMutation.mutate({ 
+          taskId: draggedTaskId, 
+          status: newStatusId || undefined,
+          customStatusId: newCustomStatusId !== undefined ? newCustomStatusId : undefined,
+        });
       }
     }
     setDraggedTaskId(null);
@@ -95,9 +178,10 @@ export default function KanbanPage() {
     setDraggedTaskId(null);
   };
 
-  const handleAddTask = (status: TaskStatus) => {
+  const handleAddTask = (column: { id: number | string; statusId?: TaskStatus | null; customStatusId?: number | null }) => {
     setEditingTask(undefined);
-    setDefaultStatus(status);
+    setDefaultStatus((column.statusId as TaskStatus) || "not-started");
+    setDefaultCustomStatusId(column.customStatusId || null);
     setTaskModalOpen(true);
   };
 
@@ -176,26 +260,30 @@ export default function KanbanPage() {
         </Button>
       </div>
 
-      <div className="grid grid-cols-4 gap-4 h-[calc(100%-80px)]">
-        {columns.map((column) => (
-          <div 
-            key={column.id} 
-            className="flex flex-col min-h-[400px]"
-            onDragOver={handleDragOver}
-            onDrop={(e) => handleDrop(e, column.id)}
-            data-testid={`column-${column.id}`}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <h3 className="font-semibold">{column.title}</h3>
-                <Badge variant="secondary" data-testid={`count-${column.id}`}>
-                  {groupedTasks[column.id].length}
-                </Badge>
+      <div className={`grid gap-4 h-[calc(100%-80px)]`} style={{ gridTemplateColumns: `repeat(${columns.length}, minmax(250px, 1fr))` }}>
+        {columns.map((column) => {
+          const columnKey = column.customStatusId || column.statusId || column.id;
+          const columnTasks = groupedTasks[columnKey] || [];
+          
+          return (
+            <div 
+              key={column.id} 
+              className="flex flex-col min-h-[400px]"
+              onDragOver={handleDragOver}
+              onDrop={(e) => handleDrop(e, column)}
+              data-testid={`column-${column.id}`}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <h3 className="font-semibold">{column.title}</h3>
+                  <Badge variant="secondary" data-testid={`count-${column.id}`}>
+                    {columnTasks.length}
+                  </Badge>
+                </div>
               </div>
-            </div>
 
-            <div className="space-y-3 flex-1 overflow-y-auto">
-              {groupedTasks[column.id].map((task) => (
+              <div className="space-y-3 flex-1 overflow-y-auto">
+                {columnTasks.map((task) => (
                 <Card
                   key={task.id}
                   className={`cursor-grab active:cursor-grabbing hover-elevate active-elevate-2 transition-all ${
@@ -257,7 +345,7 @@ export default function KanbanPage() {
               <Button
                 variant="outline"
                 className="w-full border-dashed"
-                onClick={() => handleAddTask(column.id)}
+                onClick={() => handleAddTask(column)}
                 data-testid={`button-add-card-${column.id}`}
               >
                 <Plus className="h-4 w-4 mr-2" />
@@ -265,7 +353,8 @@ export default function KanbanPage() {
               </Button>
             </div>
           </div>
-        ))}
+        );
+        })}
       </div>
 
       <TaskModal
@@ -273,6 +362,7 @@ export default function KanbanPage() {
         onOpenChange={setTaskModalOpen}
         task={editingTask}
         defaultStatus={defaultStatus}
+        defaultCustomStatusId={defaultCustomStatusId}
       />
     </div>
   );

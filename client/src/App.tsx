@@ -40,6 +40,7 @@ import DocumentsPage from "@/pages/DocumentsPage";
 import PMODashboardPage from "@/pages/PMODashboardPage";
 import PMOCalendarPage from "@/pages/PMOCalendarPage";
 import PMOInventoryPage from "@/pages/PMOInventoryPage";
+import ProjectsPage from "@/pages/ProjectsPage";
 import ChatPage from "@/pages/ChatPage";
 import ContactsPage from "@/pages/ContactsPage";
 import UserManagementPage from "@/pages/UserManagementPage";
@@ -75,6 +76,7 @@ function Router() {
       <Route path="/chat" component={ChatPage} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/pmo/dashboard" component={PMODashboardPage} />
+      <Route path="/pmo/projects" component={ProjectsPage} />
       <Route path="/pmo/contacts" component={ContactsPage} />
       <Route path="/pmo/calendar" component={PMOCalendarPage} />
       <Route path="/pmo/inventory" component={PMOInventoryPage} />

@@ -6,6 +6,10 @@ import { setupAuth, isAuthenticated } from "./auth";
 import {
   insertOrganizationSchema,
   insertProjectSchema,
+  insertProjectStatusSchema,
+  updateProjectStatusSchema,
+  insertKanbanColumnSchema,
+  updateKanbanColumnSchema,
   insertTaskSchema,
   insertTaskDependencySchema,
   insertStakeholderSchema,
@@ -555,6 +559,263 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching project:", error);
       res.status(500).json({ message: "Failed to fetch project" });
+    }
+  });
+
+  // Duplicate/Copy Project
+  app.post('/api/projects/:id/duplicate', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.id);
+      const { name, code } = req.body;
+
+      if (!name || !code) {
+        return res.status(400).json({ message: "Name and code are required" });
+      }
+
+      // Check access to source project
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      const newProject = await storage.duplicateProject(projectId, name, code);
+      res.json(newProject);
+    } catch (error) {
+      console.error("Error duplicating project:", error);
+      res.status(500).json({ message: "Failed to duplicate project" });
+    }
+  });
+
+  // Project Statuses API
+  app.get('/api/projects/:projectId/statuses', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      const statuses = await storage.getProjectStatusesByProject(projectId);
+      res.json(statuses);
+    } catch (error) {
+      console.error("Error fetching project statuses:", error);
+      res.status(500).json({ message: "Failed to fetch project statuses" });
+    }
+  });
+
+  app.post('/api/projects/:projectId/statuses', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      const data = insertProjectStatusSchema.parse({ ...req.body, projectId });
+      const status = await storage.createProjectStatus(data);
+      res.json(status);
+    } catch (error) {
+      console.error("Error creating project status:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Validation error", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to create project status" });
+    }
+  });
+
+  app.patch('/api/project-statuses/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const status = await storage.getProjectStatus(id);
+      if (!status) {
+        return res.status(404).json({ message: "Status not found" });
+      }
+
+      if (!await checkProjectAccess(userId, status.projectId)) {
+        return res.status(404).json({ message: "Status not found" });
+      }
+
+      const data = updateProjectStatusSchema.parse(req.body);
+      const updated = await storage.updateProjectStatus(id, data);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating project status:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Validation error", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to update project status" });
+    }
+  });
+
+  app.delete('/api/project-statuses/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const status = await storage.getProjectStatus(id);
+      if (!status) {
+        return res.status(404).json({ message: "Status not found" });
+      }
+
+      if (!await checkProjectAccess(userId, status.projectId)) {
+        return res.status(404).json({ message: "Status not found" });
+      }
+
+      await storage.deleteProjectStatus(id);
+      res.json({ message: "Status deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting project status:", error);
+      res.status(500).json({ message: "Failed to delete project status" });
+    }
+  });
+
+  app.post('/api/projects/:projectId/statuses/reorder', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+      const { statusIds } = req.body;
+
+      if (!Array.isArray(statusIds)) {
+        return res.status(400).json({ message: "statusIds must be an array" });
+      }
+
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      await storage.reorderProjectStatuses(projectId, statusIds);
+      res.json({ message: "Statuses reordered successfully" });
+    } catch (error) {
+      console.error("Error reordering project statuses:", error);
+      res.status(500).json({ message: "Failed to reorder project statuses" });
+    }
+  });
+
+  // Kanban Columns API
+  app.get('/api/projects/:projectId/kanban-columns', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      const columns = await storage.getKanbanColumnsByProject(projectId);
+      res.json(columns);
+    } catch (error) {
+      console.error("Error fetching kanban columns:", error);
+      res.status(500).json({ message: "Failed to fetch kanban columns" });
+    }
+  });
+
+  app.post('/api/projects/:projectId/kanban-columns', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      const data = insertKanbanColumnSchema.parse({ ...req.body, projectId });
+      
+      // Validate: either statusId OR customStatusId must be set, but not both
+      if (!data.statusId && !data.customStatusId) {
+        return res.status(400).json({ message: "Either statusId or customStatusId must be provided" });
+      }
+      if (data.statusId && data.customStatusId) {
+        return res.status(400).json({ message: "Cannot set both statusId and customStatusId" });
+      }
+
+      const column = await storage.createKanbanColumn(data);
+      res.json(column);
+    } catch (error) {
+      console.error("Error creating kanban column:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Validation error", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to create kanban column" });
+    }
+  });
+
+  app.patch('/api/kanban-columns/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const column = await storage.getKanbanColumn(id);
+      if (!column) {
+        return res.status(404).json({ message: "Column not found" });
+      }
+
+      if (!await checkProjectAccess(userId, column.projectId)) {
+        return res.status(404).json({ message: "Column not found" });
+      }
+
+      const data = updateKanbanColumnSchema.parse(req.body);
+      
+      // Validate: either statusId OR customStatusId must be set, but not both
+      if (data.statusId !== undefined && data.customStatusId !== undefined) {
+        return res.status(400).json({ message: "Cannot set both statusId and customStatusId" });
+      }
+
+      const updated = await storage.updateKanbanColumn(id, data);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating kanban column:", error);
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ message: "Validation error", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to update kanban column" });
+    }
+  });
+
+  app.delete('/api/kanban-columns/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const column = await storage.getKanbanColumn(id);
+      if (!column) {
+        return res.status(404).json({ message: "Column not found" });
+      }
+
+      if (!await checkProjectAccess(userId, column.projectId)) {
+        return res.status(404).json({ message: "Column not found" });
+      }
+
+      await storage.deleteKanbanColumn(id);
+      res.json({ message: "Column deleted successfully" });
+    } catch (error) {
+      console.error("Error deleting kanban column:", error);
+      res.status(500).json({ message: "Failed to delete kanban column" });
+    }
+  });
+
+  app.post('/api/projects/:projectId/kanban-columns/reorder', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+      const { columnIds } = req.body;
+
+      if (!Array.isArray(columnIds)) {
+        return res.status(400).json({ message: "columnIds must be an array" });
+      }
+
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(404).json({ message: "Project not found" });
+      }
+
+      await storage.reorderKanbanColumns(projectId, columnIds);
+      res.json({ message: "Columns reordered successfully" });
+    } catch (error) {
+      console.error("Error reordering kanban columns:", error);
+      res.status(500).json({ message: "Failed to reorder kanban columns" });
     }
   });
 

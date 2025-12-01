@@ -211,6 +211,38 @@ export const projects = pgTable("projects", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Project-level custom statuses
+export const projectStatuses = pgTable("project_statuses", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 50 }).notNull(), // Display name: "Stuck", "Internal Approval"
+  code: varchar("code", { length: 50 }).notNull(), // URL-safe code: "stuck", "internal-approval"
+  color: varchar("color", { length: 20 }), // Color for UI display (e.g., "red", "amber", "blue")
+  order: integer("order").notNull().default(0), // Display order
+  isActive: boolean("is_active").default(true), // Can be hidden without deleting
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  projectIdIdx: index("project_statuses_project_id_idx").on(table.projectId),
+  codeIdx: index("project_statuses_code_idx").on(table.code),
+}));
+
+// Kanban columns configuration per project
+export const kanbanColumns = pgTable("kanban_columns", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 100 }).notNull(), // Display name for the column
+  statusId: taskStatusEnum("status_id"), // Maps to enum status (nullable - either this OR customStatusId)
+  customStatusId: integer("custom_status_id").references(() => projectStatuses.id, { onDelete: "cascade" }), // OR maps to custom status (nullable)
+  order: integer("order").notNull().default(0), // Display order
+  isActive: boolean("is_active").default(true), // Can be hidden without deleting
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  projectIdIdx: index("kanban_columns_project_id_idx").on(table.projectId),
+  orderIdx: index("kanban_columns_order_idx").on(table.order),
+}));
+
 // Tasks (WBS items with hierarchy support - EPC Enhanced)
 export const tasks = pgTable("tasks", {
   id: serial("id").primaryKey(),
@@ -219,7 +251,8 @@ export const tasks = pgTable("tasks", {
   wbsCode: varchar("wbs_code", { length: 50 }).notNull(), // e.g., "1.2.3.4.5"
   name: text("name").notNull(),
   description: text("description"),
-  status: taskStatusEnum("status").notNull().default("not-started"),
+  status: taskStatusEnum("status").notNull().default("not-started"), // System status (for backward compatibility)
+  customStatusId: integer("custom_status_id").references(() => projectStatuses.id, { onDelete: "set null" }), // Project-specific custom status
   priority: taskPriorityEnum("priority").notNull().default("medium"),
   startDate: timestamp("start_date"),
   endDate: timestamp("end_date"),
@@ -1086,6 +1119,22 @@ export type UpdateProject = z.infer<typeof updateProjectSchema>;
 export type Project = typeof projects.$inferSelect;
 
 // Zod Schemas for Tasks
+// Zod Schemas for Project Statuses
+export const insertProjectStatusSchema = createInsertSchema(projectStatuses).omit({ id: true, createdAt: true, updatedAt: true });
+export const updateProjectStatusSchema = createInsertSchema(projectStatuses).omit({ id: true, createdAt: true, updatedAt: true }).partial();
+export const selectProjectStatusSchema = createSelectSchema(projectStatuses);
+export type InsertProjectStatus = z.infer<typeof insertProjectStatusSchema>;
+export type UpdateProjectStatus = z.infer<typeof updateProjectStatusSchema>;
+export type ProjectStatus = typeof projectStatuses.$inferSelect;
+
+// Zod Schemas for Kanban Columns
+export const insertKanbanColumnSchema = createInsertSchema(kanbanColumns).omit({ id: true, createdAt: true, updatedAt: true });
+export const updateKanbanColumnSchema = createInsertSchema(kanbanColumns).omit({ id: true, createdAt: true, updatedAt: true }).partial();
+export const selectKanbanColumnSchema = createSelectSchema(kanbanColumns);
+export type InsertKanbanColumn = z.infer<typeof insertKanbanColumnSchema>;
+export type UpdateKanbanColumn = z.infer<typeof updateKanbanColumnSchema>;
+export type KanbanColumn = typeof kanbanColumns.$inferSelect;
+
 export const insertTaskSchema = createInsertSchema(tasks).omit({ id: true, createdAt: true, updatedAt: true }).extend({
   wbsCode: z.string().optional(),
   createdBy: z.string().optional(),

@@ -18,6 +18,7 @@ import {
   Settings,
   MessageSquare,
   Contact,
+  FolderKanban,
 } from "lucide-react";
 import {
   Sidebar,
@@ -52,6 +53,7 @@ const projectTabs = [
 
 const pmoTabs = [
   { title: "PMO Dashboard", icon: LayoutDashboard, path: "/pmo/dashboard" },
+  { title: "Projects", icon: FolderKanban, path: "/pmo/projects" },
   { title: "Contacts Directory", icon: Contact, path: "/pmo/contacts" },
   { title: "Calendar", icon: Calendar, path: "/pmo/calendar" },
   { title: "Inventory", icon: Package, path: "/pmo/inventory" },

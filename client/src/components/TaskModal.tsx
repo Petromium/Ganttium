@@ -72,6 +72,7 @@ interface TaskModalProps {
   onOpenChange: (open: boolean) => void;
   task?: Task;
   defaultStatus?: TaskStatus;
+  defaultCustomStatusId?: number | null;
   onClose?: () => void;
   onSave?: (data: any) => void;
   onCreate?: (task: Task) => void;
@@ -82,6 +83,7 @@ export function TaskModal({
   onOpenChange, 
   task, 
   defaultStatus = "not-started",
+  defaultCustomStatusId = null,
   onClose,
   onSave,
   onCreate
@@ -261,6 +263,10 @@ export function TaskModal({
           ...getDefaultFormData(),
           status: defaultStatus,
         });
+        // Set customStatusId if provided
+        if (defaultCustomStatusId !== null && defaultCustomStatusId !== undefined) {
+          // We'll handle this in handleSave when creating the task
+        }
       }
       setActiveTab("details");
       setSelectedPredecessor("");
@@ -560,6 +566,9 @@ export function TaskModal({
       discipline: formData.discipline || null,
       areaCode: formData.areaCode || null,
       responsibleContractor: formData.responsibleContractor || null,
+      
+      // Include customStatusId if provided (for new tasks from Kanban)
+      customStatusId: !task && defaultCustomStatusId !== null && defaultCustomStatusId !== undefined ? defaultCustomStatusId : (task?.customStatusId || null),
       
       // Explicitly set Enums to satisfy type checker
       status: formData.status,
