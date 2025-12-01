@@ -43,7 +43,6 @@ import PMOInventoryPage from "@/pages/PMOInventoryPage";
 import ProjectsPage from "@/pages/ProjectsPage";
 import ChatPage from "@/pages/ChatPage";
 import ContactsPage from "@/pages/ContactsPage";
-import UserManagementPage from "@/pages/UserManagementPage";
 import ChangeRequestsPage from "@/pages/ChangeRequestsPage";
 import LoginPage from "@/pages/LoginPage";
 import ForgotPasswordPage from "@/pages/ForgotPasswordPage";
@@ -75,12 +74,15 @@ function Router() {
       <Route path="/ai-assistant" component={AIAssistantPage} />
       <Route path="/chat" component={ChatPage} />
       <Route path="/settings" component={SettingsPage} />
+      <Route path="/users" component={() => {
+        window.location.href = "/settings?tab=users";
+        return null;
+      }} />
       <Route path="/pmo/dashboard" component={PMODashboardPage} />
       <Route path="/pmo/projects" component={ProjectsPage} />
       <Route path="/pmo/contacts" component={ContactsPage} />
       <Route path="/pmo/calendar" component={PMOCalendarPage} />
       <Route path="/pmo/inventory" component={PMOInventoryPage} />
-      <Route path="/users" component={UserManagementPage} />
       <Route path="/admin" component={AdminDashboard} />
       <Route path="/login" component={() => <Redirect to="/" />} />
       <Route component={NotFound} />

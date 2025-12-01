@@ -598,9 +598,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const statuses = await storage.getProjectStatusesByProject(projectId);
       res.json(statuses);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error fetching project statuses:", error);
-      res.status(500).json({ message: "Failed to fetch project statuses" });
+      const errorMessage = error?.message || "Failed to fetch project statuses";
+      res.status(500).json({ 
+        message: "Failed to fetch project statuses",
+        error: process.env.NODE_ENV === "development" ? errorMessage : undefined
+      });
     }
   });
 
@@ -616,12 +620,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const data = insertProjectStatusSchema.parse({ ...req.body, projectId });
       const status = await storage.createProjectStatus(data);
       res.json(status);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error creating project status:", error);
       if (error instanceof z.ZodError) {
         return res.status(400).json({ message: "Validation error", errors: error.errors });
       }
-      res.status(500).json({ message: "Failed to create project status" });
+      const errorMessage = error?.message || "Failed to create project status";
+      res.status(500).json({ 
+        message: "Failed to create project status",
+        error: process.env.NODE_ENV === "development" ? errorMessage : undefined
+      });
     }
   });
 
@@ -707,9 +715,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const columns = await storage.getKanbanColumnsByProject(projectId);
       res.json(columns);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error fetching kanban columns:", error);
-      res.status(500).json({ message: "Failed to fetch kanban columns" });
+      const errorMessage = error?.message || "Failed to fetch kanban columns";
+      res.status(500).json({ 
+        message: "Failed to fetch kanban columns",
+        error: process.env.NODE_ENV === "development" ? errorMessage : undefined
+      });
     }
   });
 

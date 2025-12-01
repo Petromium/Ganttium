@@ -1,7 +1,9 @@
 import { CreateProjectWizard } from "@/components/CreateProjectWizard";
+import { ProjectEditModal } from "@/components/ProjectEditModal";
 import { useState, useRef } from "react";
 import { useLocation } from "wouter";
-import { Search, Plus, Download, Upload, Bell, Moon, Sun, User, X, Building2, FolderKanban, Settings, LogOut, Mail, Shield, CheckCheck, FileJson, FileText, AlertCircle, Info } from "lucide-react";
+import { Search, Plus, Download, Upload, Bell, Moon, Sun, User, X, Building2, FolderKanban, Settings, LogOut, Mail, Shield, CheckCheck, FileJson, FileText, AlertCircle, Info, Edit } from "lucide-react";
+import { queryClient } from "@/lib/queryClient";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -69,6 +71,7 @@ export function TopBar() {
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importResult, setImportResult] = useState<{ success: boolean; message: string; errors?: string[]; warnings?: string[] } | null>(null);
   const [createWizardOpen, setCreateWizardOpen] = useState(false);
+  const [projectEditModalOpen, setProjectEditModalOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [notifications, setNotifications] = useState<Notification[]>([
@@ -396,6 +399,31 @@ export function TopBar() {
           ))}
         </SelectContent>
       </Select>
+
+      {/* Project Settings Button - Only show when project is selected */}
+      {selectedProjectId && selectedProject ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="hidden md:flex shrink-0"
+          onClick={() => setProjectEditModalOpen(true)}
+          data-testid="button-project-settings"
+          title="Project Settings"
+        >
+          <Edit className="h-4 w-4" />
+        </Button>
+      ) : (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="hidden md:flex shrink-0 opacity-50 cursor-not-allowed"
+          disabled
+          data-testid="button-project-settings-disabled"
+          title="Select a project to access settings"
+        >
+          <Edit className="h-4 w-4" />
+        </Button>
+      )}
 
       {/* Desktop: Full search bar */}
       <div className="relative hidden md:flex flex-1 max-w-md">
@@ -826,6 +854,20 @@ export function TopBar() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* Project Edit Modal */}
+      {selectedProject && selectedOrgId && (
+        <ProjectEditModal
+          open={projectEditModalOpen}
+          onOpenChange={setProjectEditModalOpen}
+          project={selectedProject}
+          organizationId={selectedOrgId}
+          onUpdate={() => {
+            // Refresh projects list
+            queryClient.invalidateQueries({ queryKey: [`/api/organizations/${selectedOrgId}/projects`] });
+          }}
+        />
+      )}
     </header>
   );
 }
