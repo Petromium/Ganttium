@@ -46,6 +46,14 @@ export function ProjectEditModal({
   const [newColumnType, setNewColumnType] = useState<"system" | "custom">("system");
   const [newColumnStatusId, setNewColumnStatusId] = useState<string>("not-started");
   const [newColumnCustomStatusId, setNewColumnCustomStatusId] = useState<number | null>(null);
+  
+  // Material tracking config
+  const [consumptionEntryMethod, setConsumptionEntryMethod] = useState<"entries-only" | "running-total" | "hybrid">("hybrid");
+  const [consumptionRateMethod, setConsumptionRateMethod] = useState<"linear" | "weighted-average">("linear");
+  const [weightedAverageWindow, setWeightedAverageWindow] = useState<number>(7);
+  const [showForecast, setShowForecast] = useState<boolean>(true);
+  const [forecastWarningThreshold, setForecastWarningThreshold] = useState<number>(10);
+  const [trackDeliveries, setTrackDeliveries] = useState<boolean>(true);
 
   const isCreateMode = !project;
 
@@ -274,6 +282,7 @@ export function ProjectEditModal({
               <>
                 <TabsTrigger value="statuses">Status Configuration</TabsTrigger>
                 <TabsTrigger value="kanban">Kanban Columns</TabsTrigger>
+                <TabsTrigger value="materials">Material Tracking</TabsTrigger>
               </>
             )}
           </TabsList>
@@ -574,6 +583,169 @@ export function ProjectEditModal({
                     onUpdate={(data) => updateColumnMutation.mutate({ id: editingColumn.id, ...data })}
                   />
                 )}
+              </div>
+            </TabsContent>
+          )}
+
+          {/* Material Tracking Configuration Tab */}
+          {project && (
+            <TabsContent value="materials" className="flex-1 overflow-y-auto">
+              <div className="space-y-6">
+                <div>
+                  <h3 className="text-lg font-semibold mb-2">Material Tracking Configuration</h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Configure how materials are tracked and displayed in this project.
+                  </p>
+                </div>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Consumption Entry Method</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <Label>How should material consumption be recorded?</Label>
+                      <Select value={consumptionEntryMethod} onValueChange={(val: any) => setConsumptionEntryMethod(val)}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="entries-only">Date-stamped entries only (Recommended for audit)</SelectItem>
+                          <SelectItem value="running-total">Running total only (Simple)</SelectItem>
+                          <SelectItem value="hybrid">Both (Entries + quick adjustment)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        {consumptionEntryMethod === "entries-only" && "Full audit trail with date-stamped entries. Best for compliance and reconciliation."}
+                        {consumptionEntryMethod === "running-total" && "Simple single field updated manually. Fast but no history."}
+                        {consumptionEntryMethod === "hybrid" && "Entries create history, but users can also adjust total directly. Best flexibility."}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Consumption Rate Calculation</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="space-y-2">
+                      <Label>How should consumption rate be calculated?</Label>
+                      <Select value={consumptionRateMethod} onValueChange={(val: any) => setConsumptionRateMethod(val)}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="linear">Linear projection (Simple)</SelectItem>
+                          <SelectItem value="weighted-average">Weighted average (Sophisticated)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        {consumptionRateMethod === "linear" && "Simple average: Cumulative Consumption / Days Elapsed. Works well for steady consumption."}
+                        {consumptionRateMethod === "weighted-average" && "Recent consumption weighted more heavily. Adapts to changing patterns."}
+                      </p>
+                    </div>
+                    {consumptionRateMethod === "weighted-average" && (
+                      <div className="space-y-2">
+                        <Label htmlFor="weighted-window">Weighted Average Window (days)</Label>
+                        <Input
+                          id="weighted-window"
+                          type="number"
+                          min="1"
+                          max="30"
+                          value={weightedAverageWindow}
+                          onChange={(e) => setWeightedAverageWindow(parseInt(e.target.value) || 7)}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Number of recent days to weight more heavily in the calculation.
+                        </p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Forecast Display</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="show-forecast"
+                        checked={showForecast}
+                        onCheckedChange={(checked) => setShowForecast(checked === true)}
+                      />
+                      <Label htmlFor="show-forecast" className="cursor-pointer">
+                        Show forecasted completion date
+                      </Label>
+                    </div>
+                    {showForecast && (
+                      <div className="space-y-2">
+                        <Label htmlFor="forecast-threshold">Warning Threshold (%)</Label>
+                        <Input
+                          id="forecast-threshold"
+                          type="number"
+                          min="0"
+                          max="100"
+                          value={forecastWarningThreshold}
+                          onChange={(e) => setForecastWarningThreshold(parseInt(e.target.value) || 10)}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Show warning when forecasted consumption exceeds planned quantity by this percentage.
+                        </p>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Delivery Tracking</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="track-deliveries"
+                        checked={trackDeliveries}
+                        onCheckedChange={(checked) => setTrackDeliveries(checked === true)}
+                      />
+                      <Label htmlFor="track-deliveries" className="cursor-pointer">
+                        Track material deliveries separately from consumption
+                      </Label>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-2">
+                      When enabled, you can track when materials are delivered vs when they are consumed. 
+                      This helps manage inventory on-site and reconcile with procurement.
+                    </p>
+                  </CardContent>
+                </Card>
+
+                <div className="flex justify-end">
+                  <Button
+                    onClick={async () => {
+                      const config = {
+                        consumptionEntryMethod,
+                        consumptionRateMethod,
+                        weightedAverageWindow: consumptionRateMethod === "weighted-average" ? weightedAverageWindow : undefined,
+                        showForecast,
+                        forecastWarningThreshold,
+                        trackDeliveries,
+                      };
+                      
+                      try {
+                        await apiRequest("PATCH", `/api/projects/${project!.id}`, {
+                          materialTrackingConfig: config,
+                        });
+                        queryClient.invalidateQueries({ queryKey: [`/api/organizations/${organizationId}/projects`] });
+                        toast({ title: "Success", description: "Material tracking configuration updated successfully" });
+                      } catch (error: any) {
+                        toast({ title: "Error", description: error.message || "Failed to update configuration", variant: "destructive" });
+                      }
+                    }}
+                  >
+                    Save Configuration
+                  </Button>
+                </div>
               </div>
             </TabsContent>
           )}

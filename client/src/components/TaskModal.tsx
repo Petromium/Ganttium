@@ -32,6 +32,9 @@ import { useTaskConversation, useCreateConversation } from "@/hooks/useConversat
 import { useAuth } from "@/hooks/useAuth";
 import { MessageSquare } from "lucide-react";
 import { TaskRaciTab } from "@/components/TaskRaciTab";
+import { TimeEntryModal } from "@/components/TimeEntryModal";
+import { ResourceAssignmentCard } from "@/components/ResourceAssignmentCard";
+import type { ResourceTimeEntry } from "@shared/schema";
 
 type TaskStatus = "not-started" | "in-progress" | "review" | "completed" | "on-hold";
 type TaskPriority = "low" | "medium" | "high" | "critical";
@@ -114,6 +117,8 @@ export function TaskModal({
   const [showIssueCreation, setShowIssueCreation] = useState(false);
   const [newlyCreatedIssueId, setNewlyCreatedIssueId] = useState<number | null>(null);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [selectedAssignmentForTimeEntry, setSelectedAssignmentForTimeEntry] = useState<number | null>(null);
+  const [selectedTimeEntry, setSelectedTimeEntry] = useState<ResourceTimeEntry | undefined>(undefined);
   
   // UI State uses strings for dates/decimals to match Input requirements
   type TaskUIState = {
@@ -954,6 +959,12 @@ export function TaskModal({
                 Resources {isEditing && assignments.length > 0 && `(${assignments.length})`}
               </TabsTrigger>
               <TabsTrigger 
+                value="materials" 
+                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-2"
+              >
+                Materials
+              </TabsTrigger>
+              <TabsTrigger 
                 value="documents" 
                 className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent px-4 py-2"
               >
@@ -1786,33 +1797,24 @@ export function TaskModal({
                   {assignments.length > 0 && (
                     <div className="space-y-2">
                       <h4 className="text-sm font-semibold">Directly Assigned Resources</h4>
-                      {assignments.map((assignment) => {
-                        const resource = resources.find(r => r.id === assignment.resourceId);
-                        return (
-                          <div key={assignment.id} className="flex items-center justify-between p-3 border rounded">
-                            <div className="flex items-center gap-3">
-                              <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                                <User className="h-4 w-4 text-primary" />
-                              </div>
-                              <div>
-                                <p className="text-sm font-medium">{resource?.name || `Resource #${assignment.resourceId}`}</p>
-                                <p className="text-xs text-muted-foreground">{resource?.type} • {resource?.discipline}</p>
-                              </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Badge variant="secondary">{assignment.allocation}%</Badge>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => removeResourceMutation.mutate(assignment.id)}
-                                disabled={removeResourceMutation.isPending}
-                              >
-                                <X className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          </div>
-                        );
-                      })}
+                      <div className="space-y-2">
+                        {assignments.map((assignment) => {
+                          const resource = resources.find(r => r.id === assignment.resourceId);
+                          return (
+                            <ResourceAssignmentCard
+                              key={assignment.id}
+                              assignment={assignment}
+                              resource={resource}
+                              onRemove={(id) => removeResourceMutation.mutate(id)}
+                              onAddTimeEntry={(id) => {
+                                setSelectedAssignmentForTimeEntry(id);
+                                setSelectedTimeEntry(undefined);
+                              }}
+                              isEditing={isEditing}
+                            />
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
 
@@ -1887,6 +1889,16 @@ export function TaskModal({
                     )}
                   </div>
                 </div>
+              </TabsContent>
+
+              <TabsContent value="materials" className="space-y-4 mt-0">
+                {isEditing && task ? (
+                  <TaskMaterialsTab taskId={task.id} projectId={selectedProjectId || 0} />
+                ) : (
+                  <div className="text-center py-8 text-muted-foreground">
+                    <p className="text-sm">Please save the task first to manage materials.</p>
+                  </div>
+                )}
               </TabsContent>
 
               <TabsContent value="documents" className="space-y-4 mt-0">
@@ -2378,6 +2390,20 @@ export function TaskModal({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {selectedAssignmentForTimeEntry && (
+        <TimeEntryModal
+          open={!!selectedAssignmentForTimeEntry}
+          onOpenChange={(open) => {
+            if (!open) {
+              setSelectedAssignmentForTimeEntry(null);
+              setSelectedTimeEntry(undefined);
+            }
+          }}
+          assignmentId={selectedAssignmentForTimeEntry}
+          entry={selectedTimeEntry}
+        />
+      )}
     </Dialog>
   );
 }

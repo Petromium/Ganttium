@@ -9,10 +9,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useProject } from "@/contexts/ProjectContext";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 import { 
   Plus, AlertTriangle, Loader2, User, Wrench, Package, 
   DollarSign, Percent, MoreHorizontal, Pencil, Trash2, Eye,
-  BarChart3, List
+  BarChart3, List, Users
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -24,7 +25,9 @@ import {
 import { ResourceDetailsModal } from "@/components/modals/ResourceDetailsModal";
 import { EditResourceModal } from "@/components/modals/EditResourceModal";
 import { ResourceUtilizationChart } from "@/components/ResourceUtilizationChart";
-import type { Resource } from "@shared/schema";
+import { ResourceMaterialsTab } from "@/components/ResourceMaterialsTab";
+import { ResourceGroupModal } from "@/components/ResourceGroupModal";
+import type { Resource, ResourceGroup } from "@shared/schema";
 
 const RESOURCE_TYPES = [
   { value: "human", label: "Human Resource", icon: User },
@@ -50,7 +53,11 @@ export default function ResourcesPage() {
   const { toast } = useToast();
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
+  const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<ResourceGroup | null>(null);
+  const [selectedResourceIds, setSelectedResourceIds] = useState<number[]>([]);
+  const [viewMode, setViewMode] = useState<"list" | "groups">("list");
 
   const { data: resources = [], isLoading } = useQuery<Resource[]>({
     queryKey: [`/api/projects/${selectedProjectId}/resources`],
@@ -153,10 +160,34 @@ export default function ResourcesPage() {
           <h1 className="text-3xl font-semibold" data-testid="page-title-resources">Resources</h1>
           <p className="text-muted-foreground">Manage project resources and assignments</p>
         </div>
-        <Button onClick={handleOpenCreate} data-testid="button-add-resource">
-          <Plus className="h-4 w-4 mr-2" />
-          Add Resource
-        </Button>
+        <div className="flex items-center gap-2">
+          {selectedResourceIds.length > 0 && (
+            <Button
+              variant="outline"
+              onClick={() => {
+                setSelectedGroup(null);
+                setGroupModalOpen(true);
+              }}
+            >
+              <Users className="h-4 w-4 mr-2" />
+              Add to Group ({selectedResourceIds.length})
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            onClick={() => {
+              setSelectedGroup(null);
+              setGroupModalOpen(true);
+            }}
+          >
+            <Users className="h-4 w-4 mr-2" />
+            Manage Groups
+          </Button>
+          <Button onClick={handleOpenCreate} data-testid="button-add-resource">
+            <Plus className="h-4 w-4 mr-2" />
+            Add Resource
+          </Button>
+        </div>
       </div>
 
       <Tabs defaultValue="list" className="space-y-4">
@@ -164,6 +195,10 @@ export default function ResourcesPage() {
           <TabsTrigger value="list" data-testid="tab-resources-list">
             <List className="h-4 w-4 mr-2" />
             List View
+          </TabsTrigger>
+          <TabsTrigger value="materials" data-testid="tab-resources-materials">
+            <Package className="h-4 w-4 mr-2" />
+            Materials
           </TabsTrigger>
           <TabsTrigger value="utilization" data-testid="tab-resources-utilization">
             <BarChart3 className="h-4 w-4 mr-2" />
@@ -267,11 +302,25 @@ export default function ResourcesPage() {
                       return (
                         <div 
                           key={resource.id}
-                          className="flex items-center justify-between p-4 rounded-lg border hover-elevate"
+                          className={cn(
+                            "flex items-center justify-between p-4 rounded-lg border hover-elevate cursor-pointer",
+                            selectedResourceIds.includes(resource.id) && "bg-primary/5 border-primary"
+                          )}
                           data-testid={`resource-row-${resource.id}`}
+                          onClick={(e) => {
+                            if (e.target instanceof HTMLElement && e.target.closest('button')) return;
+                            setSelectedResourceIds(prev =>
+                              prev.includes(resource.id)
+                                ? prev.filter(id => id !== resource.id)
+                                : [...prev, resource.id]
+                            );
+                          }}
                         >
                           <div className="flex items-center gap-4">
-                            <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
+                            <div className={cn(
+                              "h-10 w-10 rounded-full bg-muted flex items-center justify-center",
+                              selectedResourceIds.includes(resource.id) && "bg-primary/20"
+                            )}>
                               <TypeIcon className="h-5 w-5" />
                             </div>
                             <div>
@@ -280,8 +329,16 @@ export default function ResourcesPage() {
                                 <Badge variant="secondary" className="text-xs">
                                   {getDisciplineLabel(resource.discipline)}
                                 </Badge>
+                                {resource.pricingTierEnabled && (
+                                  <Badge variant="outline" className="text-xs">
+                                    Tiered Pricing
+                                  </Badge>
+                                )}
                               </div>
-                              <p className="text-sm text-muted-foreground">{getTypeLabel(resource.type)}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {getTypeLabel(resource.type)}
+                                {resource.vendorName && ` • Vendor: ${resource.vendorName}`}
+                              </p>
                             </div>
                           </div>
 
@@ -346,6 +403,10 @@ export default function ResourcesPage() {
       )}
         </TabsContent>
 
+        <TabsContent value="materials">
+          <ResourceMaterialsTab projectId={selectedProjectId || 0} />
+        </TabsContent>
+
         <TabsContent value="utilization">
           <ResourceUtilizationChart />
         </TabsContent>
@@ -361,6 +422,19 @@ export default function ResourcesPage() {
         resource={selectedResource}
         open={editModalOpen}
         onOpenChange={setEditModalOpen}
+      />
+
+      <ResourceGroupModal
+        projectId={selectedProjectId || 0}
+        group={selectedGroup}
+        open={groupModalOpen}
+        onOpenChange={(open) => {
+          setGroupModalOpen(open);
+          if (!open) {
+            setSelectedGroup(null);
+            setSelectedResourceIds([]);
+          }
+        }}
       />
     </div>
   );

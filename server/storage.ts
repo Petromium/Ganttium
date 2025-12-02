@@ -3147,6 +3147,252 @@ export class DatabaseStorage implements IStorage {
     }
     return allCostItems;
   }
+
+  // ==================== Resource Time Entries ====================
+  async getResourceTimeEntry(id: number): Promise<schema.ResourceTimeEntry | undefined> {
+    const [entry] = await db.select().from(schema.resourceTimeEntries)
+      .where(eq(schema.resourceTimeEntries.id, id));
+    return entry;
+  }
+
+  async getResourceTimeEntriesByAssignment(assignmentId: number): Promise<schema.ResourceTimeEntry[]> {
+    return await db.select().from(schema.resourceTimeEntries)
+      .where(eq(schema.resourceTimeEntries.resourceAssignmentId, assignmentId))
+      .orderBy(desc(schema.resourceTimeEntries.date));
+  }
+
+  async createResourceTimeEntry(entry: schema.InsertResourceTimeEntry): Promise<schema.ResourceTimeEntry> {
+    const [created] = await db.insert(schema.resourceTimeEntries).values({
+      ...entry,
+      updatedAt: new Date(),
+    }).returning();
+    return created;
+  }
+
+  async updateResourceTimeEntry(id: number, entry: Partial<schema.UpdateResourceTimeEntry>): Promise<schema.ResourceTimeEntry | undefined> {
+    const [updated] = await db.update(schema.resourceTimeEntries)
+      .set({ ...entry, updatedAt: new Date() })
+      .where(eq(schema.resourceTimeEntries.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteResourceTimeEntry(id: number): Promise<void> {
+    await db.delete(schema.resourceTimeEntries).where(eq(schema.resourceTimeEntries.id, id));
+  }
+
+  // ==================== Task Materials ====================
+  async getTaskMaterial(id: number): Promise<schema.TaskMaterial | undefined> {
+    const [material] = await db.select().from(schema.taskMaterials)
+      .where(eq(schema.taskMaterials.id, id));
+    return material;
+  }
+
+  async getTaskMaterialsByTask(taskId: number): Promise<schema.TaskMaterial[]> {
+    return await db.select().from(schema.taskMaterials)
+      .where(eq(schema.taskMaterials.taskId, taskId))
+      .orderBy(asc(schema.taskMaterials.createdAt));
+  }
+
+  async createTaskMaterial(material: schema.InsertTaskMaterial): Promise<schema.TaskMaterial> {
+    const [created] = await db.insert(schema.taskMaterials).values({
+      ...material,
+      updatedAt: new Date(),
+    }).returning();
+    return created;
+  }
+
+  async updateTaskMaterial(id: number, material: Partial<schema.UpdateTaskMaterial>): Promise<schema.TaskMaterial | undefined> {
+    const [updated] = await db.update(schema.taskMaterials)
+      .set({ ...material, updatedAt: new Date() })
+      .where(eq(schema.taskMaterials.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteTaskMaterial(id: number): Promise<void> {
+    await db.delete(schema.taskMaterials).where(eq(schema.taskMaterials.id, id));
+  }
+
+  // ==================== Material Consumptions ====================
+  async getMaterialConsumption(id: number): Promise<schema.MaterialConsumption | undefined> {
+    const [consumption] = await db.select().from(schema.materialConsumptions)
+      .where(eq(schema.materialConsumptions.id, id));
+    return consumption;
+  }
+
+  async getMaterialConsumptionsByTaskMaterial(taskMaterialId: number): Promise<schema.MaterialConsumption[]> {
+    return await db.select().from(schema.materialConsumptions)
+      .where(eq(schema.materialConsumptions.taskMaterialId, taskMaterialId))
+      .orderBy(desc(schema.materialConsumptions.date));
+  }
+
+  async createMaterialConsumption(consumption: schema.InsertMaterialConsumption): Promise<schema.MaterialConsumption> {
+    const [created] = await db.insert(schema.materialConsumptions).values(consumption).returning();
+    
+    // Update cumulative consumption on task material
+    const [taskMaterial] = await db.select().from(schema.taskMaterials)
+      .where(eq(schema.taskMaterials.id, consumption.taskMaterialId));
+    
+    if (taskMaterial) {
+      const currentCumulative = parseFloat(taskMaterial.cumulativeConsumption || "0");
+      const newQuantity = parseFloat(consumption.quantity);
+      const newCumulative = (currentCumulative + newQuantity).toString();
+      
+      await db.update(schema.taskMaterials)
+        .set({
+          cumulativeConsumption: newCumulative,
+          lastConsumptionDate: consumption.date,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.taskMaterials.id, consumption.taskMaterialId));
+    }
+    
+    return created;
+  }
+
+  async updateMaterialConsumption(id: number, consumption: Partial<schema.UpdateMaterialConsumption>): Promise<schema.MaterialConsumption | undefined> {
+    const [updated] = await db.update(schema.materialConsumptions)
+      .set(consumption)
+      .where(eq(schema.materialConsumptions.id, id))
+      .returning();
+    
+    // Recalculate cumulative if quantity changed
+    if (consumption.quantity && updated) {
+      const consumptions = await this.getMaterialConsumptionsByTaskMaterial(updated.taskMaterialId);
+      const total = consumptions.reduce((sum, c) => sum + parseFloat(c.quantity), 0);
+      
+      await db.update(schema.taskMaterials)
+        .set({
+          cumulativeConsumption: total.toString(),
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.taskMaterials.id, updated.taskMaterialId));
+    }
+    
+    return updated;
+  }
+
+  async deleteMaterialConsumption(id: number): Promise<void> {
+    const [consumption] = await db.select().from(schema.materialConsumptions)
+      .where(eq(schema.materialConsumptions.id, id));
+    
+    if (consumption) {
+      await db.delete(schema.materialConsumptions).where(eq(schema.materialConsumptions.id, id));
+      
+      // Recalculate cumulative
+      const consumptions = await this.getMaterialConsumptionsByTaskMaterial(consumption.taskMaterialId);
+      const total = consumptions.reduce((sum, c) => sum + parseFloat(c.quantity), 0);
+      
+      await db.update(schema.taskMaterials)
+        .set({
+          cumulativeConsumption: total.toString(),
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.taskMaterials.id, consumption.taskMaterialId));
+    }
+  }
+
+  // ==================== Material Deliveries ====================
+  async getMaterialDelivery(id: number): Promise<schema.MaterialDelivery | undefined> {
+    const [delivery] = await db.select().from(schema.materialDeliveries)
+      .where(eq(schema.materialDeliveries.id, id));
+    return delivery;
+  }
+
+  async getMaterialDeliveriesByTaskMaterial(taskMaterialId: number): Promise<schema.MaterialDelivery[]> {
+    return await db.select().from(schema.materialDeliveries)
+      .where(eq(schema.materialDeliveries.taskMaterialId, taskMaterialId))
+      .orderBy(desc(schema.materialDeliveries.date));
+  }
+
+  async createMaterialDelivery(delivery: schema.InsertMaterialDelivery): Promise<schema.MaterialDelivery> {
+    const [created] = await db.insert(schema.materialDeliveries).values(delivery).returning();
+    return created;
+  }
+
+  async updateMaterialDelivery(id: number, delivery: Partial<schema.UpdateMaterialDelivery>): Promise<schema.MaterialDelivery | undefined> {
+    const [updated] = await db.update(schema.materialDeliveries)
+      .set(delivery)
+      .where(eq(schema.materialDeliveries.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteMaterialDelivery(id: number): Promise<void> {
+    await db.delete(schema.materialDeliveries).where(eq(schema.materialDeliveries.id, id));
+  }
+
+  // ==================== Resource Groups ====================
+  async getResourceGroup(id: number): Promise<schema.ResourceGroup | undefined> {
+    const [group] = await db.select().from(schema.resourceGroups)
+      .where(eq(schema.resourceGroups.id, id));
+    return group;
+  }
+
+  async getResourceGroupsByProject(projectId: number): Promise<schema.ResourceGroup[]> {
+    return await db.select().from(schema.resourceGroups)
+      .where(eq(schema.resourceGroups.projectId, projectId))
+      .orderBy(asc(schema.resourceGroups.name));
+  }
+
+  async createResourceGroup(group: schema.InsertResourceGroup): Promise<schema.ResourceGroup> {
+    const [created] = await db.insert(schema.resourceGroups).values({
+      ...group,
+      updatedAt: new Date(),
+    }).returning();
+    return created;
+  }
+
+  async updateResourceGroup(id: number, group: Partial<schema.UpdateResourceGroup>): Promise<schema.ResourceGroup | undefined> {
+    const [updated] = await db.update(schema.resourceGroups)
+      .set({ ...group, updatedAt: new Date() })
+      .where(eq(schema.resourceGroups.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteResourceGroup(id: number): Promise<void> {
+    await db.delete(schema.resourceGroups).where(eq(schema.resourceGroups.id, id));
+  }
+
+  // ==================== Resource Group Members ====================
+  async getResourceGroupMembers(groupId: number): Promise<schema.ResourceGroupMember[]> {
+    return await db.select().from(schema.resourceGroupMembers)
+      .where(eq(schema.resourceGroupMembers.groupId, groupId));
+  }
+
+  async getResourceGroupsByResource(resourceId: number): Promise<schema.ResourceGroup[]> {
+    const members = await db.select().from(schema.resourceGroupMembers)
+      .where(eq(schema.resourceGroupMembers.resourceId, resourceId));
+    
+    const groups: schema.ResourceGroup[] = [];
+    for (const member of members) {
+      const group = await this.getResourceGroup(member.groupId);
+      if (group) {
+        groups.push(group);
+      }
+    }
+    return groups;
+  }
+
+  async addResourceToGroup(groupId: number, resourceId: number): Promise<schema.ResourceGroupMember> {
+    const [member] = await db.insert(schema.resourceGroupMembers).values({
+      groupId,
+      resourceId,
+    }).returning();
+    return member;
+  }
+
+  async removeResourceFromGroup(groupId: number, resourceId: number): Promise<void> {
+    await db.delete(schema.resourceGroupMembers)
+      .where(
+        and(
+          eq(schema.resourceGroupMembers.groupId, groupId),
+          eq(schema.resourceGroupMembers.resourceId, resourceId)
+        )
+      );
+  }
 }
 
 export const storage = new DatabaseStorage();
