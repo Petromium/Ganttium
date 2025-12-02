@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
 import { ChatSidebar } from "@/components/chat/ChatSidebar";
-import { ChatWindow } from "@/components/chat/ChatWindow";
+import { EnhancedChatWindow } from "@/components/chat/EnhancedChatWindow";
+import { ChatQuickSwitcher } from "@/components/chat/ChatQuickSwitcher";
 import {
   Dialog,
   DialogContent,
@@ -29,6 +30,7 @@ import { useAuth } from "@/hooks/useAuth";
 export default function ChatPage() {
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [showQuickSwitcher, setShowQuickSwitcher] = useState(false);
   const [conversationType, setConversationType] = useState<"direct" | "group" | "project" | "task">("direct");
   const [conversationName, setConversationName] = useState("");
   const [conversationDescription, setConversationDescription] = useState("");
@@ -38,6 +40,19 @@ export default function ChatPage() {
   const updateMessage = useUpdateMessage();
   const deleteMessage = useDeleteMessage();
   const { user } = useAuth();
+
+  // Keyboard shortcut: Cmd/Ctrl+K for quick switcher
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "k") {
+        e.preventDefault();
+        setShowQuickSwitcher(true);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const handleCreateConversation = async () => {
     if (!user) return;
@@ -88,7 +103,7 @@ export default function ChatPage() {
         </ResizablePanel>
         <ResizableHandle />
         <ResizablePanel defaultSize={75} minSize={60}>
-          <ChatWindow
+          <EnhancedChatWindow
             conversation={selectedConversation}
             onEditMessage={handleEditMessage}
             onDeleteMessage={handleDeleteMessage}
@@ -160,6 +175,12 @@ export default function ChatPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ChatQuickSwitcher
+        open={showQuickSwitcher}
+        onOpenChange={setShowQuickSwitcher}
+        onSelectConversation={setSelectedConversation}
+      />
     </div>
   );
 }

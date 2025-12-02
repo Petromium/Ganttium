@@ -40,6 +40,7 @@ export default function CalendarPage() {
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [showActualDates, setShowActualDates] = useState(true);
   const [showBaselineDates, setShowBaselineDates] = useState(true);
+  const [showOngoingTasks, setShowOngoingTasks] = useState(true);
 
   const { 
     data: tasks = [], 
@@ -128,7 +129,7 @@ export default function CalendarPage() {
     });
     
     return taskMap;
-  }, [tasks, year, month, showActualDates, showBaselineDates]);
+  }, [tasks, year, month, showActualDates, showBaselineDates, showOngoingTasks]);
 
   const upcomingTasks = useMemo(() => {
     const now = new Date();
@@ -238,7 +239,42 @@ export default function CalendarPage() {
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-lg">Monthly View</CardTitle>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Calendar className="h-5 w-5" />
+            {monthName}
+          </CardTitle>
+          <div className="flex flex-wrap gap-4 mt-4">
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="show-actual-cal"
+                checked={showActualDates}
+                onCheckedChange={(checked) => setShowActualDates(checked === true)}
+              />
+              <Label htmlFor="show-actual-cal" className="text-sm font-normal cursor-pointer">
+                Show Actual Dates
+              </Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="show-baseline-cal"
+                checked={showBaselineDates}
+                onCheckedChange={(checked) => setShowBaselineDates(checked === true)}
+              />
+              <Label htmlFor="show-baseline-cal" className="text-sm font-normal cursor-pointer">
+                Show Baseline Dates
+              </Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Checkbox
+                id="show-ongoing-cal"
+                checked={showOngoingTasks}
+                onCheckedChange={(checked) => setShowOngoingTasks(checked === true)}
+              />
+              <Label htmlFor="show-ongoing-cal" className="text-sm font-normal cursor-pointer">
+                Show Ongoing Tasks
+              </Label>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-7 gap-px bg-border rounded-lg overflow-hidden">
@@ -278,13 +314,19 @@ export default function CalendarPage() {
                         {dayNumber}
                       </div>
                       <div className="space-y-1">
-                        {dayTasks.slice(0, 3).map((task: any) => {
-                          const isStart = task._isStart;
-                          const isEnd = task._isEnd;
-                          const isOngoing = !isStart && !isEnd;
-                          const dateTypeLabel = task._dateType === "actual" ? "A" : task._dateType === "baseline" ? "B" : "";
-                          
-                          return (
+                        {dayTasks
+                          .filter((task: any) => {
+                            const isOngoing = !task._isStart && !task._isEnd;
+                            return showOngoingTasks || !isOngoing;
+                          })
+                          .slice(0, 3)
+                          .map((task: any) => {
+                            const isStart = task._isStart;
+                            const isEnd = task._isEnd;
+                            const isOngoing = !isStart && !isEnd;
+                            const dateTypeLabel = task._dateType === "actual" ? "A" : task._dateType === "baseline" ? "B" : "";
+                            
+                            return (
                             <div
                               key={`${task.id}-${dayNumber}`}
                               className={cn(

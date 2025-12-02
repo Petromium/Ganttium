@@ -4,12 +4,20 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Plus, Search } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Plus, Search, Archive, ArchiveRestore, Bell, BellOff, Star, MoreVertical } from "lucide-react";
 import { useConversations } from "@/hooks/useConversations";
-import { useQuery } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Conversation } from "@shared/schema";
 import { format } from "date-fns";
+import { useToast } from "@/hooks/use-toast";
 
 interface ChatSidebarProps {
   selectedConversationId: number | null;
@@ -23,7 +31,9 @@ export function ChatSidebar({
   onCreateConversation,
 }: ChatSidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
   const { data: conversations = [], isLoading } = useConversations();
+  const { toast } = useToast();
   
   // Get unread counts for all conversations
   const { data: unreadCounts } = useQuery({

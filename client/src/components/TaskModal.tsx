@@ -27,7 +27,7 @@ import { ResourceLevelingModal } from "@/components/modals/ResourceLevelingModal
 import { EditDocumentModal } from "@/components/modals/EditDocumentModal";
 import { EditRiskModal } from "@/components/modals/EditRiskModal";
 import { EditIssueModal } from "@/components/modals/EditIssueModal";
-import { ChatWindow } from "@/components/chat/ChatWindow";
+import { EnhancedChatWindow } from "@/components/chat/EnhancedChatWindow";
 import { useTaskConversation, useCreateConversation } from "@/hooks/useConversations";
 import { useAuth } from "@/hooks/useAuth";
 import { MessageSquare } from "lucide-react";
@@ -2455,7 +2455,7 @@ function TaskChatTab({ taskId }: { taskId: number }) {
 
   return (
     <div className="h-[500px] border rounded-lg overflow-hidden">
-      <ChatWindow conversation={conversation} />
+      <EnhancedChatWindow conversation={conversation} />
     </div>
   );
 }

@@ -1278,12 +1278,16 @@ export const chatConversations = pgTable("chat_conversations", {
   name: varchar("name", { length: 255 }), // For group conversations
   description: text("description"),
   createdBy: varchar("created_by", { length: 255 }).notNull().references(() => users.id),
+  isArchived: boolean("is_archived").default(false),
+  isMuted: boolean("is_muted").default(false),
+  isStarred: boolean("is_starred").default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (table) => ({
   projectIdx: index("chat_conversations_project_idx").on(table.projectId),
   taskIdx: index("chat_conversations_task_idx").on(table.taskId),
   typeIdx: index("chat_conversations_type_idx").on(table.type),
+  archivedIdx: index("chat_conversations_archived_idx").on(table.isArchived),
 }));
 
 // Chat Participants
@@ -1312,6 +1316,8 @@ export const chatMessages = pgTable("chat_messages", {
   fileSize: integer("file_size"), // Size in bytes
   mimeType: varchar("mime_type", { length: 100 }), // MIME type for files
   replyToMessageId: integer("reply_to_message_id").references(() => chatMessages.id, { onDelete: "set null" }), // For reply threading
+  mentions: jsonb("mentions"), // Array of mention objects: [{ type: 'user'|'task'|'risk'|'issue', id: number|string, name: string }]
+  metadata: jsonb("metadata"), // Additional metadata (link previews, etc.)
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   deletedAt: timestamp("deleted_at"), // Soft delete
@@ -1320,6 +1326,19 @@ export const chatMessages = pgTable("chat_messages", {
   userIdx: index("chat_messages_user_idx").on(table.userId),
   createdAtIdx: index("chat_messages_created_at_idx").on(table.createdAt),
   replyIdx: index("chat_messages_reply_idx").on(table.replyToMessageId),
+}));
+
+// Message Reactions
+export const messageReactions = pgTable("message_reactions", {
+  id: serial("id").primaryKey(),
+  messageId: integer("message_id").notNull().references(() => chatMessages.id, { onDelete: "cascade" }),
+  userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id, { onDelete: "cascade" }),
+  emoji: varchar("emoji", { length: 10 }).notNull(), // e.g., '👍', '❤️', '✅'
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  uniqueReaction: unique("message_reactions_unique").on(table.messageId, table.userId, table.emoji),
+  messageIdx: index("message_reactions_message_idx").on(table.messageId),
+  userIdx: index("message_reactions_user_idx").on(table.userId),
 }));
 
 // ==================== Contact Management (CRM) ====================
@@ -2043,6 +2062,12 @@ export const selectMessageSchema = createSelectSchema(chatMessages);
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
 export type UpdateMessage = z.infer<typeof updateMessageSchema>;
 export type Message = typeof chatMessages.$inferSelect;
+
+// Zod Schemas for Message Reactions
+export const insertMessageReactionSchema = createInsertSchema(messageReactions).omit({ id: true, createdAt: true });
+export const selectMessageReactionSchema = createSelectSchema(messageReactions);
+export type InsertMessageReaction = z.infer<typeof insertMessageReactionSchema>;
+export type MessageReaction = typeof messageReactions.$inferSelect;
 
 // Zod Schemas for Contacts
 export const insertContactSchema = createInsertSchema(contacts).omit({ id: true, createdAt: true, updatedAt: true });

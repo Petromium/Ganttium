@@ -1007,7 +1007,9 @@ ${projectId ? `Current project context: Project ID ${projectId}` : 'No project s
         const functionName = toolCall.function.name;
         const functionArgs = JSON.parse(toolCall.function.arguments);
 
-        const result = await executeFunctionCall(functionName, functionArgs, storage, userId);
+        // Check if this is a preview request (args.previewMode === true)
+        const executionMode = functionArgs.previewMode === true ? ExecutionMode.PREVIEW : ExecutionMode.EXECUTE;
+        const result = await executeFunctionCall(functionName, functionArgs, storage, userId, executionMode);
         functionCalls.push({ name: functionName, args: functionArgs, result });
 
         allMessages.push({

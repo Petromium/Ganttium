@@ -3323,6 +3323,87 @@ export class DatabaseStorage implements IStorage {
     await db.delete(schema.materialDeliveries).where(eq(schema.materialDeliveries.id, id));
   }
 
+  // ==================== Message Reactions ====================
+  async getMessageReactions(messageId: number): Promise<schema.MessageReaction[]> {
+    return await db.select().from(schema.messageReactions)
+      .where(eq(schema.messageReactions.messageId, messageId))
+      .orderBy(asc(schema.messageReactions.createdAt));
+  }
+
+  async getMessageReactionsByMessageIds(messageIds: number[]): Promise<Map<number, schema.MessageReaction[]>> {
+    if (messageIds.length === 0) return new Map();
+    
+    const reactions = await db.select().from(schema.messageReactions)
+      .where(inArray(schema.messageReactions.messageId, messageIds));
+    
+    const map = new Map<number, schema.MessageReaction[]>();
+    reactions.forEach(reaction => {
+      if (!map.has(reaction.messageId)) {
+        map.set(reaction.messageId, []);
+      }
+      map.get(reaction.messageId)!.push(reaction);
+    });
+    
+    return map;
+  }
+
+  async addMessageReaction(reaction: schema.InsertMessageReaction): Promise<schema.MessageReaction> {
+    const [created] = await db.insert(schema.messageReactions)
+      .values(reaction)
+      .onConflictDoNothing()
+      .returning();
+    
+    if (!created) {
+      // Reaction already exists, return existing
+      const [existing] = await db.select().from(schema.messageReactions)
+        .where(
+          and(
+            eq(schema.messageReactions.messageId, reaction.messageId),
+            eq(schema.messageReactions.userId, reaction.userId),
+            eq(schema.messageReactions.emoji, reaction.emoji)
+          )
+        )
+        .limit(1);
+      return existing!;
+    }
+    
+    return created;
+  }
+
+  async removeMessageReaction(messageId: number, userId: string, emoji: string): Promise<void> {
+    await db.delete(schema.messageReactions)
+      .where(
+        and(
+          eq(schema.messageReactions.messageId, messageId),
+          eq(schema.messageReactions.userId, userId),
+          eq(schema.messageReactions.emoji, emoji)
+        )
+      );
+  }
+
+  async toggleMessageReaction(reaction: schema.InsertMessageReaction): Promise<{ added: boolean; reaction: schema.MessageReaction | null }> {
+    // Check if reaction exists
+    const [existing] = await db.select().from(schema.messageReactions)
+      .where(
+        and(
+          eq(schema.messageReactions.messageId, reaction.messageId),
+          eq(schema.messageReactions.userId, reaction.userId),
+          eq(schema.messageReactions.emoji, reaction.emoji)
+        )
+      )
+      .limit(1);
+    
+    if (existing) {
+      // Remove reaction
+      await this.removeMessageReaction(reaction.messageId, reaction.userId, reaction.emoji);
+      return { added: false, reaction: null };
+    } else {
+      // Add reaction
+      const newReaction = await this.addMessageReaction(reaction);
+      return { added: true, reaction: newReaction };
+    }
+  }
+
   // ==================== Resource Groups ====================
   async getResourceGroup(id: number): Promise<schema.ResourceGroup | undefined> {
     const [group] = await db.select().from(schema.resourceGroups)

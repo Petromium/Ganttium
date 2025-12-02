@@ -137,12 +137,33 @@ export default function AIAssistantPage() {
       });
       return response;
     },
-    onSuccess: () => {
+    onSuccess: (response: any) => {
       queryClient.invalidateQueries({ queryKey: [`/api/ai/conversations/${selectedConversationId}/messages`] });
       if (selectedProjectId) {
         queryClient.invalidateQueries({ queryKey: [`/api/ai/conversations/project/${selectedProjectId}`] });
       }
       setMessageInput("");
+      
+      // Handle function calls with previews
+      if (response.functionCalls && Array.isArray(response.functionCalls) && response.functionCalls.length > 0) {
+        // Find the first function call with a preview
+        for (const funcCall of response.functionCalls) {
+          try {
+            const resultData = typeof funcCall.result === 'string' ? JSON.parse(funcCall.result) : funcCall.result;
+            if (resultData.preview) {
+              setPendingPreview({
+                preview: resultData.preview,
+                functionName: funcCall.name,
+                args: funcCall.args,
+              });
+              break; // Show first preview only
+            }
+          } catch (e) {
+            // Not JSON, skip
+            continue;
+          }
+        }
+      }
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message, variant: "destructive" });

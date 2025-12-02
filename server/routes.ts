@@ -5787,6 +5787,77 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Execute AI action (from preview)
+  app.post('/api/ai/execute-action', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const { actionId, functionName, args } = req.body;
+
+      if (!actionId || !functionName || !args) {
+        return res.status(400).json({ message: "Missing required fields: actionId, functionName, args" });
+      }
+
+      // Find the action log by actionId (string)
+      const actionLog = await storage.getAiActionLogByActionId(actionId);
+      if (!actionLog || actionLog.userId !== userId) {
+        return res.status(404).json({ message: "Action not found" });
+      }
+
+      if (actionLog.status !== 'pending') {
+        return res.status(400).json({ message: `Action already ${actionLog.status}` });
+      }
+
+      // Execute the action (without previewMode)
+      const { ExecutionMode, executeFunctionCall } = await import('./aiAssistant');
+      const executionResult = await executeFunctionCall(functionName, args, storage, userId, ExecutionMode.EXECUTE);
+      
+      // Update action log (use numeric id from actionLog)
+      await storage.updateAiActionLog(actionLog.id, {
+        status: 'executed',
+        executedAt: new Date(),
+        result: typeof executionResult === 'string' ? JSON.parse(executionResult) : executionResult,
+      });
+
+      res.json({ success: true, result: executionResult });
+    } catch (error: any) {
+      console.error("Error executing AI action:", error);
+      res.status(500).json({ message: error.message || "Failed to execute action" });
+    }
+  });
+
+  // Reject AI action (from preview)
+  app.post('/api/ai/reject-action', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const { actionId } = req.body;
+
+      if (!actionId) {
+        return res.status(400).json({ message: "Missing actionId" });
+      }
+
+      // Find the action log by actionId (string)
+      const actionLog = await storage.getAiActionLogByActionId(actionId);
+      if (!actionLog || actionLog.userId !== userId) {
+        return res.status(404).json({ message: "Action not found" });
+      }
+
+      if (actionLog.status !== 'pending') {
+        return res.status(400).json({ message: `Action already ${actionLog.status}` });
+      }
+
+      // Update action log (use numeric id from actionLog)
+      await storage.updateAiActionLog(actionLog.id, {
+        status: 'rejected',
+        rejectedAt: new Date(),
+      });
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error rejecting AI action:", error);
+      res.status(500).json({ message: error.message || "Failed to reject action" });
+    }
+  });
+
   // ===== Project Export/Import Routes =====
 
   // Export project data as JSON
@@ -8796,6 +8867,137 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error: any) {
       console.error("Error marking message as read:", error);
       res.status(500).json({ message: error.message || "Failed to mark as read" });
+    }
+  });
+
+  // Message Reactions
+  app.get('/api/chat/messages/:id/reactions', isAuthenticated, async (req: any, res) => {
+    try {
+      const messageId = parseInt(req.params.id);
+      const reactions = await storage.getMessageReactions(messageId);
+      res.json(reactions);
+    } catch (error: any) {
+      console.error("Error fetching message reactions:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch reactions" });
+    }
+  });
+
+  app.post('/api/chat/messages/:id/reactions', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const messageId = parseInt(req.params.id);
+      const { emoji } = req.body;
+
+      if (!emoji) {
+        return res.status(400).json({ message: "emoji is required" });
+      }
+
+      // Verify message exists and user has access
+      const messages = await db.select().from(schema.chatMessages)
+        .where(eq(schema.chatMessages.id, messageId))
+        .limit(1);
+      
+      if (!messages[0]) {
+        return res.status(404).json({ message: "Message not found" });
+      }
+
+      // Check if user is a participant
+      const participants = await storage.getParticipants(messages[0].conversationId);
+      const isParticipant = participants.some(p => p.userId === userId);
+      
+      if (!isParticipant) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const result = await storage.toggleMessageReaction({
+        messageId,
+        userId,
+        emoji,
+      });
+
+      // Broadcast reaction change
+      await wsManager.publishChatMessage(messages[0].conversationId, {
+        type: "message-reaction",
+        payload: { messageId, userId, emoji, added: result.added },
+        timestamp: Date.now(),
+        userId,
+      }).catch(() => {});
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error toggling reaction:", error);
+      res.status(500).json({ message: error.message || "Failed to toggle reaction" });
+    }
+  });
+
+  app.delete('/api/chat/messages/:id/reactions/:emoji', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const messageId = parseInt(req.params.id);
+      const emoji = decodeURIComponent(req.params.emoji);
+
+      // Verify message exists
+      const messages = await db.select().from(schema.chatMessages)
+        .where(eq(schema.chatMessages.id, messageId))
+        .limit(1);
+      
+      if (!messages[0]) {
+        return res.status(404).json({ message: "Message not found" });
+      }
+
+      await storage.removeMessageReaction(messageId, userId, emoji);
+
+      // Broadcast reaction removal
+      await wsManager.publishChatMessage(messages[0].conversationId, {
+        type: "message-reaction",
+        payload: { messageId, userId, emoji, added: false },
+        timestamp: Date.now(),
+        userId,
+      }).catch(() => {});
+
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error("Error removing reaction:", error);
+      res.status(500).json({ message: error.message || "Failed to remove reaction" });
+    }
+  });
+
+  // File Upload (using FormData)
+  app.post('/api/chat/files/upload', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      
+      // Parse multipart/form-data manually or use a library
+      // For now, we'll accept JSON with base64 encoded file (simpler for MVP)
+      // In production, use multer or similar
+      const { conversationId, fileName, fileSize, mimeType, fileData } = req.body;
+
+      if (!conversationId) {
+        return res.status(400).json({ message: "conversationId is required" });
+      }
+
+      // Check if user is a participant
+      const participants = await storage.getParticipants(conversationId);
+      const isParticipant = participants.some(p => p.userId === userId);
+      
+      if (!isParticipant) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Generate file path (in production, save to S3/Cloudinary)
+      const filePath = `/uploads/chat/${conversationId}/${Date.now()}-${fileName}`;
+      
+      // TODO: Save file to storage (S3, local filesystem, etc.)
+      // For now, return mock path
+      res.json({
+        filePath,
+        fileName,
+        fileSize: parseInt(fileSize),
+        mimeType,
+      });
+    } catch (error: any) {
+      console.error("Error uploading file:", error);
+      res.status(500).json({ message: error.message || "Failed to upload file" });
     }
   });
 
