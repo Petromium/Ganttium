@@ -14,10 +14,13 @@ import { ThemeProvider } from "@/contexts/ThemeContext";
 import { ProjectProvider } from "@/contexts/ProjectContext";
 import { PageProvider } from "@/contexts/PageContext";
 import { AIPromptProvider } from "@/contexts/AIPromptContext";
+import { AIContextProvider } from "@/contexts/AIContextContext";
 import { useAuth } from "@/hooks/useAuth";
 import { initGA } from "@/lib/analytics";
 import { useAnalytics } from "@/hooks/use-analytics";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import { CommandPalette } from "@/components/CommandPalette";
+import { FloatingAIButton } from "@/components/FloatingAIButton";
 import LandingPage from "@/pages/LandingPage";
 import Dashboard from "@/pages/Dashboard";
 import WBSPage from "@/pages/WBSPage";
@@ -94,6 +97,20 @@ function Router() {
 }
 
 function AuthenticatedApp() {
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  
+  // Global keyboard shortcut: Cmd/Ctrl+K
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen(true);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
   const sidebarStyle = {
     "--sidebar-width": "16rem",
     "--sidebar-width-icon": "3rem",
@@ -169,8 +186,9 @@ function AuthenticatedApp() {
   return (
     <ProjectProvider>
       <PageProvider>
-        <AIPromptProvider>
-          <SidebarProvider style={sidebarStyle} defaultOpen={false}>
+        <AIContextProvider>
+          <AIPromptProvider>
+            <SidebarProvider style={sidebarStyle} defaultOpen={false}>
             <div className="flex h-screen w-full">
               <AppSidebar />
               <div className="flex flex-col flex-1 overflow-hidden min-w-0">
@@ -205,9 +223,11 @@ function AuthenticatedApp() {
                 </div>
               </div>
             </div>
-          </SidebarProvider>
-          <Toaster />
-        </AIPromptProvider>
+            </SidebarProvider>
+            <FloatingAIButton />
+            <Toaster />
+          </AIPromptProvider>
+        </AIContextProvider>
       </PageProvider>
     </ProjectProvider>
   );

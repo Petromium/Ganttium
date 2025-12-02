@@ -5621,12 +5621,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const chatMessageSchema = z.object({
     conversationId: z.number(),
     message: z.string(),
+    context: z.object({
+      currentPage: z.string().optional(),
+      selectedTaskId: z.number().optional(),
+      selectedRiskId: z.number().optional(),
+      selectedIssueId: z.number().optional(),
+      selectedResourceId: z.number().optional(),
+      selectedItemIds: z.array(z.number()).optional(),
+    }).optional(),
   });
 
   app.post('/api/ai/chat', isAuthenticated, async (req: any, res) => {
     try {
       const userId = getUserId(req);
-      const { conversationId, message } = chatMessageSchema.parse(req.body);
+      const { conversationId, message, context } = chatMessageSchema.parse(req.body);
 
       // Check conversation ownership
       const conversation = await storage.getAiConversation(conversationId);
@@ -5652,12 +5660,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         tokensUsed: 0
       });
 
-      // Get AI response
+      // Get AI response with context
       const response = await chatWithAssistant(
         messages,
         conversation.projectId,
         storage,
-        userId
+        userId,
+        context || undefined
       );
 
       // Validate response before saving
@@ -5681,6 +5690,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
         tokensUsed: response.tokensUsed,
         functionCall: response.functionCalls ? JSON.stringify(response.functionCalls) : null
       });
+
+      // If function calls were executed, log them as actions
+      if (response.functionCalls && response.functionCalls.length > 0) {
+        for (const funcCall of response.functionCalls) {
+          // Check if this is a preview (result contains preview object)
+          let resultData: any;
+          try {
+            resultData = JSON.parse(funcCall.result);
+          } catch {
+            resultData = { result: funcCall.result };
+          }
+
+          const isPreview = resultData.preview !== undefined;
+          
+          await storage.createAiActionLog({
+            userId,
+            projectId: conversation.projectId,
+            conversationId: conversation.id,
+            actionId: resultData.actionId || `ai_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            functionName: funcCall.name,
+            args: funcCall.args,
+            preview: isPreview ? resultData.preview : null,
+            result: isPreview ? null : resultData,
+            status: isPreview ? 'pending' : 'executed',
+            executedAt: isPreview ? null : new Date(),
+          });
+        }
+      }
 
       // Track usage
       await storage.createAiUsage({

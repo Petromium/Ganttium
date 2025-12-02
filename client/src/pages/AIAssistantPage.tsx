@@ -8,6 +8,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Badge } from "@/components/ui/badge";
 import { useProject } from "@/contexts/ProjectContext";
+import { useAIContext } from "@/contexts/AIContextContext";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -25,9 +26,11 @@ import { AISettingsModal, getAISettings, type AISettings } from "@/components/ai
 import { useAIPrompt } from "@/contexts/AIPromptContext";
 import { AIFileAttachment, type AttachmentFile, prepareAttachmentsForMessage } from "@/components/ai/AIFileAttachment";
 import { AIMentionInput } from "@/components/ai/AIMentionInput";
+import { AIActionPreviewModal, type ActionPreview } from "@/components/AIActionPreviewModal";
 
 export default function AIAssistantPage() {
   const { selectedProjectId, selectedProject } = useProject();
+  const { context } = useAIContext();
   const { toast } = useToast();
   const { pendingPrompt, clearPendingPrompt } = useAIPrompt();
   const [selectedConversationId, setSelectedConversationId] = useState<number | null>(null);
@@ -41,6 +44,7 @@ export default function AIAssistantPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [aiSettings, setAiSettings] = useState<AISettings>(() => getAISettings());
   const [attachments, setAttachments] = useState<AttachmentFile[]>([]);
+  const [pendingPreview, setPendingPreview] = useState<{ preview: ActionPreview; functionName: string; args: any } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const prevProjectIdRef = useRef<number | null>(null);
 
@@ -122,6 +126,14 @@ export default function AIAssistantPage() {
       const response = await apiRequest("POST", "/api/ai/chat", {
         conversationId: selectedConversationId,
         message,
+        context: {
+          currentPage: context.currentPage,
+          selectedTaskId: context.selectedTaskId,
+          selectedRiskId: context.selectedRiskId,
+          selectedIssueId: context.selectedIssueId,
+          selectedResourceId: context.selectedResourceId,
+          selectedItemIds: context.selectedItemIds,
+        },
       });
       return response;
     },
@@ -632,6 +644,28 @@ export default function AIAssistantPage() {
         onOpenChange={setSettingsOpen}
         onSettingsChange={setAiSettings}
       />
+
+      {/* Action Preview Modal */}
+      {pendingPreview && (
+        <AIActionPreviewModal
+          open={!!pendingPreview}
+          onOpenChange={(open) => {
+            if (!open) setPendingPreview(null);
+          }}
+          preview={pendingPreview.preview}
+          functionName={pendingPreview.functionName}
+          args={pendingPreview.args}
+          onApproved={() => {
+            // Refresh relevant queries after action
+            if (selectedProjectId) {
+              queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/tasks`] });
+              queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/risks`] });
+              queryClient.invalidateQueries({ queryKey: [`/api/projects/${selectedProjectId}/issues`] });
+            }
+            setPendingPreview(null);
+          }}
+        />
+      )}
     </div>
   );
 }

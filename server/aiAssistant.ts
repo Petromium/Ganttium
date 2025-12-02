@@ -125,7 +125,7 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "create_risk",
-      description: "Create a new risk in the project",
+      description: "Create a new risk in the project. Always set previewMode=true to show preview first.",
       parameters: {
         type: "object",
         properties: {
@@ -135,7 +135,8 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           category: { type: "string" },
           probability: { type: "number", minimum: 1, maximum: 5 },
           impact: { type: "string", enum: ["low", "medium", "high", "critical"] },
-          mitigationPlan: { type: "string" }
+          mitigationPlan: { type: "string" },
+          previewMode: { type: "boolean", default: true }
         },
         required: ["projectId", "title"]
       }
@@ -144,8 +145,49 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "update_risk",
+      description: "Update an existing risk. Always set previewMode=true to show preview first.",
+      parameters: {
+        type: "object",
+        properties: {
+          riskId: { type: "number" },
+          changes: {
+            type: "object",
+            properties: {
+              title: { type: "string" },
+              description: { type: "string" },
+              status: { type: "string", enum: ["identified", "assessed", "mitigating", "closed"] },
+              probability: { type: "number", minimum: 1, maximum: 5 },
+              impact: { type: "string", enum: ["low", "medium", "high", "critical"] },
+              mitigationPlan: { type: "string" },
+            }
+          },
+          previewMode: { type: "boolean", default: true }
+        },
+        required: ["riskId", "changes"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_risk",
+      description: "Delete a risk. Always set previewMode=true to show preview first. WARNING: This cannot be undone.",
+      parameters: {
+        type: "object",
+        properties: {
+          riskId: { type: "number" },
+          previewMode: { type: "boolean", default: true }
+        },
+        required: ["riskId"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "create_issue",
-      description: "Create a new issue in the project",
+      description: "Create a new issue in the project. Always set previewMode=true to show preview first.",
       parameters: {
         type: "object",
         properties: {
@@ -154,9 +196,69 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           description: { type: "string" },
           priority: { type: "string", enum: ["low", "medium", "high", "critical"] },
           category: { type: "string" },
-          assignedTo: { type: "string" }
+          assignedTo: { type: "string" },
+          previewMode: { type: "boolean", default: true }
         },
         required: ["projectId", "title"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "update_issue",
+      description: "Update an existing issue. Always set previewMode=true to show preview first.",
+      parameters: {
+        type: "object",
+        properties: {
+          issueId: { type: "number" },
+          changes: {
+            type: "object",
+            properties: {
+              title: { type: "string" },
+              description: { type: "string" },
+              status: { type: "string", enum: ["open", "in-progress", "resolved", "closed"] },
+              priority: { type: "string", enum: ["low", "medium", "high", "critical"] },
+              assignedTo: { type: "string" },
+              resolution: { type: "string" },
+            }
+          },
+          previewMode: { type: "boolean", default: true }
+        },
+        required: ["issueId", "changes"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "delete_issue",
+      description: "Delete an issue. Always set previewMode=true to show preview first. WARNING: This cannot be undone.",
+      parameters: {
+        type: "object",
+        properties: {
+          issueId: { type: "number" },
+          previewMode: { type: "boolean", default: true }
+        },
+        required: ["issueId"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "assign_resource_to_task",
+      description: "Assign a resource to a task. Always set previewMode=true to show preview first.",
+      parameters: {
+        type: "object",
+        properties: {
+          taskId: { type: "number" },
+          resourceId: { type: "number" },
+          allocation: { type: "number", minimum: 1, maximum: 200, default: 100 },
+          effortHours: { type: "number" },
+          previewMode: { type: "boolean", default: true }
+        },
+        required: ["taskId", "resourceId"]
       }
     }
   }
@@ -179,13 +281,160 @@ async function verifyProjectAccess(
   }
 }
 
+// Execution mode enum
+export enum ExecutionMode {
+  PREVIEW = 'preview',    // Return preview, don't execute
+  EXECUTE = 'execute'     // Actually perform the action
+}
+
+// Action preview interface
+export interface ActionPreview {
+  actionId: string;
+  type: 'create' | 'update' | 'delete' | 'bulk';
+  entity: string;
+  description: string;
+  changes: ActionChange[];
+  affectedIds?: number[];
+  warnings?: string[];
+  preview?: any;
+}
+
+export interface ActionChange {
+  field: string;
+  oldValue?: any;
+  newValue: any;
+  type: 'add' | 'modify' | 'remove';
+}
+
+// Generate preview for an action
+export async function generatePreview(
+  name: string,
+  args: any,
+  storage: IStorage,
+  userId: string
+): Promise<ActionPreview> {
+  const actionId = `ai_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+  
+  switch (name) {
+    case "create_task": {
+      await verifyProjectAccess(args.projectId, userId, storage);
+      
+      return {
+        actionId,
+        type: 'create',
+        entity: 'task',
+        description: `Create new task "${args.title}"`,
+        changes: [
+          { field: 'name', newValue: args.title, type: 'add' },
+          { field: 'description', newValue: args.description || null, type: 'add' },
+          { field: 'status', newValue: args.status || 'not-started', type: 'add' },
+          { field: 'priority', newValue: args.priority || 'medium', type: 'add' },
+          { field: 'assignedTo', newValue: args.assignee || null, type: 'add' },
+          { field: 'estimatedHours', newValue: args.estimatedHours || null, type: 'add' },
+          { field: 'startDate', newValue: args.startDate || null, type: 'add' },
+          { field: 'endDate', newValue: args.endDate || null, type: 'add' },
+        ],
+        warnings: args.assignee ? [] : ['Task will be created without an assignee'],
+        preview: {
+          name: args.title,
+          description: args.description,
+          status: args.status || 'not-started',
+          priority: args.priority || 'medium',
+          assignedTo: args.assignee,
+          estimatedHours: args.estimatedHours,
+          startDate: args.startDate,
+          endDate: args.endDate,
+        }
+      };
+    }
+
+    case "create_risk": {
+      await verifyProjectAccess(args.projectId, userId, storage);
+      
+      const existingRisks = await storage.getRisksByProject(args.projectId);
+      const nextNumber = existingRisks.length + 1;
+      const code = `RISK-${String(nextNumber).padStart(3, '0')}`;
+      
+      return {
+        actionId,
+        type: 'create',
+        entity: 'risk',
+        description: `Create new risk "${args.title}"`,
+        changes: [
+          { field: 'code', newValue: code, type: 'add' },
+          { field: 'title', newValue: args.title, type: 'add' },
+          { field: 'description', newValue: args.description || null, type: 'add' },
+          { field: 'category', newValue: args.category || null, type: 'add' },
+          { field: 'status', newValue: 'identified', type: 'add' },
+          { field: 'probability', newValue: args.probability || 3, type: 'add' },
+          { field: 'impact', newValue: args.impact || 'medium', type: 'add' },
+          { field: 'mitigationPlan', newValue: args.mitigationPlan || null, type: 'add' },
+        ],
+        preview: {
+          code,
+          title: args.title,
+          description: args.description,
+          category: args.category,
+          status: 'identified',
+          probability: args.probability || 3,
+          impact: args.impact || 'medium',
+          mitigationPlan: args.mitigationPlan,
+        }
+      };
+    }
+
+    case "create_issue": {
+      await verifyProjectAccess(args.projectId, userId, storage);
+      
+      const existingIssues = await storage.getIssuesByProject(args.projectId);
+      const nextNumber = existingIssues.length + 1;
+      const code = `ISS-${String(nextNumber).padStart(3, '0')}`;
+      
+      return {
+        actionId,
+        type: 'create',
+        entity: 'issue',
+        description: `Create new issue "${args.title}"`,
+        changes: [
+          { field: 'code', newValue: code, type: 'add' },
+          { field: 'title', newValue: args.title, type: 'add' },
+          { field: 'description', newValue: args.description || null, type: 'add' },
+          { field: 'status', newValue: 'open', type: 'add' },
+          { field: 'priority', newValue: args.priority || 'medium', type: 'add' },
+          { field: 'category', newValue: args.category || null, type: 'add' },
+          { field: 'assignedTo', newValue: args.assignedTo || null, type: 'add' },
+        ],
+        warnings: args.assignedTo ? [] : ['Issue will be created without an assignee'],
+        preview: {
+          code,
+          title: args.title,
+          description: args.description,
+          status: 'open',
+          priority: args.priority || 'medium',
+          category: args.category,
+          assignedTo: args.assignedTo,
+        }
+      };
+    }
+
+    default:
+      throw new Error(`Preview not supported for function: ${name}`);
+  }
+}
+
 // Execute function calls
 async function executeFunctionCall(
   name: string,
   args: any,
   storage: IStorage,
-  userId: string
+  userId: string,
+  mode: ExecutionMode = ExecutionMode.EXECUTE
 ): Promise<string> {
+  // If preview mode, return preview instead of executing
+  if (mode === ExecutionMode.PREVIEW) {
+    const preview = await generatePreview(name, args, storage, userId);
+    return JSON.stringify({ preview, actionId: preview.actionId });
+  }
   try {
     switch (name) {
       case "get_project_overview": {
@@ -337,6 +586,43 @@ async function executeFunctionCall(
         return JSON.stringify({ success: true, risk });
       }
 
+      case "update_risk": {
+        const { riskId, changes } = args;
+        
+        // Verify risk exists and user has access
+        const risk = await storage.getRisk(riskId);
+        if (!risk) {
+          throw new Error(`Risk ${riskId} not found`);
+        }
+        await verifyProjectAccess(risk.projectId, userId, storage);
+
+        // Build update data
+        const updateData: any = {};
+        if (changes.title !== undefined) updateData.title = changes.title;
+        if (changes.description !== undefined) updateData.description = changes.description;
+        if (changes.status !== undefined) updateData.status = changes.status;
+        if (changes.probability !== undefined) updateData.probability = changes.probability;
+        if (changes.impact !== undefined) updateData.impact = changes.impact;
+        if (changes.mitigationPlan !== undefined) updateData.mitigationPlan = changes.mitigationPlan;
+
+        const updated = await storage.updateRisk(riskId, updateData);
+        return JSON.stringify({ success: true, risk: updated });
+      }
+
+      case "delete_risk": {
+        const { riskId } = args;
+        
+        // Verify risk exists and user has access
+        const risk = await storage.getRisk(riskId);
+        if (!risk) {
+          throw new Error(`Risk ${riskId} not found`);
+        }
+        await verifyProjectAccess(risk.projectId, userId, storage);
+
+        await storage.deleteRisk(riskId);
+        return JSON.stringify({ success: true, deletedRiskId: riskId });
+      }
+
       case "create_issue": {
         // Verify access
         await verifyProjectAccess(args.projectId, userId, storage);
@@ -362,6 +648,94 @@ async function executeFunctionCall(
 
         const issue = await storage.createIssue(issueData);
         return JSON.stringify({ success: true, issue });
+      }
+
+      case "update_issue": {
+        const { issueId, changes } = args;
+        
+        // Verify issue exists and user has access
+        const issue = await storage.getIssue(issueId);
+        if (!issue) {
+          throw new Error(`Issue ${issueId} not found`);
+        }
+        await verifyProjectAccess(issue.projectId, userId, storage);
+
+        // Build update data
+        const updateData: any = {};
+        if (changes.title !== undefined) updateData.title = changes.title;
+        if (changes.description !== undefined) updateData.description = changes.description;
+        if (changes.status !== undefined) {
+          updateData.status = changes.status;
+          if (changes.status === 'resolved' || changes.status === 'closed') {
+            updateData.resolvedDate = new Date();
+          }
+        }
+        if (changes.priority !== undefined) updateData.priority = changes.priority;
+        if (changes.assignedTo !== undefined) updateData.assignedTo = changes.assignedTo;
+        if (changes.resolution !== undefined) updateData.resolution = changes.resolution;
+
+        const updated = await storage.updateIssue(issueId, updateData);
+        return JSON.stringify({ success: true, issue: updated });
+      }
+
+      case "delete_issue": {
+        const { issueId } = args;
+        
+        // Verify issue exists and user has access
+        const issue = await storage.getIssue(issueId);
+        if (!issue) {
+          throw new Error(`Issue ${issueId} not found`);
+        }
+        await verifyProjectAccess(issue.projectId, userId, storage);
+
+        await storage.deleteIssue(issueId);
+        return JSON.stringify({ success: true, deletedIssueId: issueId });
+      }
+
+      case "assign_resource_to_task": {
+        const { taskId, resourceId, allocation, effortHours } = args;
+        
+        // Verify task exists and user has access
+        const task = await storage.getTask(taskId);
+        if (!task) {
+          throw new Error(`Task ${taskId} not found`);
+        }
+        await verifyProjectAccess(task.projectId, userId, storage);
+
+        // Verify resource exists and belongs to same project
+        const resource = await storage.getResource(resourceId);
+        if (!resource) {
+          throw new Error(`Resource ${resourceId} not found`);
+        }
+        if (resource.projectId !== task.projectId) {
+          throw new Error("Resource belongs to different project");
+        }
+
+        // Check if assignment already exists
+        const existingAssignments = await storage.getResourceAssignmentsByTask(taskId);
+        const existing = existingAssignments.find(a => a.resourceId === resourceId);
+        
+        if (existing) {
+          // Update existing assignment
+          const updated = await db.update(schema.resourceAssignments)
+            .set({
+              allocation: allocation || existing.allocation,
+              effortHours: effortHours !== undefined ? effortHours.toString() : existing.effortHours,
+              updatedAt: new Date(),
+            })
+            .where(eq(schema.resourceAssignments.id, existing.id))
+            .returning();
+          return JSON.stringify({ success: true, assignment: updated[0], action: 'updated' });
+        } else {
+          // Create new assignment
+          const assignment = await storage.createResourceAssignment({
+            taskId,
+            resourceId,
+            allocation: allocation || 100,
+            effortHours: effortHours !== undefined ? effortHours.toString() : null,
+          });
+          return JSON.stringify({ success: true, assignment, action: 'created' });
+        }
       }
 
       default:
@@ -463,7 +837,9 @@ async function chatWithGemini(
         if (functionCallPart && functionCallPart.functionCall) {
           const { name, args } = functionCallPart.functionCall;
           
-          const executionResult = await executeFunctionCall(name, args, storage, userId);
+          // Check if this is a preview request (args.previewMode === true)
+          const executionMode = args.previewMode === true ? ExecutionMode.PREVIEW : ExecutionMode.EXECUTE;
+          const executionResult = await executeFunctionCall(name, args, storage, userId, executionMode);
           functionCallsExecuted.push({ name, args, result: executionResult });
 
           // Send result back to model
@@ -523,14 +899,58 @@ export async function chatWithAssistant(
   messages: ChatMessage[],
   projectId: number | null,
   storage: IStorage,
-  userId: string
+  userId: string,
+  context?: {
+    currentPage?: string;
+    selectedTaskId?: number;
+    selectedRiskId?: number;
+    selectedIssueId?: number;
+    selectedResourceId?: number;
+    selectedItemIds?: number[];
+  }
 ): Promise<ChatResponse> {
+  // Build context description
+  const contextParts: string[] = [];
+  if (projectId) {
+    contextParts.push(`Current project: Project ID ${projectId}`);
+  }
+  if (context?.currentPage) {
+    contextParts.push(`User is viewing: ${context.currentPage} page`);
+  }
+  if (context?.selectedTaskId) {
+    contextParts.push(`User has selected task ID ${context.selectedTaskId} - use "this task" to refer to it`);
+  }
+  if (context?.selectedRiskId) {
+    contextParts.push(`User has selected risk ID ${context.selectedRiskId} - use "this risk" to refer to it`);
+  }
+  if (context?.selectedIssueId) {
+    contextParts.push(`User has selected issue ID ${context.selectedIssueId} - use "this issue" to refer to it`);
+  }
+  if (context?.selectedResourceId) {
+    contextParts.push(`User has selected resource ID ${context.selectedResourceId} - use "this resource" to refer to it`);
+  }
+  if (context?.selectedItemIds && context.selectedItemIds.length > 0) {
+    contextParts.push(`User has selected ${context.selectedItemIds.length} item(s): ${context.selectedItemIds.join(", ")}`);
+  }
+
   const systemContent = `You are an expert EPC (Engineering, Procurement, Construction) project management assistant. 
 You help project managers with:
 - Analyzing project data (tasks, risks, issues, resources, costs)
 - Identifying performance issues and bottlenecks
-- Creating and managing project items (tasks, risks, issues)
+- Creating and managing project items (tasks, risks, issues, resources)
 - Providing actionable insights and recommendations
+
+**IMPORTANT: Action Execution Rules**
+- For ALL create, update, delete, and bulk operations, you MUST set previewMode=true in function arguments
+- This shows the user a preview before executing, building trust and preventing mistakes
+- Only analysis functions (get_project_overview, analyze_project_risks, analyze_resource_workload) execute immediately
+- When calling action functions, always include previewMode: true in the arguments
+
+**Context Awareness:**
+${contextParts.length > 0 ? contextParts.join("\n") : "No specific context available."}
+- When user says "this task", "this risk", "this issue", etc., use the selected IDs from context
+- When user says "update this" or "delete this", infer the entity type from context
+- Be proactive in using context to make interactions more natural
 
 When analyzing data, be specific and provide actionable recommendations.
 Focus on EPC industry best practices and PMI standards.

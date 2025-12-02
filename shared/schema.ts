@@ -1035,6 +1035,28 @@ export const aiUsage = pgTable("ai_usage", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// AI Action Logs (Audit trail for AI-initiated actions)
+export const aiActionLogs = pgTable("ai_action_logs", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id, { onDelete: "cascade" }),
+  projectId: integer("project_id").references(() => projects.id, { onDelete: "set null" }),
+  conversationId: integer("conversation_id").references(() => aiConversations.id, { onDelete: "set null" }),
+  actionId: varchar("action_id", { length: 100 }).notNull(), // Unique ID for preview/execute pairing
+  functionName: varchar("function_name", { length: 100 }).notNull(), // e.g., "create_task", "update_task"
+  args: jsonb("args").notNull(), // Function arguments
+  preview: jsonb("preview"), // Preview data (if preview mode)
+  result: jsonb("result"), // Execution result (if executed)
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // pending, approved, rejected, executed, failed
+  errorMessage: text("error_message"), // If execution failed
+  executedAt: timestamp("executed_at"), // When action was executed
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  actionIdIdx: index("ai_action_logs_action_id_idx").on(table.actionId),
+  userIdIdx: index("ai_action_logs_user_id_idx").on(table.userId),
+  projectIdIdx: index("ai_action_logs_project_id_idx").on(table.projectId),
+  statusIdx: index("ai_action_logs_status_idx").on(table.status),
+}));
+
 // ==================== Project Events (Calendar) ====================
 
 // Project Events (for calendar meetings, audits, etc.)
@@ -1610,6 +1632,14 @@ export const insertAiUsageSchema = createInsertSchema(aiUsage).omit({ id: true, 
 export const selectAiUsageSchema = createSelectSchema(aiUsage);
 export type InsertAiUsage = z.infer<typeof insertAiUsageSchema>;
 export type AiUsage = typeof aiUsage.$inferSelect;
+
+// Zod Schemas for AI Action Logs
+export const insertAiActionLogSchema = createInsertSchema(aiActionLogs).omit({ id: true, createdAt: true });
+export const updateAiActionLogSchema = insertAiActionLogSchema.partial();
+export const selectAiActionLogSchema = createSelectSchema(aiActionLogs);
+export type InsertAiActionLog = z.infer<typeof insertAiActionLogSchema>;
+export type UpdateAiActionLog = z.infer<typeof updateAiActionLogSchema>;
+export type AiActionLog = typeof aiActionLogs.$inferSelect;
 
 // Email Template Type Enum
 export const emailTemplateTypeEnum = pgEnum("email_template_type", [

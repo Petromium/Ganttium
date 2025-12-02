@@ -3393,6 +3393,56 @@ export class DatabaseStorage implements IStorage {
         )
       );
   }
+
+  // ==================== AI Action Logs ====================
+  async getAiActionLog(id: number): Promise<schema.AiActionLog | undefined> {
+    const [log] = await db.select().from(schema.aiActionLogs)
+      .where(eq(schema.aiActionLogs.id, id));
+    return log;
+  }
+
+  async getAiActionLogByActionId(actionId: string): Promise<schema.AiActionLog | undefined> {
+    const [log] = await db.select().from(schema.aiActionLogs)
+      .where(eq(schema.aiActionLogs.actionId, actionId))
+      .orderBy(desc(schema.aiActionLogs.createdAt))
+      .limit(1);
+    return log;
+  }
+
+  async getAiActionLogsByUser(userId: string, limit: number = 100): Promise<schema.AiActionLog[]> {
+    return await db.select().from(schema.aiActionLogs)
+      .where(eq(schema.aiActionLogs.userId, userId))
+      .orderBy(desc(schema.aiActionLogs.createdAt))
+      .limit(limit);
+  }
+
+  async getAiActionLogsByProject(projectId: number, limit: number = 100): Promise<schema.AiActionLog[]> {
+    return await db.select().from(schema.aiActionLogs)
+      .where(eq(schema.aiActionLogs.projectId, projectId))
+      .orderBy(desc(schema.aiActionLogs.createdAt))
+      .limit(limit);
+  }
+
+  async createAiActionLog(log: schema.InsertAiActionLog): Promise<schema.AiActionLog> {
+    const [created] = await db.insert(schema.aiActionLogs).values(log).returning();
+    return created;
+  }
+
+  async updateAiActionLog(id: number, log: Partial<schema.UpdateAiActionLog>): Promise<schema.AiActionLog | undefined> {
+    const [updated] = await db.update(schema.aiActionLogs)
+      .set(log)
+      .where(eq(schema.aiActionLogs.id, id))
+      .returning();
+    return updated;
+  }
+
+  async updateAiActionLogByActionId(actionId: string, log: Partial<schema.UpdateAiActionLog>): Promise<schema.AiActionLog | undefined> {
+    const [updated] = await db.update(schema.aiActionLogs)
+      .set(log)
+      .where(eq(schema.aiActionLogs.actionId, actionId))
+      .returning();
+    return updated;
+  }
 }
 
 export const storage = new DatabaseStorage();
