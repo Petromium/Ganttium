@@ -15,6 +15,8 @@ import { ProjectProvider } from "@/contexts/ProjectContext";
 import { PageProvider } from "@/contexts/PageContext";
 import { AIPromptProvider } from "@/contexts/AIPromptContext";
 import { AIContextProvider } from "@/contexts/AIContextContext";
+import { SelectionProvider } from "@/contexts/SelectionContext";
+import { BottomSelectionToolbar } from "@/components/BottomSelectionToolbar";
 import { useAuth } from "@/hooks/useAuth";
 import { initGA } from "@/lib/analytics";
 import { useAnalytics } from "@/hooks/use-analytics";
@@ -187,43 +189,46 @@ function AuthenticatedApp() {
       <PageProvider>
         <AIContextProvider>
           <AIPromptProvider>
-            <SidebarProvider style={sidebarStyle} defaultOpen={false}>
-            <div className="flex h-screen w-full">
-              <AppSidebar />
-              <div className="flex flex-col flex-1 overflow-hidden min-w-0">
-                <TopBar />
-                <div className="flex flex-1 overflow-hidden">
-                  <ResizablePanelGroup
-                    direction="horizontal"
-                    className="flex flex-1 overflow-hidden"
-                  >
-                    <ResizablePanel defaultSize={70} minSize={55}>
-                      <main className="flex-1 h-full overflow-y-auto bg-background">
-                        <Router />
-                      </main>
-                    </ResizablePanel>
-                    <ResizableHandle withHandle className="hidden lg:flex" />
-                    <ResizablePanel
-                      ref={rightPanelRef}
-                      defaultSize={initialDefaultSize}
-                      minSize={COLLAPSED_SIZE}
-                      maxSize={40}
-                      className="hidden lg:flex"
-                      onResize={(size) => setRightSize(size)}
+            <SelectionProvider>
+              <SidebarProvider style={sidebarStyle} defaultOpen={false}>
+              <div className="flex h-screen w-full">
+                <AppSidebar />
+                <div className="flex flex-col flex-1 overflow-hidden min-w-0">
+                  <TopBar />
+                  <div className="flex flex-1 overflow-hidden">
+                    <ResizablePanelGroup
+                      direction="horizontal"
+                      className="flex flex-1 overflow-hidden"
                     >
-                      <ContextAwareRightRail
-                        className="h-full"
-                        isCollapsed={isRightCollapsed}
-                        onCollapse={handleCollapseRight}
-                        onExpand={handleExpandRight}
-                      />
-                    </ResizablePanel>
-                  </ResizablePanelGroup>
+                      <ResizablePanel defaultSize={70} minSize={55}>
+                        <main className="flex-1 h-full overflow-y-auto bg-background pb-14 md:pb-16">
+                          <Router />
+                        </main>
+                      </ResizablePanel>
+                      <ResizableHandle withHandle className="hidden lg:flex" />
+                      <ResizablePanel
+                        ref={rightPanelRef}
+                        defaultSize={initialDefaultSize}
+                        minSize={COLLAPSED_SIZE}
+                        maxSize={40}
+                        className="hidden lg:flex"
+                        onResize={(size) => setRightSize(size)}
+                      >
+                        <ContextAwareRightRail
+                          className="h-full"
+                          isCollapsed={isRightCollapsed}
+                          onCollapse={handleCollapseRight}
+                          onExpand={handleExpandRight}
+                        />
+                      </ResizablePanel>
+                    </ResizablePanelGroup>
+                  </div>
+                  <BottomSelectionToolbar />
                 </div>
               </div>
-            </div>
-            </SidebarProvider>
-            <Toaster />
+              </SidebarProvider>
+              <Toaster />
+            </SelectionProvider>
           </AIPromptProvider>
         </AIContextProvider>
       </PageProvider>

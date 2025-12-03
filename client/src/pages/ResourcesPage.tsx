@@ -17,7 +17,9 @@ import {
   BarChart3, List, Users
 } from "lucide-react";
 import { DataTable, SortableHeader } from "@/components/ui/data-table";
-import { SelectionToolbar } from "@/components/ui/selection-toolbar";
+import { useSelection } from "@/contexts/SelectionContext";
+import { registerBulkActionHandler } from "@/components/BottomSelectionToolbar";
+import React from "react";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import {
   DropdownMenu,
@@ -58,9 +60,9 @@ export default function ResourcesPage() {
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
   const [groupModalOpen, setGroupModalOpen] = useState(false);
+  const { selectedResources, setSelectedResources } = useSelection();
   const [selectedResource, setSelectedResource] = useState<Resource | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<ResourceGroup | null>(null);
-  const [selectedResources, setSelectedResources] = useState<Resource[]>([]);
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
 
   const { data: resources = [], isLoading } = useQuery<Resource[]>({
@@ -155,6 +157,11 @@ export default function ResourcesPage() {
       setBulkDeleteDialogOpen(true);
     }
   };
+
+  // Register bulk action handler for bottom toolbar
+  React.useEffect(() => {
+    return registerBulkActionHandler("resources", handleBulkAction);
+  }, []);
 
   // Define columns
   const columns = useMemo<ColumnDef<Resource>[]>(
@@ -440,28 +447,6 @@ export default function ResourcesPage() {
             </Card>
           ) : (
             <div className="space-y-4">
-              {/* Selection Toolbar - moved to top */}
-              <SelectionToolbar
-                selectedCount={selectedResources.length}
-                selectedItems={selectedResources}
-                onClearSelection={() => setSelectedResources([])}
-                onBulkAction={handleBulkAction}
-                position="sticky"
-                bulkActions={[
-                  {
-                    label: "Add to Group",
-                    action: "add-to-group",
-                    icon: <Users className="h-4 w-4" />,
-                    variant: "default",
-                  },
-                  {
-                    label: "Delete Selected",
-                    action: "delete",
-                    icon: <Trash2 className="h-4 w-4" />,
-                    variant: "destructive",
-                  },
-                ]}
-              />
               <DataTable
                 columns={columns}
                 data={resources}

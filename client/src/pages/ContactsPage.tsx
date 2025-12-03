@@ -49,19 +49,21 @@ import { format } from "date-fns";
 import { useProject } from "@/contexts/ProjectContext";
 import Papa from "papaparse";
 import { DataTable, SortableHeader } from "@/components/ui/data-table";
-import { SelectionToolbar } from "@/components/ui/selection-toolbar";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Trash2 } from "lucide-react";
+import { useSelection } from "@/contexts/SelectionContext";
+import { registerBulkActionHandler } from "@/components/BottomSelectionToolbar";
+import React from "react";
 
 export default function ContactsPage() {
   const { selectedOrgId, selectedProjectId } = useProject();
   const selectedOrganizationId = selectedOrgId; // Alias for compatibility with my previous code
   const { toast } = useToast();
   const queryClient = useQueryClient();
+  const { selectedContacts, setSelectedContacts } = useSelection();
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [isAssignOpen, setIsAssignOpen] = useState(false);
-  const [selectedContacts, setSelectedContacts] = useState<Contact[]>([]);
   const [selectedContactForLogs, setSelectedContactForLogs] = useState<Contact | null>(null);
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
 
@@ -219,6 +221,11 @@ export default function ContactsPage() {
       setBulkDeleteDialogOpen(true);
     }
   };
+
+  // Register bulk action handler for bottom toolbar
+  React.useEffect(() => {
+    return registerBulkActionHandler("contacts", handleBulkAction);
+  }, []);
 
   // Create contact mutation
   const createContactMutation = useMutation({
@@ -464,34 +471,6 @@ export default function ContactsPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            {/* Selection Toolbar - moved to top */}
-            <SelectionToolbar
-              selectedCount={selectedContacts.length}
-              selectedItems={selectedContacts}
-              onClearSelection={() => setSelectedContacts([])}
-              onBulkAction={handleBulkAction}
-              position="sticky"
-              bulkActions={[
-                {
-                  label: "Assign to Project",
-                  action: "assign",
-                  icon: <UserPlus className="h-4 w-4" />,
-                  variant: "default",
-                },
-                {
-                  label: "Delete Selected",
-                  action: "delete",
-                  icon: <Trash2 className="h-4 w-4" />,
-                  variant: "destructive",
-                },
-                {
-                  label: "Export Selected",
-                  action: "export",
-                  icon: <Upload className="h-4 w-4" />,
-                  variant: "outline",
-                },
-              ]}
-            />
             <DataTable
               columns={columns}
               data={contacts}

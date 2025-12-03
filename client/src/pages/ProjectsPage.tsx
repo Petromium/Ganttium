@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
 import { useProject } from "@/contexts/ProjectContext";
@@ -24,20 +24,21 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import type { Project } from "@shared/schema";
 import { ProjectEditModal } from "@/components/ProjectEditModal";
 import { DataTable, SortableHeader } from "@/components/ui/data-table";
-import { SelectionToolbar } from "@/components/ui/selection-toolbar";
 import Papa from "papaparse";
+import { useSelection } from "@/contexts/SelectionContext";
+import { registerBulkActionHandler } from "@/components/BottomSelectionToolbar";
 
 export default function ProjectsPage() {
   const { user } = useAuth();
   const { selectedProjectId, setSelectedProjectId } = useProject();
   const { toast } = useToast();
+  const { selectedProjects, setSelectedProjects } = useSelection();
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [projectToDelete, setProjectToDelete] = useState<Project | null>(null);
   const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
   const [projectToDuplicate, setProjectToDuplicate] = useState<Project | null>(null);
-  const [selectedProjects, setSelectedProjects] = useState<Project[]>([]);
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
 
   // Get user's organizations
@@ -199,6 +200,11 @@ export default function ProjectsPage() {
     }
   };
 
+  // Register bulk action handler for bottom toolbar
+  React.useEffect(() => {
+    return registerBulkActionHandler("projects", handleBulkAction);
+  }, []);
+
   // Create project mutation
   const createProjectMutation = useMutation({
     mutationFn: async (data: { name: string; code: string; description?: string; organizationId: number }) => {
@@ -357,22 +363,6 @@ export default function ProjectsPage() {
         </div>
       ) : (
         <div className="space-y-4">
-          {/* Selection Toolbar - moved to top */}
-          <SelectionToolbar
-            selectedCount={selectedProjects.length}
-            selectedItems={selectedProjects}
-            onClearSelection={() => setSelectedProjects([])}
-            onBulkAction={handleBulkAction}
-            position="sticky"
-            bulkActions={[
-              {
-                label: "Delete Selected",
-                action: "delete",
-                icon: <Trash2 className="h-4 w-4" />,
-                variant: "destructive",
-              },
-            ]}
-          />
           <DataTable
             columns={columns}
             data={projects}

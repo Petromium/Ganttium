@@ -12,8 +12,10 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Stakeholder } from "@shared/schema";
 import { DataTable, SortableHeader } from "@/components/ui/data-table";
-import { SelectionToolbar } from "@/components/ui/selection-toolbar";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { useSelection } from "@/contexts/SelectionContext";
+import { registerBulkActionHandler } from "@/components/BottomSelectionToolbar";
+import React from "react";
 import {
   Dialog,
   DialogContent,
@@ -34,9 +36,9 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 export default function StakeholdersPage() {
   const { selectedProjectId } = useProject();
   const { toast } = useToast();
+  const { selectedStakeholders, setSelectedStakeholders } = useSelection();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingStakeholder, setEditingStakeholder] = useState<Stakeholder | null>(null);
-  const [selectedStakeholders, setSelectedStakeholders] = useState<Stakeholder[]>([]);
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
@@ -204,6 +206,11 @@ export default function StakeholdersPage() {
     }
   };
 
+  // Register bulk action handler for bottom toolbar
+  React.useEffect(() => {
+    return registerBulkActionHandler("stakeholders", handleBulkAction);
+  }, []);
+
   // Define columns
   const columns = useMemo<ColumnDef<Stakeholder>[]>(
     () => [
@@ -344,21 +351,6 @@ export default function StakeholdersPage() {
       ) : (
         <div className="space-y-4">
           {/* Selection Toolbar - moved to top */}
-          <SelectionToolbar
-            selectedCount={selectedStakeholders.length}
-            selectedItems={selectedStakeholders}
-            onClearSelection={() => setSelectedStakeholders([])}
-            onBulkAction={handleBulkAction}
-            position="sticky"
-            bulkActions={[
-              {
-                label: "Delete Selected",
-                action: "delete",
-                icon: <Trash2 className="h-4 w-4" />,
-                variant: "destructive",
-              },
-            ]}
-          />
           <DataTable
             columns={columns}
             data={stakeholders}
