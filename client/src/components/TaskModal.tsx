@@ -39,6 +39,7 @@ import { TaskMaterialsTab } from "@/components/TaskMaterialsTab";
 import { TimeEntryModal } from "@/components/TimeEntryModal";
 import { ResourceAssignmentCard } from "@/components/ResourceAssignmentCard";
 import type { ResourceTimeEntry } from "@shared/schema";
+import { TagInput } from "@/components/ui/tag-input";
 
 type TaskStatus = "not-started" | "in-progress" | "review" | "completed" | "on-hold";
 type TaskPriority = "low" | "medium" | "high" | "critical";
@@ -1024,6 +1025,17 @@ export function TaskModal({
                         data-testid="textarea-task-description"
                       />
                     </div>
+
+                    {task && (
+                      <div className="space-y-2">
+                        <Label>Tags</Label>
+                        <TagInput
+                          entityType="task"
+                          entityId={task.id}
+                          placeholder="Add tags to categorize this task..."
+                        />
+                      </div>
+                    )}
                   </div>
 
                   {/* EPC Details Section */}

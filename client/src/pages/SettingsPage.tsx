@@ -46,6 +46,8 @@ import type { User, UserInvitation, EmailTemplate } from "@shared/schema";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { NotificationRulesSection } from "@/components/NotificationRulesSection";
 import { OrganizationsSection } from "@/components/OrganizationsSection";
+import { TerminologySettings } from "@/components/settings/TerminologySettings";
+import { TagManagement } from "@/components/settings/TagManagement";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -413,7 +415,7 @@ const templateTypes = [
 ];
 
 function EmailTemplatesSection() {
-  const { selectedOrg: selectedOrganization, selectedOrgId } = useProject();
+  const { selectedOrg: selectedOrganization, selectedOrgId, terminology } = useProject();
   const { toast } = useToast();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -579,9 +581,9 @@ function EmailTemplatesSection() {
       <Card>
         <CardContent className="p-6 text-center">
           <Mail className="h-12 w-12 text-muted-foreground/50 mx-auto mb-4" />
-          <h2 className="text-xl font-semibold mb-2">No Organization Selected</h2>
+          <h2 className="text-xl font-semibold mb-2">No {terminology.topLevel} Selected</h2>
           <p className="text-muted-foreground">
-            Please select an organization to manage email templates.
+            Please select a {terminology.topLevel.toLowerCase()} to manage email templates.
           </p>
         </CardContent>
       </Card>
@@ -1423,7 +1425,7 @@ function UserManagementSection() {
 }
 
 export default function SettingsPage() {
-  const { selectedProject } = useProject();
+  const { selectedProject, terminology } = useProject();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const searchParams = new URLSearchParams(window.location.search);
@@ -1437,7 +1439,7 @@ export default function SettingsPage() {
   // Set active tab from URL query parameter
   useEffect(() => {
     const tabParam = searchParams.get("tab");
-    if (tabParam && ["usage", "cloud-storage", "storage", "users", "labels", "email-templates", "automation", "organizations"].includes(tabParam)) {
+    if (tabParam && ["usage", "cloud-storage", "storage", "users", "labels", "email-templates", "automation", "organizations", "terminology", "tags"].includes(tabParam)) {
       setActiveTab(tabParam);
     }
   }, [searchParams]);
@@ -1593,7 +1595,7 @@ export default function SettingsPage() {
     <div className="p-6 space-y-6">
       <div>
         <h1 className="text-3xl font-semibold" data-testid="text-settings-title">Settings</h1>
-        <p className="text-muted-foreground">Manage integrations and storage for your organization</p>
+        <p className="text-muted-foreground">Manage integrations and storage for your {terminology.topLevel.toLowerCase()}</p>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
@@ -1629,6 +1631,14 @@ export default function SettingsPage() {
           <TabsTrigger value="organizations" data-testid="tab-organizations">
             <Building2 className="h-4 w-4 mr-2" />
             Organizations
+          </TabsTrigger>
+          <TabsTrigger value="terminology" data-testid="tab-terminology">
+            <Code className="h-4 w-4 mr-2" />
+            Terminology
+          </TabsTrigger>
+          <TabsTrigger value="tags" data-testid="tab-tags">
+            <Tags className="h-4 w-4 mr-2" />
+            Tags
           </TabsTrigger>
         </TabsList>
 
@@ -2060,6 +2070,13 @@ export default function SettingsPage() {
 
         <TabsContent value="organizations" className="space-y-4">
           <OrganizationsSection />
+        </TabsContent>
+        <TabsContent value="terminology" className="space-y-4">
+          <TerminologySettings />
+        </TabsContent>
+
+        <TabsContent value="tags" className="space-y-4">
+          <TagManagement />
         </TabsContent>
       </Tabs>
 

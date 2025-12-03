@@ -11,6 +11,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useSelection } from "@/contexts/SelectionContext";
 import { useSidebar } from "@/components/ui/sidebar";
+import { useLocation } from "wouter";
 
 interface BulkAction {
   label: string;
@@ -125,6 +126,21 @@ const getBulkActions = (type: string): BulkAction[] => {
           variant: "destructive",
         },
       ];
+    case "programs":
+      return [
+        {
+          label: "Export Selected",
+          action: "export",
+          icon: <Download className="h-4 w-4" />,
+          variant: "default",
+        },
+        {
+          label: "Delete Selected",
+          action: "delete",
+          icon: <Trash2 className="h-4 w-4" />,
+          variant: "destructive",
+        },
+      ];
     default:
       return [
         {
@@ -162,19 +178,20 @@ function triggerBulkAction(type: string, action: string, items: any[]) {
 }
 
 export function BottomSelectionToolbar() {
-  const { getCurrentSelections } = useSelection();
-  const { state: sidebarState } = useSidebar();
+  const { getCurrentSelections, selectedProjects, selectedContacts, selectedStakeholders, selectedResources, selectedPrograms, selectedIssues, selectedRisks } = useSelection();
+  const { state: sidebarState, isMobile } = useSidebar();
+  const [location] = useLocation();
   const [currentSelections, setCurrentSelections] = React.useState<{
     items: any[];
     type: string;
     clearFn: () => void;
   } | null>(null);
 
-  // Update current selections when context changes
+  // Update current selections when context changes (location or any selection state)
   React.useEffect(() => {
     const selections = getCurrentSelections();
     setCurrentSelections(selections);
-  }, [getCurrentSelections]);
+  }, [getCurrentSelections, location, selectedProjects, selectedContacts, selectedStakeholders, selectedResources, selectedPrograms, selectedIssues, selectedRisks]);
 
   if (!currentSelections || currentSelections.items.length === 0) {
     return null;
@@ -188,24 +205,48 @@ export function BottomSelectionToolbar() {
     triggerBulkAction(type, action, items);
   };
 
+  // Calculate left offset based on sidebar state
+  // The sidebar uses "offcanvas" collapsible mode, so when collapsed it's hidden
+  // When expanded, it takes up var(--sidebar-width)
+  const getLeftOffset = () => {
+    if (isMobile) return "0";
+    if (sidebarState === "collapsed") return "0";
+    return "var(--sidebar-width)";
+  };
+
   return (
     <div
       className={cn(
         "fixed bottom-0 left-0 right-0 z-50",
         "h-14 md:h-16",
         "border-t bg-background shadow-lg",
-        "transition-all duration-200 ease-linear",
-        // Sidebar-aware positioning - matches TopBar behavior
-        "md:left-[var(--sidebar-width)]",
-        "group-data-[collapsible=offcanvas]:md:left-0",
-        "group-data-[collapsible=icon]:md:left-[var(--sidebar-width-icon)]"
+        "transition-all duration-200 ease-linear"
       )}
+      style={{
+        left: getLeftOffset(),
+      }}
     >
       <div className="flex h-full items-center justify-between px-4 md:px-6">
         <div className="flex items-center gap-4">
           <div className="text-sm font-medium text-foreground">
             <span className="font-semibold text-primary">{selectedCount}</span>{" "}
-            {type === "projects" ? "project" : type.slice(0, -1)}{selectedCount !== 1 ? "s" : ""} selected
+            {(() => {
+              // Proper singularization function
+              const singularize = (plural: string): string => {
+                const singularMap: Record<string, string> = {
+                  projects: "project",
+                  contacts: "contact",
+                  stakeholders: "stakeholder",
+                  resources: "resource",
+                  programs: "program",
+                  issues: "issue",
+                  risks: "risk",
+                };
+                return singularMap[plural] || plural.slice(0, -1);
+              };
+              const singular = singularize(type);
+              return `${singular}${selectedCount !== 1 ? "s" : ""}`;
+            })()} selected
           </div>
           <Button 
             variant="ghost" 

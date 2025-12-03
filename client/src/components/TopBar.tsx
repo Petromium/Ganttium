@@ -92,14 +92,20 @@ export function TopBar() {
   };
   const {
     organizations,
+    programs,
     projects,
     selectedOrgId,
+    selectedProgramId,
     selectedProjectId,
     setSelectedOrgId,
+    setSelectedProgramId,
     setSelectedProjectId,
+    terminology,
     isLoadingOrgs,
+    isLoadingPrograms,
     isLoadingProjects,
     orgsError,
+    programsError,
     projectsError,
   } = useProject();
 
@@ -302,7 +308,7 @@ export function TopBar() {
             <div className="space-y-2">
               <label className="text-sm font-medium flex items-center gap-2">
                 <Building2 className="h-4 w-4" />
-                Organization
+                {terminology.topLevel}
               </label>
               <Select
                 value={selectedOrgId?.toString() || ""}
@@ -313,7 +319,7 @@ export function TopBar() {
                   <SelectValue placeholder={
                     orgsError ? "Error" :
                       isLoadingOrgs ? "Loading..." :
-                        "Select Organization"
+                        `Select ${terminology.topLevel}`
                   } />
                 </SelectTrigger>
                 <SelectContent>
@@ -325,6 +331,35 @@ export function TopBar() {
                 </SelectContent>
               </Select>
             </div>
+            {selectedOrgId && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium flex items-center gap-2">
+                  <FolderKanban className="h-4 w-4" />
+                  {terminology.program}
+                </label>
+                <Select
+                  value={selectedProgramId?.toString() || "all"}
+                  onValueChange={(value) => setSelectedProgramId(value === "all" ? null : parseInt(value))}
+                  disabled={isLoadingPrograms || !!programsError}
+                >
+                  <SelectTrigger data-testid="trigger-program-mobile">
+                    <SelectValue placeholder={
+                      programsError ? "Error" :
+                        isLoadingPrograms ? "Loading..." :
+                          `All ${terminology.program}s`
+                    } />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All {terminology.program}s</SelectItem>
+                    {programs.map((program) => (
+                      <SelectItem key={program.id} value={program.id.toString()}>
+                        {program.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="space-y-2">
               <label className="text-sm font-medium flex items-center gap-2">
                 <FolderKanban className="h-4 w-4" />
@@ -366,7 +401,7 @@ export function TopBar() {
           <SelectValue placeholder={
             orgsError ? "Error loading orgs" :
               isLoadingOrgs ? "Loading..." :
-                "Select Organization"
+                `Select ${terminology.topLevel}`
           } />
         </SelectTrigger>
         <SelectContent>
@@ -377,6 +412,32 @@ export function TopBar() {
           ))}
         </SelectContent>
       </Select>
+
+      {/* Program Selector */}
+      {selectedOrgId && (
+        <Select
+          value={selectedProgramId?.toString() || "all"}
+          onValueChange={(value) => setSelectedProgramId(value === "all" ? null : parseInt(value))}
+          disabled={isLoadingPrograms || !!programsError}
+          data-testid="select-program"
+        >
+          <SelectTrigger className="hidden md:flex w-56" data-testid="trigger-program">
+            <SelectValue placeholder={
+              programsError ? "Error loading programs" :
+                isLoadingPrograms ? "Loading..." :
+                  `All ${terminology.program}s`
+            } />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All {terminology.program}s</SelectItem>
+            {programs.map((program) => (
+              <SelectItem key={program.id} value={program.id.toString()}>
+                {program.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
 
       <Select
         value={selectedProjectId?.toString() || ""}

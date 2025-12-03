@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useProject } from "@/contexts/ProjectContext";
 import type { Risk, InsertRisk } from "@shared/schema";
 import { insertRiskSchema } from "@shared/schema";
+import { TagInput } from "@/components/ui/tag-input";
 
 interface EditRiskModalProps {
   risk: Risk | null;
@@ -258,6 +259,17 @@ export function EditRiskModal({ risk, open, onOpenChange, onSuccess }: EditRiskM
               rows={3}
             />
           </div>
+
+          {risk && (
+            <div className="space-y-2">
+              <Label>Tags</Label>
+              <TagInput
+                entityType="risk"
+                entityId={risk.id}
+                placeholder="Add tags to categorize this risk..."
+              />
+            </div>
+          )}
         </div>
 
         <DialogFooter>

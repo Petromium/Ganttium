@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
 import { useProject } from "@/contexts/ProjectContext";
@@ -11,7 +11,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { 
   Plus, Edit, Trash2, Copy, Loader2, 
-  AlertCircle, ChevronRight, MoreHorizontal
+  AlertCircle, ChevronRight, MoreHorizontal, Tags
 } from "lucide-react";
 import { 
   DropdownMenu,
@@ -27,10 +27,16 @@ import { DataTable, SortableHeader } from "@/components/ui/data-table";
 import Papa from "papaparse";
 import { useSelection } from "@/contexts/SelectionContext";
 import { registerBulkActionHandler } from "@/components/BottomSelectionToolbar";
+import { useQuery } from "@tanstack/react-query";
+import type { Tag } from "@shared/schema";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Check, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export default function ProjectsPage() {
   const { user } = useAuth();
-  const { selectedProjectId, setSelectedProjectId } = useProject();
+  const { selectedProjectId, setSelectedProjectId, terminology } = useProject();
   const { toast } = useToast();
   const { selectedProjects, setSelectedProjects } = useSelection();
   const [projectModalOpen, setProjectModalOpen] = useState(false);
@@ -40,6 +46,8 @@ export default function ProjectsPage() {
   const [duplicateDialogOpen, setDuplicateDialogOpen] = useState(false);
   const [projectToDuplicate, setProjectToDuplicate] = useState<Project | null>(null);
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
+  const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
+  const [tagFilterOpen, setTagFilterOpen] = useState(false);
 
   // Get user's organizations
   const { data: organizations = [], isLoading: isLoadingOrgs } = useQuery<Array<{ id: number; name: string }>>({
@@ -49,11 +57,51 @@ export default function ProjectsPage() {
 
   const selectedOrgId = organizations?.[0]?.id; // For now, use first org
 
-  // Fetch projects
+  // Fetch all tags for organization
+  const { data: allTags = [] } = useQuery<Tag[]>({
+    queryKey: [`/api/organizations/${selectedOrgId}/tags`],
+    enabled: !!selectedOrgId,
+  });
+
+  // Fetch projects first (must be declared before useMemo that depends on it)
   const { data: projects = [], isLoading: isLoadingProjects } = useQuery<Project[]>({
     queryKey: selectedOrgId ? [`/api/organizations/${selectedOrgId}/projects`] : ["/api/organizations/null/projects"],
     enabled: !!selectedOrgId && !isLoadingOrgs,
   });
+
+  // Memoize project IDs to prevent unnecessary refetches
+  const projectIds = useMemo(() => projects.map(p => p.id), [projects]);
+
+  // Fetch tags for each project
+  const { data: projectTagsMap = {} } = useQuery<Record<number, Tag[]>>({
+    queryKey: [`/api/projects/tags`, projectIds],
+    queryFn: async () => {
+      const tagsMap: Record<number, Tag[]> = {};
+      await Promise.all(
+        projects.map(async (project) => {
+          try {
+            const response = await apiRequest("GET", `/api/tags/entity/project/${project.id}`);
+            tagsMap[project.id] = await response.json();
+          } catch {
+            tagsMap[project.id] = [];
+          }
+        })
+      );
+      return tagsMap;
+    },
+    enabled: projects.length > 0,
+  });
+
+  // Filter projects by selected tags
+  const filteredProjects = useMemo(() => {
+    if (selectedTagIds.length === 0) return projects;
+    return projects.filter(project => {
+      const projectTags = projectTagsMap[project.id] || [];
+      return selectedTagIds.every(tagId => 
+        projectTags.some(tag => tag.id === tagId)
+      );
+    });
+  }, [projects, projectTagsMap, selectedTagIds]);
 
   const isLoading = isLoadingOrgs || isLoadingProjects;
 
@@ -168,7 +216,7 @@ export default function ProjectsPage() {
     []
   );
 
-  const handleExport = (projectsToExport: Project[] | null) => {
+  const handleExport = useCallback((projectsToExport: Project[] | null) => {
     const dataToExport = projectsToExport || projects;
     const csv = Papa.unparse(
       dataToExport.map((p) => ({
@@ -190,20 +238,20 @@ export default function ProjectsPage() {
     link.click();
     document.body.removeChild(link);
     toast({ title: "Success", description: "Projects exported successfully" });
-  };
+  }, [projects, toast]);
 
-  const handleBulkAction = (action: string, items: Project[]) => {
+  const handleBulkAction = useCallback((action: string, items: Project[]) => {
     if (action === "delete") {
       setBulkDeleteDialogOpen(true);
     } else if (action === "export") {
       handleExport(items);
     }
-  };
+  }, [handleExport, setBulkDeleteDialogOpen]);
 
   // Register bulk action handler for bottom toolbar
   React.useEffect(() => {
     return registerBulkActionHandler("projects", handleBulkAction);
-  }, []);
+  }, [handleBulkAction]);
 
   // Create project mutation
   const createProjectMutation = useMutation({
@@ -338,7 +386,7 @@ export default function ProjectsPage() {
     return (
       <div className="p-6">
         <AlertCircle className="h-8 w-8 text-muted-foreground mx-auto mb-4" />
-        <p className="text-center text-muted-foreground">No organization found. Please contact your administrator.</p>
+        <p className="text-center text-muted-foreground">No {terminology.topLevel.toLowerCase()} found. Please contact your administrator.</p>
       </div>
     );
   }
@@ -363,9 +411,76 @@ export default function ProjectsPage() {
         </div>
       ) : (
         <div className="space-y-4">
+          {/* Tag Filter */}
+          {allTags.length > 0 && (
+            <div className="flex items-center gap-2 mb-4">
+              <Popover open={tagFilterOpen} onOpenChange={setTagFilterOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Tags className="h-4 w-4 mr-2" />
+                    Filter by Tags
+                    {selectedTagIds.length > 0 && (
+                      <Badge variant="secondary" className="ml-2">
+                        {selectedTagIds.length}
+                      </Badge>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[300px] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search tags..." />
+                    <CommandList>
+                      <CommandEmpty>No tags found.</CommandEmpty>
+                      <CommandGroup>
+                        {allTags.map((tag) => {
+                          const isSelected = selectedTagIds.includes(tag.id);
+                          return (
+                            <CommandItem
+                              key={tag.id}
+                              onSelect={() => {
+                                setSelectedTagIds(prev =>
+                                  isSelected
+                                    ? prev.filter(id => id !== tag.id)
+                                    : [...prev, tag.id]
+                                );
+                              }}
+                            >
+                              <div className={cn("mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary", isSelected ? "bg-primary text-primary-foreground" : "opacity-50")}>
+                                {isSelected && <Check className="h-4 w-4" />}
+                              </div>
+                              {tag.color && (
+                                <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: tag.color }} />
+                              )}
+                              <span>{tag.name}</span>
+                              {tag.category && (
+                                <Badge variant="outline" className="ml-auto text-xs">
+                                  {tag.category}
+                                </Badge>
+                              )}
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              {selectedTagIds.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedTagIds([])}
+                >
+                  <X className="h-4 w-4 mr-1" />
+                  Clear
+                </Button>
+              )}
+            </div>
+          )}
+
           <DataTable
             columns={columns}
-            data={projects}
+            data={filteredProjects}
             searchKey="name"
             searchPlaceholder="Search projects by name or code..."
             enableSelection={true}

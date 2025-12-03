@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -149,19 +149,19 @@ export default function ResourcesPage() {
     },
   });
 
-  const handleBulkAction = (action: string, items: Resource[]) => {
+  const handleBulkAction = useCallback((action: string, items: Resource[]) => {
     if (action === "add-to-group") {
       setSelectedGroup(null);
       setGroupModalOpen(true);
     } else if (action === "delete") {
       setBulkDeleteDialogOpen(true);
     }
-  };
+  }, [setSelectedGroup, setGroupModalOpen, setBulkDeleteDialogOpen]);
 
   // Register bulk action handler for bottom toolbar
   React.useEffect(() => {
     return registerBulkActionHandler("resources", handleBulkAction);
-  }, []);
+  }, [handleBulkAction]);
 
   // Define columns
   const columns = useMemo<ColumnDef<Resource>[]>(

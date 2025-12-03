@@ -667,6 +667,431 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== Program Routes =====
+  app.get('/api/organizations/:orgId/programs', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const programs = await storage.getProgramsByOrganization(orgId);
+      res.json(programs);
+    } catch (error) {
+      console.error("Error fetching programs:", error);
+      res.status(500).json({ message: "Failed to fetch programs" });
+    }
+  });
+
+  app.get('/api/programs/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const program = await storage.getProgram(id);
+      if (!program) {
+        return res.status(404).json({ message: "Program not found" });
+      }
+
+      if (!await checkOrganizationAccess(userId, program.organizationId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      res.json(program);
+    } catch (error) {
+      console.error("Error fetching program:", error);
+      res.status(500).json({ message: "Failed to fetch program" });
+    }
+  });
+
+  app.post('/api/organizations/:orgId/programs', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      const { name, slug, description, isVirtual } = req.body;
+
+      if (!name || !slug) {
+        return res.status(400).json({ message: "Name and slug are required" });
+      }
+
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Check if slug already exists for this organization
+      const existing = await storage.getProgramBySlug(orgId, slug);
+      if (existing) {
+        return res.status(400).json({ message: "A program with this slug already exists" });
+      }
+
+      const program = await storage.createProgram({
+        organizationId: orgId,
+        name,
+        slug,
+        description: description || null,
+        isVirtual: isVirtual || false,
+      });
+
+      res.status(201).json(program);
+    } catch (error) {
+      console.error("Error creating program:", error);
+      res.status(500).json({ message: "Failed to create program" });
+    }
+  });
+
+  app.patch('/api/programs/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+      const updates = req.body;
+
+      const program = await storage.getProgram(id);
+      if (!program) {
+        return res.status(404).json({ message: "Program not found" });
+      }
+
+      if (!await checkOrganizationAccess(userId, program.organizationId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // If slug is being updated, check uniqueness
+      if (updates.slug && updates.slug !== program.slug) {
+        const existing = await storage.getProgramBySlug(program.organizationId, updates.slug);
+        if (existing) {
+          return res.status(400).json({ message: "A program with this slug already exists" });
+        }
+      }
+
+      const updated = await storage.updateProgram(id, updates);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating program:", error);
+      res.status(500).json({ message: "Failed to update program" });
+    }
+  });
+
+  app.delete('/api/programs/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const program = await storage.getProgram(id);
+      if (!program) {
+        return res.status(404).json({ message: "Program not found" });
+      }
+
+      if (!await checkOrganizationAccess(userId, program.organizationId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await storage.deleteProgram(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting program:", error);
+      res.status(500).json({ message: "Failed to delete program" });
+    }
+  });
+
+  // ===== Tags Routes =====
+
+  // Get all tags for an organization
+  app.get('/api/organizations/:orgId/tags', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      const category = req.query.category as string | undefined;
+
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const tags = await storage.getTagsByOrganization(orgId, category);
+      res.json(tags);
+    } catch (error) {
+      console.error("Error fetching tags:", error);
+      res.status(500).json({ message: "Failed to fetch tags" });
+    }
+  });
+
+  // Search tags (for autocomplete)
+  app.get('/api/organizations/:orgId/tags/search', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      const query = req.query.q as string;
+      const limit = req.query.limit ? parseInt(req.query.limit as string) : 20;
+
+      if (!query || query.length < 1) {
+        return res.json([]);
+      }
+
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const tags = await storage.searchTags(orgId, query, limit);
+      res.json(tags);
+    } catch (error) {
+      console.error("Error searching tags:", error);
+      res.status(500).json({ message: "Failed to search tags" });
+    }
+  });
+
+  // Get tags for a specific entity
+  app.get('/api/tags/entity/:entityType/:entityId', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const entityType = req.params.entityType;
+      const entityId = parseInt(req.params.entityId);
+
+      // Verify access based on entity type
+      if (entityType === 'project') {
+        const project = await storage.getProject(entityId);
+        if (!project || !await checkOrganizationAccess(userId, project.organizationId)) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      } else if (entityType === 'task') {
+        const task = await storage.getTask(entityId);
+        if (!task) return res.status(404).json({ message: "Task not found" });
+        const project = await storage.getProject(task.projectId);
+        if (!project || !await checkOrganizationAccess(userId, project.organizationId)) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      } else if (entityType === 'risk' || entityType === 'issue') {
+        const entity = entityType === 'risk' 
+          ? await storage.getRisk(entityId)
+          : await storage.getIssue(entityId);
+        if (!entity) return res.status(404).json({ message: `${entityType} not found` });
+        const project = await storage.getProject(entity.projectId);
+        if (!project || !await checkOrganizationAccess(userId, project.organizationId)) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      } else if (entityType === 'organization') {
+        const orgId = entityId;
+        if (!await checkOrganizationAccess(userId, orgId)) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      } else if (entityType === 'program') {
+        const program = await storage.getProgram(entityId);
+        if (!program || !await checkOrganizationAccess(userId, program.organizationId)) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+
+      const tags = await storage.getTagsForEntity(entityType, entityId);
+      res.json(tags);
+    } catch (error) {
+      console.error("Error fetching entity tags:", error);
+      res.status(500).json({ message: "Failed to fetch tags" });
+    }
+  });
+
+  // Create a new tag
+  app.post('/api/organizations/:orgId/tags', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      const tagData = insertTagSchema.parse({ ...req.body, organizationId: orgId });
+
+      if (!await checkOrganizationAccess(userId, orgId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Check if tag with same name already exists
+      const existing = await storage.getTagByName(orgId, tagData.name);
+      if (existing) {
+        return res.status(400).json({ message: "A tag with this name already exists" });
+      }
+
+      const tag = await storage.createTag(tagData);
+      res.json(tag);
+    } catch (error: any) {
+      console.error("Error creating tag:", error);
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ message: "Invalid tag data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to create tag" });
+    }
+  });
+
+  // Update a tag
+  app.patch('/api/tags/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+      const updates = updateTagSchema.partial().parse(req.body);
+
+      const tag = await storage.getTag(id);
+      if (!tag) {
+        return res.status(404).json({ message: "Tag not found" });
+      }
+
+      if (!await checkOrganizationAccess(userId, tag.organizationId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // If name is being updated, check uniqueness
+      if (updates.name && updates.name !== tag.name) {
+        const existing = await storage.getTagByName(tag.organizationId, updates.name);
+        if (existing) {
+          return res.status(400).json({ message: "A tag with this name already exists" });
+        }
+      }
+
+      const updated = await storage.updateTag(id, updates);
+      res.json(updated);
+    } catch (error: any) {
+      console.error("Error updating tag:", error);
+      if (error.name === 'ZodError') {
+        return res.status(400).json({ message: "Invalid tag data", errors: error.errors });
+      }
+      res.status(500).json({ message: "Failed to update tag" });
+    }
+  });
+
+  // Delete a tag
+  app.delete('/api/tags/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+
+      const tag = await storage.getTag(id);
+      if (!tag) {
+        return res.status(404).json({ message: "Tag not found" });
+      }
+
+      if (!await checkOrganizationAccess(userId, tag.organizationId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await storage.deleteTag(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting tag:", error);
+      res.status(500).json({ message: "Failed to delete tag" });
+    }
+  });
+
+  // Assign tag to entity
+  app.post('/api/tags/:tagId/assign', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const tagId = parseInt(req.params.tagId);
+      const { entityType, entityId } = req.body;
+
+      if (!entityType || !entityId) {
+        return res.status(400).json({ message: "entityType and entityId are required" });
+      }
+
+      const tag = await storage.getTag(tagId);
+      if (!tag) {
+        return res.status(404).json({ message: "Tag not found" });
+      }
+
+      if (!await checkOrganizationAccess(userId, tag.organizationId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Verify entity access
+      if (entityType === 'project') {
+        const project = await storage.getProject(entityId);
+        if (!project || project.organizationId !== tag.organizationId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      } else if (entityType === 'task') {
+        const task = await storage.getTask(entityId);
+        if (!task) return res.status(404).json({ message: "Task not found" });
+        const project = await storage.getProject(task.projectId);
+        if (!project || project.organizationId !== tag.organizationId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      } else if (entityType === 'risk' || entityType === 'issue') {
+        const entity = entityType === 'risk' 
+          ? await storage.getRisk(entityId)
+          : await storage.getIssue(entityId);
+        if (!entity) return res.status(404).json({ message: `${entityType} not found` });
+        const project = await storage.getProject(entity.projectId);
+        if (!project || project.organizationId !== tag.organizationId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      } else if (entityType === 'organization') {
+        if (entityId !== tag.organizationId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      } else if (entityType === 'program') {
+        const program = await storage.getProgram(entityId);
+        if (!program || program.organizationId !== tag.organizationId) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+
+      const assignment = await storage.assignTag(tagId, entityType, entityId);
+      res.json(assignment);
+    } catch (error) {
+      console.error("Error assigning tag:", error);
+      res.status(500).json({ message: "Failed to assign tag" });
+    }
+  });
+
+  // Unassign tag from entity
+  app.delete('/api/tags/:tagId/assign/:entityType/:entityId', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const tagId = parseInt(req.params.tagId);
+      const entityType = req.params.entityType;
+      const entityId = parseInt(req.params.entityId);
+
+      const tag = await storage.getTag(tagId);
+      if (!tag) {
+        return res.status(404).json({ message: "Tag not found" });
+      }
+
+      if (!await checkOrganizationAccess(userId, tag.organizationId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      await storage.unassignTag(tagId, entityType, entityId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error unassigning tag:", error);
+      res.status(500).json({ message: "Failed to unassign tag" });
+    }
+  });
+
+  // ===== Organization Terminology Routes =====
+  app.patch('/api/organizations/:orgId/terminology', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const orgId = parseInt(req.params.orgId);
+      const { topLevelEntityLabel, topLevelEntityLabelCustom, programEntityLabel, programEntityLabelCustom } = req.body;
+
+      const org = await storage.getOrganization(orgId);
+      if (!org) {
+        return res.status(404).json({ message: "Organization not found" });
+      }
+
+      // Check if user is owner/admin (only owners should change terminology)
+      const userOrg = await storage.getUserOrganization(userId, orgId);
+      if (!userOrg || userOrg.role !== 'owner') {
+        return res.status(403).json({ message: "Only organization owners can change terminology" });
+      }
+
+      const updated = await storage.updateOrganization(orgId, {
+        topLevelEntityLabel: topLevelEntityLabel || org.topLevelEntityLabel,
+        topLevelEntityLabelCustom: topLevelEntityLabelCustom || null,
+        programEntityLabel: programEntityLabel || org.programEntityLabel,
+        programEntityLabelCustom: programEntityLabelCustom || null,
+      });
+
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating terminology:", error);
+      res.status(500).json({ message: "Failed to update terminology" });
+    }
+  });
+
   // ===== Project Routes =====
   app.get('/api/organizations/:orgId/projects', isAuthenticated, async (req: any, res) => {
     try {
@@ -5825,6 +6250,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       selectedItemIds: z.array(z.number()).optional(),
       modelName: z.string().optional(), // User-selected Gemini model
       organizationId: z.number().optional(), // Organization ID for project creation
+      terminology: z.object({
+        topLevel: z.string().optional(),
+        program: z.string().optional(),
+      }).optional(), // Custom terminology from organization
     }).optional(),
   });
 

@@ -12,7 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Plus, Edit, Trash2, Loader2 } from "lucide-react";
-import type { Project, ProjectStatus, KanbanColumn } from "@shared/schema";
+import type { Project, ProjectStatus, KanbanColumn, Tag } from "@shared/schema";
+import { TagInput } from "@/components/ui/tag-input";
 
 interface ProjectEditModalProps {
   open: boolean;
@@ -332,6 +333,16 @@ export function ProjectEditModal({
                   </SelectContent>
                 </Select>
               </div>
+              {project && (
+                <div>
+                  <Label>Tags</Label>
+                  <TagInput
+                    entityType="project"
+                    entityId={project.id}
+                    placeholder="Add tags to categorize this project..."
+                  />
+                </div>
+              )}
             </div>
           </TabsContent>
 

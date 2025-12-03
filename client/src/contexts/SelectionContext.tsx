@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode } from "react";
+import React, { createContext, useContext, useState, useCallback, ReactNode, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
 
 type SelectionContextType = {
@@ -17,6 +17,10 @@ type SelectionContextType = {
   // Resources
   selectedResources: any[];
   setSelectedResources: (items: any[]) => void;
+  
+  // Programs
+  selectedPrograms: any[];
+  setSelectedPrograms: (items: any[]) => void;
   
   // Issues
   selectedIssues: any[];
@@ -44,65 +48,99 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
   const [selectedContacts, setSelectedContacts] = useState<any[]>([]);
   const [selectedStakeholders, setSelectedStakeholders] = useState<any[]>([]);
   const [selectedResources, setSelectedResources] = useState<any[]>([]);
+  const [selectedPrograms, setSelectedPrograms] = useState<any[]>([]);
   const [selectedIssues, setSelectedIssues] = useState<any[]>([]);
   const [selectedRisks, setSelectedRisks] = useState<any[]>([]);
   const [location] = useLocation();
+
+  // Use refs to access latest values without causing re-renders
+  const selectionsRef = useRef({
+    selectedProjects,
+    selectedContacts,
+    selectedStakeholders,
+    selectedResources,
+    selectedPrograms,
+    selectedIssues,
+    selectedRisks,
+  });
+
+  // Keep refs in sync with state
+  useEffect(() => {
+    selectionsRef.current = {
+      selectedProjects,
+      selectedContacts,
+      selectedStakeholders,
+      selectedResources,
+      selectedPrograms,
+      selectedIssues,
+      selectedRisks,
+    };
+  }, [selectedProjects, selectedContacts, selectedStakeholders, selectedResources, selectedPrograms, selectedIssues, selectedRisks]);
 
   const clearAllSelections = useCallback(() => {
     setSelectedProjects([]);
     setSelectedContacts([]);
     setSelectedStakeholders([]);
     setSelectedResources([]);
+    setSelectedPrograms([]);
     setSelectedIssues([]);
     setSelectedRisks([]);
   }, []);
 
   const getCurrentSelections = useCallback(() => {
+    const current = selectionsRef.current;
     // Determine current page and return appropriate selections
     if (location.startsWith("/projects")) {
       return {
-        items: selectedProjects,
+        items: current.selectedProjects,
         type: "projects",
         clearFn: () => setSelectedProjects([]),
       };
     }
     if (location.startsWith("/contacts")) {
       return {
-        items: selectedContacts,
+        items: current.selectedContacts,
         type: "contacts",
         clearFn: () => setSelectedContacts([]),
       };
     }
     if (location.startsWith("/stakeholders")) {
       return {
-        items: selectedStakeholders,
+        items: current.selectedStakeholders,
         type: "stakeholders",
         clearFn: () => setSelectedStakeholders([]),
       };
     }
     if (location.startsWith("/resources")) {
       return {
-        items: selectedResources,
+        items: current.selectedResources,
         type: "resources",
         clearFn: () => setSelectedResources([]),
       };
     }
+    if (location.startsWith("/pmo/programs") || location.startsWith("/programs")) {
+      return {
+        items: current.selectedPrograms,
+        type: "programs",
+        clearFn: () => setSelectedPrograms([]),
+      };
+    }
     if (location.startsWith("/issues")) {
       return {
-        items: selectedIssues,
+        items: current.selectedIssues,
         type: "issues",
         clearFn: () => setSelectedIssues([]),
       };
     }
     if (location.startsWith("/risks")) {
       return {
-        items: selectedRisks,
+        items: current.selectedRisks,
         type: "risks",
         clearFn: () => setSelectedRisks([]),
       };
     }
     return null;
-  }, [location, selectedProjects, selectedContacts, selectedStakeholders, selectedResources, selectedIssues, selectedRisks]);
+  }, [location]);
 
   return (
     <SelectionContext.Provider
@@ -115,6 +153,8 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
         setSelectedStakeholders,
         selectedResources,
         setSelectedResources,
+        selectedPrograms,
+        setSelectedPrograms,
         selectedIssues,
         setSelectedIssues,
         selectedRisks,
@@ -135,4 +175,5 @@ export function useSelection() {
   }
   return context;
 }
+
 

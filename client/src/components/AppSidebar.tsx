@@ -31,6 +31,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
 import { Link, useLocation } from "wouter";
+import { useProject } from "@/contexts/ProjectContext";
 
 const projectTabs = [
   { title: "Overview", icon: LayoutDashboard, path: "/" },
@@ -51,6 +52,7 @@ const projectTabs = [
 
 const pmoTabs = [
   { title: "Dashboard", icon: LayoutDashboard, path: "/pmo/dashboard" },
+  { title: "Programs", icon: FolderKanban, path: "/pmo/programs" },
   { title: "Projects", icon: FolderKanban, path: "/pmo/projects" },
   { title: "Contacts", icon: Contact, path: "/pmo/contacts" },
   { title: "Calendar", icon: Calendar, path: "/pmo/calendar" },
@@ -60,6 +62,15 @@ const pmoTabs = [
 
 export function AppSidebar() {
   const [location] = useLocation();
+  const { terminology } = useProject();
+
+  // Dynamically update Programs tab label
+  const pmoTabsWithTerminology = pmoTabs.map(tab => {
+    if (tab.path === "/pmo/programs") {
+      return { ...tab, title: terminology.program + "s" };
+    }
+    return tab;
+  });
 
   return (
     <Sidebar data-testid="sidebar-main">
@@ -83,10 +94,10 @@ export function AppSidebar() {
         </SidebarGroup>
 
         <SidebarGroup>
-          <SidebarGroupLabel>Organization</SidebarGroupLabel>
+          <SidebarGroupLabel>{terminology.topLevel}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {pmoTabs.map((item) => (
+              {pmoTabsWithTerminology.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton asChild isActive={location === item.path} data-testid={`sidebar-link-pmo-${item.path.split('/').pop()}`}>
                     <Link href={item.path}>

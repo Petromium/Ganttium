@@ -119,6 +119,11 @@ export const organizations = pgTable("organizations", {
   website: varchar("website", { length: 255 }),
   taxId: varchar("tax_id", { length: 100 }), // VAT/Tax/Invoice number
   registrationNumber: varchar("registration_number", { length: 100 }), // Company registration
+  // Custom terminology
+  topLevelEntityLabel: varchar("top_level_entity_label", { length: 50 }).default("Organization").notNull(),
+  topLevelEntityLabelCustom: varchar("top_level_entity_label_custom", { length: 50 }), // Only used if topLevelEntityLabel === "custom"
+  programEntityLabel: varchar("program_entity_label", { length: 50 }).default("Program").notNull(),
+  programEntityLabelCustom: varchar("program_entity_label_custom", { length: 50 }), // Only used if programEntityLabel === "custom"
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -207,10 +212,61 @@ export const userActivityLogs = pgTable("user_activity_logs", {
   createdAtIdx: index("user_activity_logs_created_idx").on(table.createdAt),
 }));
 
+// Programs (PMI Program Management - Groups of related projects)
+export const programs = pgTable("programs", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 255 }).notNull(),
+  slug: varchar("slug", { length: 100 }).notNull(),
+  description: text("description"),
+  isVirtual: boolean("is_virtual").default(false).notNull(), // Real department vs virtual grouping
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  orgSlugUnique: unique("programs_org_slug_unique").on(table.organizationId, table.slug), // Unique slug per org
+  orgNameIdx: index("programs_org_name_idx").on(table.organizationId, table.name),
+}));
+
+// Tags (Organization-level tags for categorization and filtering)
+export const tagEntityTypeEnum = pgEnum("tag_entity_type", [
+  "organization", "program", "project", "task", "risk", "issue", "document", "resource", "contact", "stakeholder"
+]);
+
+export const tags = pgTable("tags", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 100 }).notNull(), // Tag name (e.g., "construction", "quality-issue", "HSE")
+  category: varchar("category", { length: 50 }), // Optional category for grouping (e.g., "project-type", "issue-type", "risk-category")
+  color: varchar("color", { length: 20 }), // Optional color for UI display (e.g., "blue", "red", "#FF5733")
+  description: text("description"), // Optional description
+  usageCount: integer("usage_count").default(0).notNull(), // Track how many times tag is used (for sorting/popularity)
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  orgNameUnique: unique("tags_org_name_unique").on(table.organizationId, table.name), // Unique tag name per org
+  orgIdx: index("tags_org_idx").on(table.organizationId),
+  categoryIdx: index("tags_category_idx").on(table.category),
+  nameIdx: index("tags_name_idx").on(table.name), // For search/filtering
+}));
+
+// Tag Assignments (Many-to-many relationship between tags and entities)
+export const tagAssignments = pgTable("tag_assignments", {
+  id: serial("id").primaryKey(),
+  tagId: integer("tag_id").notNull().references(() => tags.id, { onDelete: "cascade" }),
+  entityType: tagEntityTypeEnum("entity_type").notNull(), // Type of entity being tagged
+  entityId: integer("entity_id").notNull(), // ID of the entity being tagged
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  tagEntityUnique: unique("tag_assignments_unique").on(table.tagId, table.entityType, table.entityId), // One tag per entity type/id
+  tagIdx: index("tag_assignments_tag_idx").on(table.tagId),
+  entityIdx: index("tag_assignments_entity_idx").on(table.entityType, table.entityId), // For finding all tags for an entity
+}));
+
 // Projects
 export const projects = pgTable("projects", {
   id: serial("id").primaryKey(),
   organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  programId: integer("program_id").references(() => programs.id, { onDelete: "set null" }), // Optional: project can belong to a program
   name: text("name").notNull(),
   description: text("description"),
   code: varchar("code", { length: 50 }).notNull(), // Project code like "PRJ-001"
@@ -1403,6 +1459,29 @@ export const insertOrganizationSchema = createInsertSchema(organizations).omit({
 export const selectOrganizationSchema = createSelectSchema(organizations);
 export type InsertOrganization = z.infer<typeof insertOrganizationSchema>;
 export type Organization = typeof organizations.$inferSelect;
+
+// Zod Schemas for Programs
+export const insertProgramSchema = createInsertSchema(programs).omit({ id: true, createdAt: true, updatedAt: true });
+export const updateProgramSchema = insertProgramSchema.partial();
+export const selectProgramSchema = createSelectSchema(programs);
+export type InsertProgram = z.infer<typeof insertProgramSchema>;
+export type UpdateProgram = z.infer<typeof updateProgramSchema>;
+export type Program = typeof programs.$inferSelect;
+
+// Zod Schemas for Tags
+export const insertTagSchema = createInsertSchema(tags).omit({ id: true, createdAt: true, updatedAt: true, usageCount: true });
+export const updateTagSchema = insertTagSchema.partial();
+export const selectTagSchema = createSelectSchema(tags);
+export type InsertTag = z.infer<typeof insertTagSchema>;
+export type UpdateTag = z.infer<typeof updateTagSchema>;
+export type Tag = typeof tags.$inferSelect;
+
+// Zod Schemas for Tag Assignments
+export const insertTagAssignmentSchema = createInsertSchema(tagAssignments).omit({ id: true, createdAt: true });
+export const deleteTagAssignmentSchema = insertTagAssignmentSchema;
+export const selectTagAssignmentSchema = createSelectSchema(tagAssignments);
+export type InsertTagAssignment = z.infer<typeof insertTagAssignmentSchema>;
+export type TagAssignment = typeof tagAssignments.$inferSelect;
 
 // Zod Schemas for Users
 export const insertUserSchema = createInsertSchema(users).omit({ createdAt: true, updatedAt: true });

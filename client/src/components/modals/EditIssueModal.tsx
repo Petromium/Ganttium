@@ -13,6 +13,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useProject } from "@/contexts/ProjectContext";
 import type { Issue, InsertIssue } from "@shared/schema";
 import { insertIssueSchema } from "@shared/schema";
+import { TagInput } from "@/components/ui/tag-input";
 
 interface EditIssueModalProps {
   issue: Issue | null;
@@ -258,6 +259,17 @@ export function EditIssueModal({ issue, open, onOpenChange, onSuccess }: EditIss
               rows={3}
             />
           </div>
+
+          {issue && (
+            <div className="space-y-2">
+              <Label>Tags</Label>
+              <TagInput
+                entityType="issue"
+                entityId={issue.id}
+                placeholder="Add tags to categorize this issue..."
+              />
+            </div>
+          )}
         </div>
 
         <DialogFooter>

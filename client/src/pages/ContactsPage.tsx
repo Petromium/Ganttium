@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
 import { apiRequest } from "@/lib/queryClient";
@@ -171,7 +171,7 @@ export default function ContactsPage() {
     []
   );
 
-  const handleExport = (contactsToExport: Contact[] | null) => {
+  const handleExport = useCallback((contactsToExport: Contact[] | null) => {
     const dataToExport = contactsToExport || contacts;
     const csv = Papa.unparse(
       dataToExport.map((c) => ({
@@ -194,25 +194,26 @@ export default function ContactsPage() {
     link.click();
     document.body.removeChild(link);
     toast({ title: "Success", description: "Contacts exported successfully" });
-  };
+  }, [contacts, toast]);
 
   // Bulk delete contacts mutation
   const bulkDeleteContactsMutation = useMutation({
     mutationFn: async (contactIds: number[]) => {
       await Promise.all(contactIds.map(id => apiRequest("DELETE", `/api/contacts/${id}`)));
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
+      const deletedCount = variables.length;
       queryClient.invalidateQueries({ queryKey: [`/api/organizations/${selectedOrganizationId}/contacts`] });
       setBulkDeleteDialogOpen(false);
       setSelectedContacts([]);
-      toast({ title: "Success", description: `${selectedContacts.length} contact(s) deleted successfully` });
+      toast({ title: "Success", description: `${deletedCount} contact(s) deleted successfully` });
     },
     onError: (error: Error) => {
       toast({ title: "Error", description: error.message || "Failed to delete contacts", variant: "destructive" });
     },
   });
 
-  const handleBulkAction = (action: string, items: Contact[]) => {
+  const handleBulkAction = useCallback((action: string, items: Contact[]) => {
     if (action === "assign") {
       setIsAssignOpen(true);
     } else if (action === "export") {
@@ -220,12 +221,12 @@ export default function ContactsPage() {
     } else if (action === "delete") {
       setBulkDeleteDialogOpen(true);
     }
-  };
+  }, [handleExport, setIsAssignOpen, setBulkDeleteDialogOpen]);
 
   // Register bulk action handler for bottom toolbar
   React.useEffect(() => {
     return registerBulkActionHandler("contacts", handleBulkAction);
-  }, []);
+  }, [handleBulkAction]);
 
   // Create contact mutation
   const createContactMutation = useMutation({

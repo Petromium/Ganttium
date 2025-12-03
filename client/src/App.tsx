@@ -45,6 +45,7 @@ import PMODashboardPage from "@/pages/PMODashboardPage";
 import PMOCalendarPage from "@/pages/PMOCalendarPage";
 import PMOInventoryPage from "@/pages/PMOInventoryPage";
 import ProjectsPage from "@/pages/ProjectsPage";
+import ProgramsPage from "@/pages/ProgramsPage";
 import ChatPage from "@/pages/ChatPage";
 import ContactsPage from "@/pages/ContactsPage";
 import ChangeRequestsPage from "@/pages/ChangeRequestsPage";
@@ -86,6 +87,7 @@ function Router() {
         return null;
       }} />
       <Route path="/pmo/dashboard" component={PMODashboardPage} />
+      <Route path="/pmo/programs" component={ProgramsPage} />
       <Route path="/pmo/projects" component={ProjectsPage} />
       <Route path="/pmo/contacts" component={ContactsPage} />
       <Route path="/pmo/calendar" component={PMOCalendarPage} />

@@ -5,6 +5,14 @@ import { logger } from "./lib/logger";
 import type {
   InsertOrganization,
   Organization,
+  InsertProgram,
+  UpdateProgram,
+  Program,
+  InsertTag,
+  UpdateTag,
+  Tag,
+  InsertTagAssignment,
+  TagAssignment,
   InsertUser,
   UpsertUser,
   User,
@@ -133,6 +141,34 @@ export interface IStorage {
   createOrganization(org: InsertOrganization): Promise<Organization>;
   updateOrganization(id: number, org: Partial<InsertOrganization>): Promise<Organization | undefined>;
   deleteOrganization(id: number): Promise<void>;
+
+  // Programs
+  getProgram(id: number): Promise<Program | undefined>;
+  getProgramsByOrganization(organizationId: number): Promise<Program[]>;
+  getProgramBySlug(organizationId: number, slug: string): Promise<Program | undefined>;
+  createProgram(program: InsertProgram): Promise<Program>;
+  updateProgram(id: number, program: Partial<UpdateProgram>): Promise<Program | undefined>;
+  deleteProgram(id: number): Promise<void>;
+
+  // Tags
+  getTag(id: number): Promise<Tag | undefined>;
+  getTagsByOrganization(organizationId: number, category?: string): Promise<Tag[]>;
+  getTagByName(organizationId: number, name: string): Promise<Tag | undefined>;
+  searchTags(organizationId: number, query: string, limit?: number): Promise<Tag[]>;
+  createTag(tag: InsertTag): Promise<Tag>;
+  updateTag(id: number, tag: Partial<UpdateTag>): Promise<Tag | undefined>;
+  deleteTag(id: number): Promise<void>;
+  incrementTagUsage(tagId: number): Promise<void>;
+  decrementTagUsage(tagId: number): Promise<void>;
+
+  // Tag Assignments
+  getTagAssignmentsByEntity(entityType: string, entityId: number): Promise<TagAssignment[]>;
+  getTagAssignmentsByTag(tagId: number): Promise<TagAssignment[]>;
+  getEntitiesByTag(tagId: number, entityType?: string): Promise<Array<{ entityType: string; entityId: number }>>;
+  assignTag(tagId: number, entityType: string, entityId: number): Promise<TagAssignment>;
+  unassignTag(tagId: number, entityType: string, entityId: number): Promise<void>;
+  unassignAllTagsFromEntity(entityType: string, entityId: number): Promise<void>;
+  getTagsForEntity(entityType: string, entityId: number): Promise<Tag[]>;
 
   // Users (Replit Auth compatible)
   getUser(id: string): Promise<User | undefined>;
@@ -563,6 +599,204 @@ export class DatabaseStorage implements IStorage {
 
   async deleteOrganization(id: number): Promise<void> {
     await db.delete(schema.organizations).where(eq(schema.organizations.id, id));
+  }
+
+  // Programs
+  async getProgram(id: number): Promise<Program | undefined> {
+    const [program] = await db.select().from(schema.programs).where(eq(schema.programs.id, id));
+    return program;
+  }
+
+  async getProgramsByOrganization(organizationId: number): Promise<Program[]> {
+    return await db.select().from(schema.programs)
+      .where(eq(schema.programs.organizationId, organizationId))
+      .orderBy(asc(schema.programs.name));
+  }
+
+  async getProgramBySlug(organizationId: number, slug: string): Promise<Program | undefined> {
+    const [program] = await db.select().from(schema.programs)
+      .where(and(
+        eq(schema.programs.organizationId, organizationId),
+        eq(schema.programs.slug, slug)
+      ));
+    return program;
+  }
+
+  async createProgram(program: InsertProgram): Promise<Program> {
+    const [created] = await db.insert(schema.programs).values(program).returning();
+    return created;
+  }
+
+  async updateProgram(id: number, program: Partial<UpdateProgram>): Promise<Program | undefined> {
+    const [updated] = await db.update(schema.programs)
+      .set({ ...program, updatedAt: new Date() })
+      .where(eq(schema.programs.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteProgram(id: number): Promise<void> {
+    await db.delete(schema.programs).where(eq(schema.programs.id, id));
+  }
+
+  // Tags
+  async getTag(id: number): Promise<Tag | undefined> {
+    const [tag] = await db.select().from(schema.tags).where(eq(schema.tags.id, id));
+    return tag;
+  }
+
+  async getTagsByOrganization(organizationId: number, category?: string): Promise<Tag[]> {
+    const conditions = [eq(schema.tags.organizationId, organizationId)];
+    if (category) {
+      conditions.push(eq(schema.tags.category, category));
+    }
+    return await db.select().from(schema.tags)
+      .where(and(...conditions))
+      .orderBy(desc(schema.tags.usageCount), asc(schema.tags.name));
+  }
+
+  async getTagByName(organizationId: number, name: string): Promise<Tag | undefined> {
+    const [tag] = await db.select().from(schema.tags)
+      .where(and(
+        eq(schema.tags.organizationId, organizationId),
+        eq(schema.tags.name, name)
+      ));
+    return tag;
+  }
+
+  async searchTags(organizationId: number, query: string, limit: number = 20): Promise<Tag[]> {
+    const searchTerm = `%${query.toLowerCase()}%`;
+    return await db.select().from(schema.tags)
+      .where(and(
+        eq(schema.tags.organizationId, organizationId),
+        sql`LOWER(${schema.tags.name}) LIKE ${searchTerm}`
+      ))
+      .orderBy(desc(schema.tags.usageCount), asc(schema.tags.name))
+      .limit(limit);
+  }
+
+  async createTag(tag: InsertTag): Promise<Tag> {
+    const [created] = await db.insert(schema.tags).values(tag).returning();
+    return created;
+  }
+
+  async updateTag(id: number, tag: Partial<UpdateTag>): Promise<Tag | undefined> {
+    const [updated] = await db.update(schema.tags)
+      .set({ ...tag, updatedAt: new Date() })
+      .where(eq(schema.tags.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteTag(id: number): Promise<void> {
+    // Delete all assignments first (cascade should handle this, but explicit for clarity)
+    await db.delete(schema.tagAssignments).where(eq(schema.tagAssignments.tagId, id));
+    await db.delete(schema.tags).where(eq(schema.tags.id, id));
+  }
+
+  async incrementTagUsage(tagId: number): Promise<void> {
+    await db.update(schema.tags)
+      .set({ usageCount: sql`${schema.tags.usageCount} + 1` })
+      .where(eq(schema.tags.id, tagId));
+  }
+
+  async decrementTagUsage(tagId: number): Promise<void> {
+    await db.update(schema.tags)
+      .set({ usageCount: sql`GREATEST(${schema.tags.usageCount} - 1, 0)` })
+      .where(eq(schema.tags.id, tagId));
+  }
+
+  // Tag Assignments
+  async getTagAssignmentsByEntity(entityType: string, entityId: number): Promise<TagAssignment[]> {
+    return await db.select().from(schema.tagAssignments)
+      .where(and(
+        eq(schema.tagAssignments.entityType, entityType as any),
+        eq(schema.tagAssignments.entityId, entityId)
+      ));
+  }
+
+  async getTagAssignmentsByTag(tagId: number): Promise<TagAssignment[]> {
+    return await db.select().from(schema.tagAssignments)
+      .where(eq(schema.tagAssignments.tagId, tagId));
+  }
+
+  async getEntitiesByTag(tagId: number, entityType?: string): Promise<Array<{ entityType: string; entityId: number }>> {
+    const conditions = [eq(schema.tagAssignments.tagId, tagId)];
+    if (entityType) {
+      conditions.push(eq(schema.tagAssignments.entityType, entityType as any));
+    }
+    const assignments = await db.select({
+      entityType: schema.tagAssignments.entityType,
+      entityId: schema.tagAssignments.entityId,
+    }).from(schema.tagAssignments)
+      .where(and(...conditions));
+    return assignments.map(a => ({ entityType: a.entityType, entityId: a.entityId }));
+  }
+
+  async assignTag(tagId: number, entityType: string, entityId: number): Promise<TagAssignment> {
+    // Check if already assigned
+    const existing = await db.select().from(schema.tagAssignments)
+      .where(and(
+        eq(schema.tagAssignments.tagId, tagId),
+        eq(schema.tagAssignments.entityType, entityType as any),
+        eq(schema.tagAssignments.entityId, entityId)
+      ));
+    
+    if (existing.length > 0) {
+      return existing[0];
+    }
+
+    // Create assignment
+    const [assignment] = await db.insert(schema.tagAssignments).values({
+      tagId,
+      entityType: entityType as any,
+      entityId,
+    }).returning();
+
+    // Increment usage count
+    await this.incrementTagUsage(tagId);
+
+    return assignment;
+  }
+
+  async unassignTag(tagId: number, entityType: string, entityId: number): Promise<void> {
+    await db.delete(schema.tagAssignments)
+      .where(and(
+        eq(schema.tagAssignments.tagId, tagId),
+        eq(schema.tagAssignments.entityType, entityType as any),
+        eq(schema.tagAssignments.entityId, entityId)
+      ));
+
+    // Decrement usage count
+    await this.decrementTagUsage(tagId);
+  }
+
+  async unassignAllTagsFromEntity(entityType: string, entityId: number): Promise<void> {
+    // Get all tag IDs before deleting
+    const assignments = await this.getTagAssignmentsByEntity(entityType, entityId);
+    const tagIds = assignments.map(a => a.tagId);
+
+    // Delete assignments
+    await db.delete(schema.tagAssignments)
+      .where(and(
+        eq(schema.tagAssignments.entityType, entityType as any),
+        eq(schema.tagAssignments.entityId, entityId)
+      ));
+
+    // Decrement usage counts
+    for (const tagId of tagIds) {
+      await this.decrementTagUsage(tagId);
+    }
+  }
+
+  async getTagsForEntity(entityType: string, entityId: number): Promise<Tag[]> {
+    const assignments = await this.getTagAssignmentsByEntity(entityType, entityId);
+    if (assignments.length === 0) return [];
+
+    const tagIds = assignments.map(a => a.tagId);
+    return await db.select().from(schema.tags)
+      .where(inArray(schema.tags.id, tagIds))
+      .orderBy(asc(schema.tags.name));
   }
 
   // Users

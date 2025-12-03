@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { TableRowCard } from "@/components/TableRowCard";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, Edit, Trash2, AlertCircle, DollarSign, Clock, Calendar, AlertTriangle } from "lucide-react";
+import { Search, Edit, Trash2, AlertCircle, DollarSign, Clock, Calendar, AlertTriangle, Tags, X, Check } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useProject } from "@/contexts/ProjectContext";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -27,7 +27,10 @@ import {
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import type { Risk } from "@shared/schema";
+import type { Risk, Tag } from "@shared/schema";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
 const DISCIPLINES = [
   { value: "civil", label: "Civil" },
@@ -105,13 +108,21 @@ const initialFormData: RiskFormData = {
 };
 
 export default function RisksPage() {
-  const { selectedProjectId } = useProject();
+  const { selectedProjectId, selectedOrgId } = useProject();
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingRisk, setEditingRisk] = useState<Risk | null>(null);
   const [selectedRisks, setSelectedRisks] = useState<number[]>([]);
   const [formData, setFormData] = useState<RiskFormData>(initialFormData);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
+  const [tagFilterOpen, setTagFilterOpen] = useState(false);
+
+  // Fetch all tags for organization
+  const { data: allTags = [] } = useQuery<Tag[]>({
+    queryKey: [`/api/organizations/${selectedOrgId}/tags`],
+    enabled: !!selectedOrgId,
+  });
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -125,6 +136,7 @@ export default function RisksPage() {
     }
   }, []);
 
+  // Fetch risks first (must be declared before useMemo that depends on it)
   const { 
     data: risks = [], 
     isLoading, 
@@ -136,15 +148,54 @@ export default function RisksPage() {
     retry: 1,
   });
 
+  // Memoize risk IDs to prevent unnecessary refetches
+  const riskIds = useMemo(() => risks.map(r => r.id), [risks]);
+
+  // Fetch tags for each risk
+  const { data: riskTagsMap = {} } = useQuery<Record<number, Tag[]>>({
+    queryKey: [`/api/risks/tags`, riskIds],
+    queryFn: async () => {
+      const tagsMap: Record<number, Tag[]> = {};
+      await Promise.all(
+        risks.map(async (risk) => {
+          try {
+            const response = await apiRequest("GET", `/api/tags/entity/risk/${risk.id}`);
+            tagsMap[risk.id] = await response.json();
+          } catch {
+            tagsMap[risk.id] = [];
+          }
+        })
+      );
+      return tagsMap;
+    },
+    enabled: risks.length > 0,
+  });
+
   const filteredRisks = useMemo(() => {
-    if (!searchQuery) return risks;
-    const query = searchQuery.toLowerCase();
-    return risks.filter(risk => 
-      risk.title.toLowerCase().includes(query) ||
-      risk.description?.toLowerCase().includes(query) ||
-      risk.code?.toLowerCase().includes(query)
-    );
-  }, [risks, searchQuery]);
+    let result = risks;
+    
+    // Filter by search query
+    if (searchQuery) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(risk => 
+        risk.title.toLowerCase().includes(query) ||
+        risk.description?.toLowerCase().includes(query) ||
+        risk.code?.toLowerCase().includes(query)
+      );
+    }
+
+    // Filter by selected tags
+    if (selectedTagIds.length > 0) {
+      result = result.filter(risk => {
+        const riskTags = riskTagsMap[risk.id] || [];
+        return selectedTagIds.every(tagId => 
+          riskTags.some(tag => tag.id === tagId)
+        );
+      });
+    }
+
+    return result;
+  }, [risks, searchQuery, riskTagsMap, selectedTagIds]);
 
   const calculateRiskExposure = (probability: number, impact: string, costImpact: string): number => {
     const impactMultiplier: Record<string, number> = {
@@ -330,16 +381,85 @@ export default function RisksPage() {
         </Alert>
       )}
 
-      <div className="relative max-w-md">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          type="search"
-          placeholder="Search risks..."
-          className="pl-9"
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          data-testid="input-search-risks"
-        />
+      <div className="flex items-center gap-2 mb-4">
+        <div className="relative max-w-md flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            type="search"
+            placeholder="Search risks..."
+            className="pl-9"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            data-testid="input-search-risks"
+          />
+        </div>
+
+        {/* Tag Filter */}
+        {allTags.length > 0 && (
+          <>
+            <Popover open={tagFilterOpen} onOpenChange={setTagFilterOpen}>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Tags className="h-4 w-4 mr-2" />
+                  Filter by Tags
+                  {selectedTagIds.length > 0 && (
+                    <Badge variant="secondary" className="ml-2">
+                      {selectedTagIds.length}
+                    </Badge>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[300px] p-0" align="start">
+                <Command>
+                  <CommandInput placeholder="Search tags..." />
+                  <CommandList>
+                    <CommandEmpty>No tags found.</CommandEmpty>
+                    <CommandGroup>
+                      {allTags.map((tag) => {
+                        const isSelected = selectedTagIds.includes(tag.id);
+                        return (
+                          <CommandItem
+                            key={tag.id}
+                            onSelect={() => {
+                              setSelectedTagIds(prev =>
+                                isSelected
+                                  ? prev.filter(id => id !== tag.id)
+                                  : [...prev, tag.id]
+                              );
+                            }}
+                          >
+                            <div className={cn("mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary", isSelected ? "bg-primary text-primary-foreground" : "opacity-50")}>
+                              {isSelected && <Check className="h-4 w-4" />}
+                            </div>
+                            {tag.color && (
+                              <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: tag.color }} />
+                            )}
+                            <span>{tag.name}</span>
+                            {tag.category && (
+                              <Badge variant="outline" className="ml-auto text-xs">
+                                {tag.category}
+                              </Badge>
+                            )}
+                          </CommandItem>
+                        );
+                      })}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+            {selectedTagIds.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedTagIds([])}
+              >
+                <X className="h-4 w-4 mr-1" />
+                Clear
+              </Button>
+            )}
+          </>
+        )}
       </div>
 
       {isLoading ? (

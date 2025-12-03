@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@/components/ui/button";
-import { Edit, Trash2, AlertCircle, Calendar, CheckCircle2, AlertTriangle, DollarSign, Clock, Shield, Wrench, MoreHorizontal } from "lucide-react";
+import { Edit, Trash2, AlertCircle, Calendar, CheckCircle2, AlertTriangle, DollarSign, Clock, Shield, Wrench, MoreHorizontal, Tags, X, Check } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useProject } from "@/contexts/ProjectContext";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -27,7 +27,10 @@ import {
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import type { Issue } from "@shared/schema";
+import type { Issue, Tag } from "@shared/schema";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 import { DataTable, SortableHeader } from "@/components/ui/data-table";
 import { SelectionToolbar } from "@/components/ui/selection-toolbar";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
@@ -119,13 +122,21 @@ const initialFormData: IssueFormData = {
 };
 
 export default function IssuesPage() {
-  const { selectedProjectId } = useProject();
+  const { selectedProjectId, selectedOrgId } = useProject();
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingIssue, setEditingIssue] = useState<Issue | null>(null);
   const [selectedIssues, setSelectedIssues] = useState<Issue[]>([]);
   const [formData, setFormData] = useState<IssueFormData>(initialFormData);
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
+  const [selectedTagIds, setSelectedTagIds] = useState<number[]>([]);
+  const [tagFilterOpen, setTagFilterOpen] = useState(false);
+
+  // Fetch all tags for organization
+  const { data: allTags = [] } = useQuery<Tag[]>({
+    queryKey: [`/api/organizations/${selectedOrgId}/tags`],
+    enabled: !!selectedOrgId,
+  });
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -149,6 +160,40 @@ export default function IssuesPage() {
     enabled: !!selectedProjectId,
     retry: 1,
   });
+
+  // Memoize issue IDs to prevent unnecessary refetches
+  const issueIds = useMemo(() => issues.map(i => i.id), [issues]);
+
+  // Fetch tags for each issue
+  const { data: issueTagsMap = {} } = useQuery<Record<number, Tag[]>>({
+    queryKey: [`/api/issues/tags`, issueIds],
+    queryFn: async () => {
+      const tagsMap: Record<number, Tag[]> = {};
+      await Promise.all(
+        issues.map(async (issue) => {
+          try {
+            const response = await apiRequest("GET", `/api/tags/entity/issue/${issue.id}`);
+            tagsMap[issue.id] = await response.json();
+          } catch {
+            tagsMap[issue.id] = [];
+          }
+        })
+      );
+      return tagsMap;
+    },
+    enabled: issues.length > 0,
+  });
+
+  // Filter issues by selected tags
+  const filteredIssues = useMemo(() => {
+    if (selectedTagIds.length === 0) return issues;
+    return issues.filter(issue => {
+      const issueTags = issueTagsMap[issue.id] || [];
+      return selectedTagIds.every(tagId => 
+        issueTags.some(tag => tag.id === tagId)
+      );
+    });
+  }, [issues, issueTagsMap, selectedTagIds]);
 
   const getImpactIcons = (issue: Issue) => {
     const impacts = [];
@@ -509,9 +554,76 @@ export default function IssuesPage() {
         </div>
       ) : (
         <div className="space-y-4">
+          {/* Tag Filter */}
+          {allTags.length > 0 && (
+            <div className="flex items-center gap-2 mb-4">
+              <Popover open={tagFilterOpen} onOpenChange={setTagFilterOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <Tags className="h-4 w-4 mr-2" />
+                    Filter by Tags
+                    {selectedTagIds.length > 0 && (
+                      <Badge variant="secondary" className="ml-2">
+                        {selectedTagIds.length}
+                      </Badge>
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[300px] p-0" align="start">
+                  <Command>
+                    <CommandInput placeholder="Search tags..." />
+                    <CommandList>
+                      <CommandEmpty>No tags found.</CommandEmpty>
+                      <CommandGroup>
+                        {allTags.map((tag) => {
+                          const isSelected = selectedTagIds.includes(tag.id);
+                          return (
+                            <CommandItem
+                              key={tag.id}
+                              onSelect={() => {
+                                setSelectedTagIds(prev =>
+                                  isSelected
+                                    ? prev.filter(id => id !== tag.id)
+                                    : [...prev, tag.id]
+                                );
+                              }}
+                            >
+                              <div className={cn("mr-2 flex h-4 w-4 items-center justify-center rounded-sm border border-primary", isSelected ? "bg-primary text-primary-foreground" : "opacity-50")}>
+                                {isSelected && <Check className="h-4 w-4" />}
+                              </div>
+                              {tag.color && (
+                                <div className="w-3 h-3 rounded-full mr-2" style={{ backgroundColor: tag.color }} />
+                              )}
+                              <span>{tag.name}</span>
+                              {tag.category && (
+                                <Badge variant="outline" className="ml-auto text-xs">
+                                  {tag.category}
+                                </Badge>
+                              )}
+                            </CommandItem>
+                          );
+                        })}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+              {selectedTagIds.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSelectedTagIds([])}
+                >
+                  <X className="h-4 w-4 mr-1" />
+                  Clear
+                </Button>
+              )}
+            </div>
+          )}
+
           <DataTable
             columns={columns}
-            data={issues}
+            data={filteredIssues}
             searchKey="title"
             searchPlaceholder="Search issues by title, code, or description..."
             enableSelection={true}

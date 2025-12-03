@@ -917,29 +917,66 @@ export async function executeFunctionCall(
           storage.getCostItemsByProject(projectId)
         ]);
 
+        // Fetch tags for project and entities
+        const project = await storage.getProject(projectId);
+        const projectTags = project ? await storage.getTagsForEntity("project", projectId) : [];
+        
+        // Fetch tags for tasks, risks, and issues
+        const taskTagsPromises = tasks.map(t => storage.getTagsForEntity("task", t.id));
+        const riskTagsPromises = risks.map(r => storage.getTagsForEntity("risk", r.id));
+        const issueTagsPromises = issues.map(i => storage.getTagsForEntity("issue", i.id));
+        
+        const [taskTagsArray, riskTagsArray, issueTagsArray] = await Promise.all([
+          Promise.all(taskTagsPromises),
+          Promise.all(riskTagsPromises),
+          Promise.all(issueTagsPromises)
+        ]);
+
         return JSON.stringify({
+          project: {
+            tags: projectTags.map(t => t.name)
+          },
           tasks: {
             total: tasks.length,
             byStatus: tasks.reduce((acc, t) => ({ ...acc, [t.status]: (acc[t.status as string] || 0) + 1 }), {} as Record<string, number>),
             byPriority: tasks.reduce((acc, t) => ({ ...acc, [t.priority]: (acc[t.priority as string] || 0) + 1 }), {} as Record<string, number>),
-            list: tasks.map(t => ({
+            list: tasks.map((t, idx) => ({
               id: t.id,
               name: t.name,
               wbsCode: t.wbsCode || `#${t.id}`,
               status: t.status,
               priority: t.priority,
-              estimatedHours: t.estimatedHours ? parseFloat(t.estimatedHours.toString()) : null
+              estimatedHours: t.estimatedHours ? parseFloat(t.estimatedHours.toString()) : null,
+              tags: taskTagsArray[idx]?.map(tag => tag.name) || []
             }))
           },
           risks: {
             total: risks.length,
             byStatus: risks.reduce((acc, r) => ({ ...acc, [r.status]: (acc[r.status as string] || 0) + 1 }), {} as Record<string, number>),
-            highImpact: risks.filter(r => r.impact === 'critical' || r.impact === 'high').length
+            highImpact: risks.filter(r => r.impact === 'critical' || r.impact === 'high').length,
+            list: risks.map((r, idx) => ({
+              id: r.id,
+              code: r.code,
+              title: r.title,
+              status: r.status,
+              impact: r.impact,
+              probability: r.probability,
+              tags: riskTagsArray[idx]?.map(tag => tag.name) || []
+            }))
           },
           issues: {
             total: issues.length,
             byStatus: issues.reduce((acc, i) => ({ ...acc, [i.status]: (acc[i.status as string] || 0) + 1 }), {} as Record<string, number>),
-            highPriority: issues.filter(i => i.priority === 'critical' || i.priority === 'high').length
+            highPriority: issues.filter(i => i.priority === 'critical' || i.priority === 'high').length,
+            list: issues.map((i, idx) => ({
+              id: i.id,
+              code: i.code,
+              title: i.title,
+              status: i.status,
+              priority: i.priority,
+              issueType: i.issueType,
+              tags: issueTagsArray[idx]?.map(tag => tag.name) || []
+            }))
           },
           stakeholders: {
             total: stakeholders.length,
@@ -1675,8 +1712,30 @@ export async function chatWithAssistant(
     selectedItemIds?: number[];
     modelName?: string; // User-selected model
     organizationId?: number; // Organization ID from context
+    terminology?: { topLevel: string; program: string }; // Custom terminology
   }
 ): Promise<ChatResponse> {
+  // Fetch organization terminology if organizationId is available
+  let terminology = context?.terminology || { topLevel: "Organization", program: "Program" };
+  if (context?.organizationId && !context?.terminology) {
+    try {
+      const org = await storage.getOrganization(context.organizationId);
+      if (org) {
+        terminology = {
+          topLevel: org.topLevelEntityLabel === "custom" 
+            ? org.topLevelEntityLabelCustom || "Organization"
+            : org.topLevelEntityLabel || "Organization",
+          program: org.programEntityLabel === "custom"
+            ? org.programEntityLabelCustom || "Program"
+            : org.programEntityLabel || "Program",
+        };
+      }
+    } catch (error) {
+      // Fallback to defaults if fetch fails
+      logger.warn(`Failed to fetch terminology for org ${context.organizationId}:`, error);
+    }
+  }
+
   // Build context description
   const contextParts: string[] = [];
   if (projectId) {
@@ -1708,6 +1767,19 @@ You help project managers with:
 - Creating and managing project items (tasks, risks, issues, resources)
 - Providing actionable insights and recommendations
 
+**IMPORTANT: Terminology**
+This organization uses custom terminology:
+- Top-level entity: "${terminology.topLevel}" (instead of "Organization")
+- Program/Group entity: "${terminology.program}" (instead of "Program")
+When referring to these entities, use the organization's terminology. For example, say "${terminology.program}" instead of "Program", and "${terminology.topLevel}" instead of "Organization".
+
+**IMPORTANT: Tags System**
+- Projects, tasks, risks, issues, and other entities can have tags assigned to them
+- Tags are organization-level and help with categorization, filtering, and search
+- When analyzing data, consider tags as important metadata for understanding context
+- Tags can indicate project types (e.g., "construction", "software-development"), issue types (e.g., "quality-issue", "HSE"), risk categories, etc.
+- Use tags to provide more contextual recommendations and insights
+
 **IMPORTANT: Action Execution Rules**
 - For ALL create, update, delete, and bulk operations, you MUST set previewMode=true in function arguments
 - This shows the user a preview before executing, building trust and preventing mistakes
@@ -1722,12 +1794,12 @@ ${contextParts.length > 0 ? contextParts.join("\n") : "No specific context avail
 
 When analyzing data, be specific and provide actionable recommendations.
 Focus on EPC industry best practices and PMI standards.
-${projectId ? `Current project context: Project ID ${projectId}` : 'No project selected. Ask user to select a project first.'}`;
+${projectId ? `Current project context: Project ID ${projectId}` : `No project selected. Ask user to select a project first.`}`;
 
   // Special mode for project creation
   if (context?.currentPage === "create-project-ai") {
     const orgIdInfo = context?.organizationId 
-      ? `\n\n**IMPORTANT: Organization ID is ${context.organizationId} - you MUST use this organizationId when calling create_project_from_ai. Do NOT ask the user for organizationId - it's already available from context.**`
+      ? `\n\n**IMPORTANT: ${terminology.topLevel} ID is ${context.organizationId} - you MUST use this organizationId when calling create_project_from_ai. Do NOT ask the user for organizationId - it's already available from context.**`
       : '';
     
     systemContent += `
@@ -1769,6 +1841,8 @@ Your role:
 
 5. Present a preview using create_project_from_ai function with previewMode=true
    ${context?.organizationId ? `- CRITICAL: Always include organizationId=${context.organizationId} in the function call - it's provided from context` : ''}
+   - Use "${terminology.program}" terminology when referring to program/group entities
+   - Use "${terminology.topLevel}" terminology when referring to the top-level entity
 
 6. Only proceed after user confirms the preview
 

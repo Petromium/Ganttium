@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { ColumnDef } from "@tanstack/react-table";
 import { Card, CardContent } from "@/components/ui/card";
@@ -200,16 +200,16 @@ export default function StakeholdersPage() {
     },
   });
 
-  const handleBulkAction = (action: string, items: Stakeholder[]) => {
+  const handleBulkAction = useCallback((action: string, items: Stakeholder[]) => {
     if (action === "delete") {
       setBulkDeleteDialogOpen(true);
     }
-  };
+  }, [setBulkDeleteDialogOpen]);
 
   // Register bulk action handler for bottom toolbar
   React.useEffect(() => {
     return registerBulkActionHandler("stakeholders", handleBulkAction);
-  }, []);
+  }, [handleBulkAction]);
 
   // Define columns
   const columns = useMemo<ColumnDef<Stakeholder>[]>(

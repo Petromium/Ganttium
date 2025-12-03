@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,7 +44,7 @@ import { AIAssistantPreviewSidebar } from "@/components/AIAssistantPreviewSideba
 import { useLocation } from "wouter";
 
 export default function AIAssistantPage() {
-  const { selectedProjectId, selectedProject, selectedOrgId } = useProject();
+  const { selectedProjectId, selectedProject, selectedOrgId, terminology: defaultTerminology, organizations } = useProject();
   const { context } = useAIContext();
   const { toast } = useToast();
   const { pendingPrompt, clearPendingPrompt } = useAIPrompt();
@@ -70,6 +70,25 @@ export default function AIAssistantPage() {
   const isCreateProjectMode = searchParams.get("mode") === "create-project";
   const orgIdFromUrl = searchParams.get("orgId");
   const createProjectOrgId = orgIdFromUrl ? parseInt(orgIdFromUrl) : selectedOrgId;
+
+  // Get terminology for the organization being used (createProjectOrgId in create mode, selectedOrgId otherwise)
+  const terminology = useMemo(() => {
+    const orgIdToUse = isCreateProjectMode ? createProjectOrgId : selectedOrgId;
+    if (!orgIdToUse) return defaultTerminology;
+    
+    const org = organizations.find((o: any) => o.id === orgIdToUse);
+    if (!org) return defaultTerminology;
+    
+    const topLevel = org.topLevelEntityLabel === "custom"
+      ? org.topLevelEntityLabelCustom || "Organization"
+      : org.topLevelEntityLabel || "Organization";
+      
+    const program = org.programEntityLabel === "custom"
+      ? org.programEntityLabelCustom || "Program"
+      : org.programEntityLabel || "Program";
+      
+    return { topLevel, program };
+  }, [isCreateProjectMode, createProjectOrgId, selectedOrgId, organizations, defaultTerminology]);
 
   // Available Gemini models with metadata
   const geminiModels = [
@@ -196,7 +215,8 @@ export default function AIAssistantPage() {
           selectedResourceId: context.selectedResourceId,
           selectedItemIds: context.selectedItemIds,
           modelName: selectedModel, // Pass selected model to backend
-          organizationId: isCreateProjectMode ? createProjectOrgId : undefined, // Pass orgId for create-project mode
+          organizationId: isCreateProjectMode ? createProjectOrgId : selectedOrgId || undefined, // Pass orgId
+          terminology: terminology, // Pass terminology for AI to use correct labels
         },
       });
       return response.json();
