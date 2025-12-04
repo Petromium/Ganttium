@@ -537,15 +537,15 @@ export default function LandingPage() {
         <div className="container mx-auto px-4 text-center">
           <Card className="max-w-3xl mx-auto bg-primary/5 border-primary/20">
             <CardContent className="pt-6">
-              <h2 className="text-3xl font-bold mb-4">Ready to Transform Your Project Management?</h2>
+          <h2 className="text-3xl font-bold mb-4">Ready to Transform Your Project Management?</h2>
               <p className="text-muted-foreground mb-8">
-                Join hundreds of engineering teams already using ProjectFlow to deliver projects
-                on time and within budget.
-              </p>
+            Join hundreds of engineering teams already using ProjectFlow to deliver projects
+            on time and within budget.
+          </p>
               <Button size="lg" onClick={handleGetStarted} data-testid="button-cta-final">
-                Start Your Free Trial
-                <ArrowRight className="h-5 w-5 ml-2" />
-              </Button>
+            Start Your Free Trial
+            <ArrowRight className="h-5 w-5 ml-2" />
+          </Button>
             </CardContent>
           </Card>
         </div>
@@ -556,8 +556,8 @@ export default function LandingPage() {
           <div className="grid gap-8 md:grid-cols-4 mb-8">
             <div>
               <div className="flex items-center gap-2 mb-4">
-                <FolderKanban className="h-5 w-5 text-primary" />
-                <span className="font-semibold">ProjectFlow</span>
+              <FolderKanban className="h-5 w-5 text-primary" />
+              <span className="font-semibold">ProjectFlow</span>
               </div>
               <p className="text-sm text-muted-foreground">
                 EPC Project Management Information System
@@ -587,7 +587,7 @@ export default function LandingPage() {
                 <a href="#" className="block hover:text-foreground transition-colors">Terms</a>
                 <a href="#" className="block hover:text-foreground transition-colors">Privacy</a>
                 <a href="#" className="block hover:text-foreground transition-colors">Security</a>
-              </nav>
+            </nav>
             </div>
           </div>
           <div className="border-t pt-8 flex flex-col md:flex-row items-center justify-between gap-4">

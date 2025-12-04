@@ -9073,10 +9073,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           storageQuotaBytes: 536870912, // 512MB
           features: {
             description: 'Get started with basic project management features',
-            emailsMonthly: 50,
-            includesCloudSync: false,
-            includesAdvancedReports: false,
-            includesWhiteLabel: false,
+          emailsMonthly: 50,
+          includesCloudSync: false,
+          includesAdvancedReports: false,
+          includesWhiteLabel: false,
             maxTasksPerProject: 100
           }
         },
@@ -9091,10 +9091,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           storageQuotaBytes: 2147483648, // 2GB
           features: {
             description: 'Essential features for small teams',
-            emailsMonthly: 500,
-            includesCloudSync: true,
-            includesAdvancedReports: false,
-            includesWhiteLabel: false,
+          emailsMonthly: 500,
+          includesCloudSync: true,
+          includesAdvancedReports: false,
+          includesWhiteLabel: false,
             maxTasksPerProject: 500
           }
         },
@@ -9109,10 +9109,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           storageQuotaBytes: 10737418240, // 10GB
           features: {
             description: 'Advanced features for growing organizations',
-            emailsMonthly: 2000,
-            includesCloudSync: true,
-            includesAdvancedReports: true,
-            includesWhiteLabel: false,
+          emailsMonthly: 2000,
+          includesCloudSync: true,
+          includesAdvancedReports: true,
+          includesWhiteLabel: false,
             maxTasksPerProject: 1000
           }
         },
@@ -9127,10 +9127,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           storageQuotaBytes: 53687091200, // 50GB
           features: {
             description: 'Full-featured solution for large enterprises',
-            emailsMonthly: 10000,
-            includesCloudSync: true,
-            includesAdvancedReports: true,
-            includesWhiteLabel: true,
+          emailsMonthly: 10000,
+          includesCloudSync: true,
+          includesAdvancedReports: true,
+          includesWhiteLabel: true,
             maxTasksPerProject: 10000
           }
         }
@@ -10500,7 +10500,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // If projectId specified, get dashboard for that project (or null for global)
-      if (projectId !== null || projectId === null) {
+      if (projectId !== null) {
         const dashboard = await storage.getCustomDashboardByUser(userId, projectId);
         return res.json(dashboard);
       }

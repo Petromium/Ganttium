@@ -3,7 +3,7 @@
  * Epic 16: Advanced Features - Custom Dashboard Builder UI
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -57,12 +57,12 @@ export function DashboardBuilder({ onSave }: DashboardBuilderProps) {
   });
 
   // Load existing layout if available
-  useState(() => {
+  useEffect(() => {
     if (existingDashboard?.layout) {
       setLayout(existingDashboard.layout);
       setDashboardName(existingDashboard.name || 'My Dashboard');
     }
-  });
+  }, [existingDashboard]);
 
   const saveMutation = useMutation({
     mutationFn: async (data: { name: string; layout: DashboardLayout }) => {
