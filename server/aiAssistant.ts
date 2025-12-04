@@ -1777,11 +1777,10 @@ export async function chatWithAssistant(
   }
 
   // Build context description
+  const contextParts: string[] = [];
   if (context?.organizationId) {
     contextParts.push(`Organization ID: ${context.organizationId} (use for searching lessons learned)`);
   }
-  
-  const contextParts: string[] = [];
   if (projectId) {
     contextParts.push(`Current project: Project ID ${projectId}`);
   }
