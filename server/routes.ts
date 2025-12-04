@@ -74,9 +74,11 @@ import {
   updateContactSchema,
   insertContactLogSchema,
   insertUserInvitationSchema,
-  updateUserOrganizationSchema
+  updateUserOrganizationSchema,
   insertLessonLearnedSchema,
   updateLessonLearnedSchema,
+  insertCommunicationMetricsSchema,
+  updateCommunicationMetricsSchema,
 } from "@shared/schema";
 import { chatWithAssistant, type ChatMessage } from "./aiAssistant";
 import { z } from "zod";
@@ -2999,6 +3001,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error deleting stakeholder:", error);
       res.status(500).json({ message: "Failed to delete stakeholder" });
+    }
+  });
+
+  // ===== Communication Metrics Routes =====
+  app.get('/api/projects/:projectId/communication-metrics', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const projectId = parseInt(req.params.projectId);
+
+      if (!await checkProjectAccess(userId, projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const metrics = await storage.getCommunicationMetricsByProject(projectId);
+      res.json(metrics);
+    } catch (error) {
+      console.error("Error fetching communication metrics:", error);
+      res.status(500).json({ message: "Failed to fetch communication metrics" });
+    }
+  });
+
+  app.get('/api/stakeholders/:stakeholderId/communication-metrics', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const stakeholderId = parseInt(req.params.stakeholderId);
+
+      const stakeholder = await storage.getStakeholder(stakeholderId);
+      if (!stakeholder) {
+        return res.status(404).json({ message: "Stakeholder not found" });
+      }
+
+      if (!await checkProjectAccess(userId, stakeholder.projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const metrics = await storage.getCommunicationMetricsByStakeholder(stakeholderId);
+      res.json(metrics || null);
+    } catch (error) {
+      console.error("Error fetching stakeholder communication metrics:", error);
+      res.status(500).json({ message: "Failed to fetch communication metrics" });
+    }
+  });
+
+  app.post('/api/communication-metrics', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const data = insertCommunicationMetricsSchema.parse(req.body);
+
+      // Check project access
+      if (!await checkProjectAccess(userId, data.projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const metrics = await storage.createOrUpdateCommunicationMetrics(data);
+      res.json(metrics);
+    } catch (error) {
+      console.error("Error creating/updating communication metrics:", error);
+      res.status(400).json({ message: "Failed to save communication metrics" });
+    }
+  });
+
+  app.patch('/api/communication-metrics/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const id = parseInt(req.params.id);
+      const data = updateCommunicationMetricsSchema.parse(req.body);
+
+      const metrics = await storage.getCommunicationMetrics(id);
+      if (!metrics) {
+        return res.status(404).json({ message: "Communication metrics not found" });
+      }
+
+      if (!await checkProjectAccess(userId, metrics.projectId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const updated = await storage.updateCommunicationMetrics(id, data);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating communication metrics:", error);
+      res.status(400).json({ message: "Failed to update communication metrics" });
     }
   });
 

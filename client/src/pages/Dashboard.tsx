@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SCurveChart, PerformanceGauges, DisciplineProgress, RiskExposureSummary } from "@/components/epc";
+import { StakeholderPulse } from "@/components/StakeholderPulse";
 import type { Task, Risk, Issue, CostItem, Project } from "@shared/schema";
 
 interface DashboardStats {
@@ -405,6 +406,9 @@ export default function Dashboard() {
               )}
             </CardContent>
           </Card>
+
+          {/* Stakeholder Pulse Widget */}
+          <StakeholderPulse limit={5} />
         </TabsContent>
 
         <TabsContent value="eva" className="space-y-4 mt-4">

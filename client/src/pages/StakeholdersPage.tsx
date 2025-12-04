@@ -32,6 +32,8 @@ import {
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 
 export default function StakeholdersPage() {
   const { selectedProjectId } = useProject();
@@ -46,6 +48,11 @@ export default function StakeholdersPage() {
     email: "",
     phone: "",
     organization: "",
+    // Communication Intelligence Fields
+    communicationStyle: "" as "" | "direct" | "diplomatic" | "detailed" | "brief",
+    preferredChannel: "" as "" | "email" | "chat" | "phone" | "meeting",
+    updateFrequency: "" as "" | "daily" | "weekly" | "bi-weekly" | "milestone-only",
+    engagementLevel: undefined as number | undefined,
   });
 
   // Fetch stakeholders
@@ -79,6 +86,10 @@ export default function StakeholdersPage() {
         email: "",
         phone: "",
         organization: "",
+        communicationStyle: "",
+        preferredChannel: "",
+        updateFrequency: "",
+        engagementLevel: undefined,
       });
       toast({
         title: "Success",
@@ -109,6 +120,10 @@ export default function StakeholdersPage() {
         email: "",
         phone: "",
         organization: "",
+        communicationStyle: "",
+        preferredChannel: "",
+        updateFrequency: "",
+        engagementLevel: undefined,
       });
       toast({
         title: "Success",
@@ -162,6 +177,10 @@ export default function StakeholdersPage() {
       email: stakeholder.email || "",
       phone: stakeholder.phone || "",
       organization: stakeholder.organization || "",
+      communicationStyle: (stakeholder.communicationStyle as any) || "",
+      preferredChannel: (stakeholder.preferredChannel as any) || "",
+      updateFrequency: (stakeholder.updateFrequency as any) || "",
+      engagementLevel: stakeholder.engagementLevel || undefined,
     });
     setDialogOpen(true);
   };
@@ -180,6 +199,10 @@ export default function StakeholdersPage() {
       email: "",
       phone: "",
       organization: "",
+      communicationStyle: "",
+      preferredChannel: "",
+      updateFrequency: "",
+      engagementLevel: undefined,
     });
     setDialogOpen(true);
   };
@@ -406,69 +429,164 @@ export default function StakeholdersPage() {
             <DialogTitle>{editingStakeholder ? "Edit Stakeholder" : "Add Stakeholder"}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">Name</Label>
-              <Input
-                id="name"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                required
-                data-testid="input-stakeholder-name"
-              />
-            </div>
+            <Tabs defaultValue="basic" className="w-full">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="basic">Basic Info</TabsTrigger>
+                <TabsTrigger value="communication">Communication</TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="basic" className="space-y-4 mt-4">
+                <div className="space-y-2">
+                  <Label htmlFor="name">Name</Label>
+                  <Input
+                    id="name"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    required
+                    data-testid="input-stakeholder-name"
+                  />
+                </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="role">Role</Label>
-              <Select
-                value={formData.role}
-                onValueChange={(value: any) => setFormData({ ...formData, role: value })}
-              >
-                <SelectTrigger data-testid="select-stakeholder-role">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="sponsor">Sponsor</SelectItem>
-                  <SelectItem value="client">Client</SelectItem>
-                  <SelectItem value="team-member">Team Member</SelectItem>
-                  <SelectItem value="contractor">Contractor</SelectItem>
-                  <SelectItem value="consultant">Consultant</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+                <div className="space-y-2">
+                  <Label htmlFor="role">Role</Label>
+                  <Select
+                    value={formData.role}
+                    onValueChange={(value: any) => setFormData({ ...formData, role: value })}
+                  >
+                    <SelectTrigger data-testid="select-stakeholder-role">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="sponsor">Sponsor</SelectItem>
+                      <SelectItem value="client">Client</SelectItem>
+                      <SelectItem value="team-member">Team Member</SelectItem>
+                      <SelectItem value="contractor">Contractor</SelectItem>
+                      <SelectItem value="consultant">Consultant</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                value={formData.email}
-                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                data-testid="input-stakeholder-email"
-              />
-            </div>
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    data-testid="input-stakeholder-email"
+                  />
+                </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="phone">Phone</Label>
-              <Input
-                id="phone"
-                type="tel"
-                value={formData.phone}
-                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                data-testid="input-stakeholder-phone"
-              />
-            </div>
+                <div className="space-y-2">
+                  <Label htmlFor="phone">Phone</Label>
+                  <Input
+                    id="phone"
+                    type="tel"
+                    value={formData.phone}
+                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                    data-testid="input-stakeholder-phone"
+                  />
+                </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="organization">Organization</Label>
-              <Input
-                id="organization"
-                value={formData.organization}
-                onChange={(e) => setFormData({ ...formData, organization: e.target.value })}
-                data-testid="input-stakeholder-organization"
-              />
-            </div>
+                <div className="space-y-2">
+                  <Label htmlFor="organization">Organization</Label>
+                  <Input
+                    id="organization"
+                    value={formData.organization}
+                    onChange={(e) => setFormData({ ...formData, organization: e.target.value })}
+                    data-testid="input-stakeholder-organization"
+                  />
+                </div>
+              </TabsContent>
 
+              <TabsContent value="communication" className="space-y-4 mt-4">
+                <div className="space-y-2">
+                  <Label htmlFor="communicationStyle">Communication Style</Label>
+                  <Select
+                    value={formData.communicationStyle}
+                    onValueChange={(value: any) => setFormData({ ...formData, communicationStyle: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select style..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="direct">Direct / Brief</SelectItem>
+                      <SelectItem value="diplomatic">Diplomatic / Formal</SelectItem>
+                      <SelectItem value="detailed">Detailed / Comprehensive</SelectItem>
+                      <SelectItem value="brief">Brief / Concise</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    How this stakeholder prefers to communicate
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="preferredChannel">Preferred Channel</Label>
+                  <Select
+                    value={formData.preferredChannel}
+                    onValueChange={(value: any) => setFormData({ ...formData, preferredChannel: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select channel..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="email">Email</SelectItem>
+                      <SelectItem value="chat">Chat / Instant Message</SelectItem>
+                      <SelectItem value="phone">Phone Call</SelectItem>
+                      <SelectItem value="meeting">In-Person Meeting</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Preferred method for updates and communication
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="updateFrequency">Update Frequency</Label>
+                  <Select
+                    value={formData.updateFrequency}
+                    onValueChange={(value: any) => setFormData({ ...formData, updateFrequency: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select frequency..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="daily">Daily</SelectItem>
+                      <SelectItem value="weekly">Weekly</SelectItem>
+                      <SelectItem value="bi-weekly">Bi-weekly</SelectItem>
+                      <SelectItem value="milestone-only">Milestone Only</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    How often this stakeholder expects project updates
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="engagementLevel">Engagement Level (1-5)</Label>
+                  <Select
+                    value={formData.engagementLevel?.toString() || ""}
+                    onValueChange={(value) => setFormData({ ...formData, engagementLevel: value ? parseInt(value) : undefined })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select level..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">1 - Low Engagement</SelectItem>
+                      <SelectItem value="2">2 - Below Average</SelectItem>
+                      <SelectItem value="3">3 - Average</SelectItem>
+                      <SelectItem value="4">4 - High Engagement</SelectItem>
+                      <SelectItem value="5">5 - Very High Engagement</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Current level of stakeholder engagement (can be updated over time)
+                  </p>
+                </div>
+              </TabsContent>
+            </Tabs>
 
             <DialogFooter>
               <Button

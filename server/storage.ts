@@ -133,6 +133,9 @@ import type {
   InsertLessonLearned,
   LessonLearned,
   UpdateLessonLearned,
+  InsertCommunicationMetrics,
+  CommunicationMetrics,
+  UpdateCommunicationMetrics,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -181,6 +184,15 @@ export interface IStorage {
   createLessonLearned(lesson: InsertLessonLearned): Promise<LessonLearned>;
   updateLessonLearned(id: number, lesson: Partial<UpdateLessonLearned>): Promise<LessonLearned | undefined>;
   deleteLessonLearned(id: number): Promise<void>;
+
+  // Communication Metrics
+  getCommunicationMetrics(id: number): Promise<CommunicationMetrics | undefined>;
+  getCommunicationMetricsByProject(projectId: number): Promise<CommunicationMetrics[]>;
+  getCommunicationMetricsByStakeholder(stakeholderId: number): Promise<CommunicationMetrics | undefined>;
+  getCommunicationMetricsByUser(userId: number, projectId: number): Promise<CommunicationMetrics | undefined>;
+  createOrUpdateCommunicationMetrics(metrics: InsertCommunicationMetrics): Promise<CommunicationMetrics>;
+  updateCommunicationMetrics(id: number, metrics: Partial<UpdateCommunicationMetrics>): Promise<CommunicationMetrics | undefined>;
+  deleteCommunicationMetrics(id: number): Promise<void>;
 
   // Users (Replit Auth compatible)
   getUser(id: string): Promise<User | undefined>;
@@ -3858,6 +3870,76 @@ export class DatabaseStorage implements IStorage {
 
   async deleteLessonLearned(id: number): Promise<void> {
     await db.delete(schema.lessonsLearned).where(eq(schema.lessonsLearned.id, id));
+  }
+
+  // ==================== Communication Metrics ====================
+  async getCommunicationMetrics(id: number): Promise<schema.CommunicationMetrics | undefined> {
+    const [metrics] = await db.select().from(schema.communicationMetrics)
+      .where(eq(schema.communicationMetrics.id, id));
+    return metrics;
+  }
+
+  async getCommunicationMetricsByProject(projectId: number): Promise<schema.CommunicationMetrics[]> {
+    return await db.select().from(schema.communicationMetrics)
+      .where(eq(schema.communicationMetrics.projectId, projectId))
+      .orderBy(desc(schema.communicationMetrics.updatedAt));
+  }
+
+  async getCommunicationMetricsByStakeholder(stakeholderId: number): Promise<schema.CommunicationMetrics | undefined> {
+    const [metrics] = await db.select().from(schema.communicationMetrics)
+      .where(eq(schema.communicationMetrics.stakeholderId, stakeholderId))
+      .orderBy(desc(schema.communicationMetrics.updatedAt))
+      .limit(1);
+    return metrics;
+  }
+
+  async getCommunicationMetricsByUser(userId: number, projectId: number): Promise<schema.CommunicationMetrics | undefined> {
+    const [metrics] = await db.select().from(schema.communicationMetrics)
+      .where(
+        and(
+          eq(schema.communicationMetrics.userId, userId),
+          eq(schema.communicationMetrics.projectId, projectId)
+        )
+      )
+      .orderBy(desc(schema.communicationMetrics.updatedAt))
+      .limit(1);
+    return metrics;
+  }
+
+  async createOrUpdateCommunicationMetrics(metrics: schema.InsertCommunicationMetrics): Promise<schema.CommunicationMetrics> {
+    // Try to find existing metrics
+    let existing: schema.CommunicationMetrics | undefined;
+    
+    if (metrics.stakeholderId) {
+      existing = await this.getCommunicationMetricsByStakeholder(metrics.stakeholderId);
+    } else if (metrics.userId && metrics.projectId) {
+      existing = await this.getCommunicationMetricsByUser(metrics.userId, metrics.projectId);
+    }
+
+    if (existing) {
+      // Update existing
+      const [updated] = await db.update(schema.communicationMetrics)
+        .set({ ...metrics, updatedAt: new Date() })
+        .where(eq(schema.communicationMetrics.id, existing.id))
+        .returning();
+      return updated;
+    } else {
+      // Create new
+      const [created] = await db.insert(schema.communicationMetrics).values(metrics).returning();
+      return created;
+    }
+  }
+
+  async updateCommunicationMetrics(id: number, metrics: Partial<schema.UpdateCommunicationMetrics>): Promise<schema.CommunicationMetrics | undefined> {
+    const [updated] = await db.update(schema.communicationMetrics)
+      .set({ ...metrics, updatedAt: new Date() })
+      .where(eq(schema.communicationMetrics.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteCommunicationMetrics(id: number): Promise<void> {
+    await db.delete(schema.communicationMetrics).where(eq(schema.communicationMetrics.id, id));
   }
 
   async updateAiActionLogByActionId(actionId: string, log: Partial<schema.UpdateAiActionLog>): Promise<schema.AiActionLog | undefined> {

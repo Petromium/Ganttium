@@ -142,6 +142,12 @@ export const stakeholders = pgTable("stakeholders", {
   influence: varchar("influence", { length: 20 }).default("medium"),
   interest: varchar("interest", { length: 20 }).default("medium"),
   notes: text("notes"),
+  // Communication Intelligence Fields
+  communicationStyle: varchar("communication_style", { length: 50 }), // 'direct', 'diplomatic', 'detailed', 'brief'
+  preferredChannel: varchar("preferred_channel", { length: 50 }), // 'email', 'chat', 'phone', 'meeting'
+  updateFrequency: varchar("update_frequency", { length: 50 }), // 'daily', 'weekly', 'bi-weekly', 'milestone-only'
+  engagementLevel: integer("engagement_level"), // 1-5 (Manual or calculated)
+  lastInteractionDate: timestamp("last_interaction_date"), // Auto-updated from messages/comments
 });
 
 export const costItems = pgTable("cost_items", {
@@ -153,6 +159,33 @@ export const costItems = pgTable("cost_items", {
   actual: numeric("actual").default("0"),
   variance: numeric("variance").default("0"), // Calculated
 });
+
+// Communication Intelligence System
+export const communicationMetrics = pgTable("communication_metrics", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  stakeholderId: integer("stakeholder_id").references(() => stakeholders.id, { onDelete: "cascade" }),
+  userId: integer("user_id"), // For internal team members (no FK due to users.id type mismatch)
+  
+  // Core Metrics
+  responseTimeAvg: integer("response_time_avg"), // Average response time in minutes
+  overdueCount: integer("overdue_count").default(0), // Unanswered critical messages
+  messageCount: integer("message_count").default(0), // Total messages sent/received
+  escalationCount: integer("escalation_count").default(0), // Number of escalations
+  
+  // Health Status
+  healthStatus: varchar("health_status", { length: 20 }).default("healthy"), // 'healthy', 'at-risk', 'critical'
+  healthScore: integer("health_score").default(100), // 0-100 calculated score
+  
+  // Timestamps
+  lastInteractionDate: timestamp("last_interaction_date"),
+  lastResponseDate: timestamp("last_response_date"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  projectStakeholderIdx: index("comm_metrics_project_stakeholder_idx").on(table.projectId, table.stakeholderId),
+  projectUserIdx: index("comm_metrics_project_user_idx").on(table.projectId, table.userId),
+}));
 
 // Resources tables
 export const resourceGroups = pgTable("resource_groups", {
@@ -311,6 +344,14 @@ export const insertLessonLearnedSchema = createInsertSchema(lessonsLearned).omit
 });
 export const updateLessonLearnedSchema = insertLessonLearnedSchema.partial();
 
+// Communication Metrics Zod Schemas
+export const insertCommunicationMetricsSchema = createInsertSchema(communicationMetrics).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true
+});
+export const updateCommunicationMetricsSchema = insertCommunicationMetricsSchema.partial();
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type Organization = typeof organizations.$inferSelect;
@@ -345,3 +386,8 @@ export type TagEntityType = "organization" | "program" | "project" | "task" | "r
 export type LessonLearned = typeof lessonsLearned.$inferSelect;
 export type InsertLessonLearned = z.infer<typeof insertLessonLearnedSchema>;
 export type UpdateLessonLearned = z.infer<typeof updateLessonLearnedSchema>;
+
+// Communication Metrics Types
+export type CommunicationMetrics = typeof communicationMetrics.$inferSelect;
+export type InsertCommunicationMetrics = z.infer<typeof insertCommunicationMetricsSchema>;
+export type UpdateCommunicationMetrics = z.infer<typeof updateCommunicationMetricsSchema>;

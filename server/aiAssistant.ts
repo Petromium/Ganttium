@@ -1803,6 +1803,42 @@ export async function chatWithAssistant(
     contextParts.push(`User has selected ${context.selectedItemIds.length} item(s): ${context.selectedItemIds.join(", ")}`);
   }
 
+  // Add Communication Intelligence context if projectId is available
+  if (projectId) {
+    try {
+      const stakeholders = await storage.getStakeholdersByProject(projectId);
+      const commMetrics = await storage.getCommunicationMetricsByProject(projectId);
+      
+      // Find stakeholders with communication preferences or at-risk status
+      const stakeholdersWithComms = stakeholders.filter(s => 
+        s.communicationStyle || s.preferredChannel || s.updateFrequency
+      );
+      const atRiskStakeholders = commMetrics.filter(m => m.healthStatus === 'at-risk' || m.healthStatus === 'critical');
+      
+      if (stakeholdersWithComms.length > 0 || atRiskStakeholders.length > 0) {
+        contextParts.push(`\n**Communication Intelligence:**`);
+        if (stakeholdersWithComms.length > 0) {
+          contextParts.push(`- ${stakeholdersWithComms.length} stakeholder(s) have communication preferences set`);
+          stakeholdersWithComms.slice(0, 3).forEach(s => {
+            const prefs = [];
+            if (s.communicationStyle) prefs.push(`Style: ${s.communicationStyle}`);
+            if (s.preferredChannel) prefs.push(`Channel: ${s.preferredChannel}`);
+            if (prefs.length > 0) {
+              contextParts.push(`  - ${s.name}: ${prefs.join(', ')}`);
+            }
+          });
+        }
+        if (atRiskStakeholders.length > 0) {
+          contextParts.push(`- ${atRiskStakeholders.length} stakeholder(s) have communication health issues (at-risk or critical)`);
+          contextParts.push(`  - Consider re-engagement strategies for these stakeholders`);
+        }
+      }
+    } catch (error) {
+      // Silently fail - communication intelligence is optional context
+      logger.debug("Failed to load communication intelligence context:", error);
+    }
+  }
+
   let systemContent = `You are an expert EPC (Engineering, Procurement, Construction) project management assistant. 
 You help project managers with:
 - Analyzing project data (tasks, risks, issues, resources, costs)
@@ -1826,6 +1862,15 @@ When referring to these entities, use the organization's terminology. For exampl
 - When analyzing data, consider tags as important metadata for understanding context
 - Tags can indicate project types (e.g., "construction", "software-development"), issue types (e.g., "quality-issue", "HSE"), risk categories, etc.
 - Use tags to provide more contextual recommendations and insights
+
+**IMPORTANT: Communication Intelligence**
+- Stakeholders have communication preferences (style, channel, frequency) that should be respected
+- When suggesting communication actions, adapt to stakeholder preferences:
+  - "Direct/Brief" stakeholders prefer concise, action-oriented messages
+  - "Diplomatic/Formal" stakeholders prefer detailed, professional communication
+  - Respect preferred channels (email vs chat vs phone vs meeting)
+- If communication health metrics show "at-risk" or "critical" status, suggest re-engagement strategies
+- Consider communication load when assigning tasks or requesting updates
 
 **IMPORTANT: Action Execution Rules**
 - For ALL create, update, delete, and bulk operations, you MUST set previewMode=true in function arguments
