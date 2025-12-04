@@ -57,6 +57,5 @@ cloudbuild.yaml
 pm2-dev.js
 playwright.config.ts
 vitest.config.ts
-vite.config.ts
-tsconfig.json
+# Note: vite.config.ts and tsconfig.json are needed for build - DO NOT exclude them
 

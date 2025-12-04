@@ -7,13 +7,13 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
+# Install dependencies (including dev dependencies for build)
 RUN npm ci
 
 # Copy source files
 COPY . .
 
-# Build the application
+# Build the application (this builds both client and server)
 RUN npm run build
 
 # Stage 2: Production
