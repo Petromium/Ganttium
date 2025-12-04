@@ -6,6 +6,9 @@
 import webpush from 'web-push';
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const vapidKeys = webpush.generateVAPIDKeys();
 
@@ -29,7 +32,7 @@ console.log('📝 Add these to your .env file:\n');
 console.log(envExample);
 
 // Optionally write to a file
-const outputFile = path.resolve(import.meta.dirname, '..', 'vapid-keys.txt');
+const outputFile = path.resolve(__dirname, '..', '..', 'vapid-keys.txt');
 fs.writeFileSync(outputFile, envExample.trim());
 console.log(`\n✅ Keys also saved to: ${outputFile}`);
 console.log('⚠️  Remember to add these to your .env file and never commit them to git!\n');
