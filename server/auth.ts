@@ -25,6 +25,21 @@ const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
 const SESSION_COOKIE_NAME = "sessionId"; // Consistent cookie name
 
 /**
+ * Get cookie options for session and clearCookie
+ * Use "lax" to allow OAuth redirects while maintaining CSRF protection
+ * "lax" allows cookies on top-level navigations (OAuth redirects) but blocks them on POST requests from external sites
+ * IMPORTANT: Both setCookie and clearCookie must use identical options for browsers to recognize them as the same cookie
+ */
+function getCookieOptions(isProduction: boolean) {
+    return {
+        httpOnly: true,
+        secure: isProduction, // Requires HTTPS in production
+        sameSite: "lax" as const, // Use "lax" for OAuth compatibility - allows cookies on redirects
+        path: "/",
+    };
+}
+
+/**
  * PERMANENT FIX: Ensure sessions table exists in database
  * This function creates the sessions table if it doesn't exist, using the exact schema
  * required by connect-pg-simple. This ensures sessions persist across server restarts.
@@ -109,6 +124,7 @@ function generateBackupCodes(): string[] {
 
 export function getSession() {
     const isProduction = process.env.NODE_ENV === "production";
+    const cookieOptions = getCookieOptions(isProduction);
 
     return session({
         secret: process.env.SESSION_SECRET!,
@@ -117,10 +133,7 @@ export function getSession() {
         saveUninitialized: false,
         name: SESSION_COOKIE_NAME, // Don't use default "connect.sid" for security
         cookie: {
-            httpOnly: true,
-            secure: isProduction, // Requires HTTPS in production
-            sameSite: "lax", // Use "lax" to allow OAuth redirects while maintaining CSRF protection
-            // "lax" allows cookies on top-level navigations (OAuth redirects) but blocks them on POST requests from external sites
+            ...cookieOptions,
             maxAge: sessionTtl,
         },
     });
@@ -517,13 +530,11 @@ export async function setupAuth(app: Express) {
                 if (destroyErr) {
                     logger.error("[AUTH] Session destroy error", destroyErr);
                 }
-                // PERMANENT FIX: Clear the correct cookie name
-                res.clearCookie(SESSION_COOKIE_NAME, {
-                    httpOnly: true,
-                    secure: process.env.NODE_ENV === "production",
-                    sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
-                    path: "/",
-                });
+                // PERMANENT FIX: Clear the correct cookie name with matching attributes
+                // Must use the same cookie options as when setting the cookie
+                const isProduction = process.env.NODE_ENV === "production";
+                const cookieOptions = getCookieOptions(isProduction);
+                res.clearCookie(SESSION_COOKIE_NAME, cookieOptions);
                 // Also clear the default cookie name in case of migration issues
                 res.clearCookie("connect.sid", { path: "/" });
                 res.json({ message: "Logged out successfully" });
