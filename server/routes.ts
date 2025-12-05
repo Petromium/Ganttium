@@ -9392,6 +9392,314 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== BUG REPORTS ENDPOINTS =====
+  
+  // Submit bug report
+  app.post('/api/bug-reports', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const {
+        title,
+        description,
+        category,
+        severity,
+        stepsToReproduce,
+        expectedBehavior,
+        actualBehavior,
+        screenshots,
+        browserInfo,
+        deviceInfo,
+      } = req.body;
+
+      // Validate required fields
+      if (!title || !description || !category) {
+        return res.status(400).json({ message: "Title, description, and category are required" });
+      }
+
+      // Validate category
+      const validCategories = ["bug", "feature-request", "feedback", "other"];
+      if (!validCategories.includes(category)) {
+        return res.status(400).json({ message: "Invalid category" });
+      }
+
+      // Get user's organization (if any)
+      const userOrgs = await storage.getUserOrganizations(userId);
+      const organizationId = userOrgs.length > 0 ? userOrgs[0].organizationId : null;
+
+      // Check rate limiting
+      const recentReports = await storage.getBugReportsByUser(userId);
+      const { sanitizeBugReport, checkRateLimit } = await import("./services/bugReportSanitizer");
+      
+      const rateLimitResult = checkRateLimit(userId, recentReports.map(r => ({ createdAt: r.createdAt })));
+      if (!rateLimitResult.allowed) {
+        return res.status(429).json({
+          message: rateLimitResult.reason,
+          retryAfter: rateLimitResult.retryAfter,
+        });
+      }
+
+      // Sanitize content
+      const sanitizationResult = await sanitizeBugReport(
+        {
+          title,
+          description,
+          stepsToReproduce,
+          expectedBehavior,
+          actualBehavior,
+        },
+        recentReports.map(r => ({ title: r.title, description: r.description }))
+      );
+
+      if (!sanitizationResult.isValid || sanitizationResult.blocked) {
+        return res.status(400).json({
+          message: sanitizationResult.blockReason || "Report validation failed",
+          warnings: sanitizationResult.warnings,
+        });
+      }
+
+      // Auto-capture browser/device info if not provided
+      const finalBrowserInfo = browserInfo || {
+        userAgent: req.headers["user-agent"] || "Unknown",
+        language: req.headers["accept-language"] || "Unknown",
+      };
+
+      // Create bug report
+      const bugReport = await storage.createBugReport({
+        userId,
+        organizationId: organizationId || undefined,
+        title: sanitizationResult.sanitized.title,
+        description: sanitizationResult.sanitized.description,
+        category,
+        severity: severity || "medium",
+        stepsToReproduce: sanitizationResult.sanitized.stepsToReproduce,
+        expectedBehavior: sanitizationResult.sanitized.expectedBehavior,
+        actualBehavior: sanitizationResult.sanitized.actualBehavior,
+        screenshots: screenshots || null,
+        browserInfo: finalBrowserInfo,
+        deviceInfo: deviceInfo || null,
+        status: "pending",
+        sanitized: true,
+        sanitizedAt: new Date(),
+      });
+
+      // Send initial notification email
+      try {
+        const user = await storage.getUser(userId);
+        if (user?.email) {
+          const { sendBugReportInitialNotification } = await import("./services/bugReportNotifications");
+          await sendBugReportInitialNotification(user.email, bugReport);
+          
+          // Mark notification as sent
+          await storage.updateBugReport(bugReport.id, {
+            initialNotificationSent: true,
+          });
+        }
+      } catch (emailError) {
+        console.error("Error sending initial notification:", emailError);
+        // Don't fail the request if email fails
+      }
+
+      res.status(201).json({
+        ...bugReport,
+        warnings: sanitizationResult.warnings.length > 0 ? sanitizationResult.warnings : undefined,
+      });
+    } catch (error: any) {
+      console.error("Error creating bug report:", error);
+      res.status(500).json({ message: error.message || "Failed to create bug report" });
+    }
+  });
+
+  // Get user's bug reports
+  app.get('/api/bug-reports', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const reports = await storage.getBugReportsByUser(userId);
+      res.json(reports);
+    } catch (error) {
+      console.error("Error fetching bug reports:", error);
+      res.status(500).json({ message: "Failed to fetch bug reports" });
+    }
+  });
+
+  // Get specific bug report
+  app.get('/api/bug-reports/:id', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const reportId = parseInt(req.params.id);
+      
+      const report = await storage.getBugReport(reportId);
+      if (!report) {
+        return res.status(404).json({ message: "Bug report not found" });
+      }
+
+      // Users can only view their own reports (unless admin)
+      const user = await storage.getUser(userId);
+      if (report.userId !== userId && !user?.isSystemAdmin) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      res.json(report);
+    } catch (error) {
+      console.error("Error fetching bug report:", error);
+      res.status(500).json({ message: "Failed to fetch bug report" });
+    }
+  });
+
+  // Admin: Get all bug reports
+  app.get('/api/admin/bug-reports', isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const { status, category, limit, offset } = req.query;
+      const reports = await storage.getAllBugReports({
+        status: status as string | undefined,
+        category: category as string | undefined,
+        limit: limit ? parseInt(limit as string) : undefined,
+        offset: offset ? parseInt(offset as string) : undefined,
+      });
+      res.json(reports);
+    } catch (error) {
+      console.error("Error fetching bug reports:", error);
+      res.status(500).json({ message: "Failed to fetch bug reports" });
+    }
+  });
+
+  // Admin: Update bug report (status, resolution, etc.)
+  app.patch('/api/admin/bug-reports/:id', isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const reportId = parseInt(req.params.id);
+      const {
+        status,
+        resolutionNotes,
+        internalResolutionNotes,
+        backlogItemId,
+        backlogStatus,
+      } = req.body;
+
+      const existingReport = await storage.getBugReport(reportId);
+      if (!existingReport) {
+        return res.status(404).json({ message: "Bug report not found" });
+      }
+
+      const updateData: any = {};
+      if (status) updateData.status = status;
+      if (resolutionNotes !== undefined) updateData.resolutionNotes = resolutionNotes;
+      if (internalResolutionNotes !== undefined) updateData.internalResolutionNotes = internalResolutionNotes;
+      if (backlogItemId !== undefined) updateData.backlogItemId = backlogItemId;
+      if (backlogStatus !== undefined) updateData.backlogStatus = backlogStatus;
+
+      // If status changed to resolved, set resolvedAt and resolvedBy
+      if (status === "resolved" && existingReport.status !== "resolved") {
+        updateData.resolvedAt = new Date();
+        updateData.resolvedBy = getUserId(req);
+      }
+
+      const updatedReport = await storage.updateBugReport(reportId, updateData);
+
+      // Send resolution notification if status changed to resolved
+      if (status === "resolved" && existingReport.status !== "resolved") {
+        try {
+          const user = await storage.getUser(existingReport.userId);
+          if (user?.email && !updatedReport?.resolutionNotificationSent) {
+            const { sendBugReportResolutionNotification } = await import("./services/bugReportNotifications");
+            await sendBugReportResolutionNotification(user.email, updatedReport!);
+            
+            await storage.updateBugReport(reportId, {
+              resolutionNotificationSent: true,
+            });
+          }
+        } catch (emailError) {
+          console.error("Error sending resolution notification:", emailError);
+        }
+      }
+
+      res.json(updatedReport);
+    } catch (error: any) {
+      console.error("Error updating bug report:", error);
+      res.status(500).json({ message: error.message || "Failed to update bug report" });
+    }
+  });
+
+  // Admin: Sanitize bug report (manual moderation)
+  app.post('/api/admin/bug-reports/:id/sanitize', isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const reportId = parseInt(req.params.id);
+      const { moderationNotes } = req.body;
+
+      const report = await storage.getBugReport(reportId);
+      if (!report) {
+        return res.status(404).json({ message: "Bug report not found" });
+      }
+
+      await storage.updateBugReport(reportId, {
+        sanitized: true,
+        sanitizedAt: new Date(),
+        sanitizedBy: getUserId(req),
+        moderationNotes: moderationNotes || null,
+      });
+
+      res.json({ message: "Bug report sanitized successfully" });
+    } catch (error: any) {
+      console.error("Error sanitizing bug report:", error);
+      res.status(500).json({ message: error.message || "Failed to sanitize bug report" });
+    }
+  });
+
+  // Admin: Create backlog item from bug report
+  app.post('/api/admin/bug-reports/:id/create-backlog', isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const reportId = parseInt(req.params.id);
+      const report = await storage.getBugReport(reportId);
+      
+      if (!report) {
+        return res.status(404).json({ message: "Bug report not found" });
+      }
+
+      // Create backlog item (placeholder - integrate with your backlog system)
+      // For now, we'll just mark it as linked and update the status
+      const backlogItem = {
+        id: Date.now(), // Placeholder ID - replace with actual backlog creation
+        title: report.title,
+        description: report.description,
+        source: "bug-report",
+        sourceId: report.id,
+        priority: report.severity === "critical" ? "high" : report.severity === "high" ? "medium" : "low",
+        status: "todo",
+        createdAt: new Date(),
+      };
+
+      // Update bug report with backlog reference
+      await storage.updateBugReport(reportId, {
+        backlogItemId: backlogItem.id,
+        backlogStatus: backlogItem.status,
+        status: report.status === "pending" ? "in-progress" : report.status,
+      });
+
+      logger.info("[BUG_REPORT] Backlog item created", {
+        reportId,
+        backlogItemId: backlogItem.id,
+      });
+
+      res.json({
+        message: "Backlog item created successfully",
+        backlogItem,
+      });
+    } catch (error: any) {
+      console.error("Error creating backlog item:", error);
+      res.status(500).json({ message: error.message || "Failed to create backlog item" });
+    }
+  });
+
+  // Admin: Delete bug report
+  app.delete('/api/admin/bug-reports/:id', isAuthenticated, isAdmin, async (req: any, res) => {
+    try {
+      const reportId = parseInt(req.params.id);
+      await storage.deleteBugReport(reportId);
+      res.json({ message: "Bug report deleted successfully" });
+    } catch (error: any) {
+      console.error("Error deleting bug report:", error);
+      res.status(500).json({ message: error.message || "Failed to delete bug report" });
+    }
+  });
+
   app.get('/api/admin/stats', isAuthenticated, isAdmin, async (req: any, res) => {
     try {
       // Get platform-wide statistics

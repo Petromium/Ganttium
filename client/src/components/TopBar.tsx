@@ -766,6 +766,14 @@ export function TopBar() {
               <Settings className="h-4 w-4 mr-2" />
               Settings
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => navigate('/bug-report')} data-testid="menu-item-bug-report">
+              <AlertCircle className="h-4 w-4 mr-2" />
+              Report Bug
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => navigate('/user-guide')} data-testid="menu-item-user-guide">
+              <FileText className="h-4 w-4 mr-2" />
+              User Guide
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleLogout} data-testid="menu-item-logout">
               <LogOut className="h-4 w-4 mr-2" />

@@ -475,6 +475,56 @@ export const customDashboards = pgTable("custom_dashboards", {
   userProjectUnique: unique("custom_dashboards_user_project_unique").on(table.userId, table.projectId),
 }));
 
+// Bug Reports & User Feedback
+export const bugReports = pgTable("bug_reports", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id", { length: 100 }).notNull().references(() => users.id, { onDelete: "cascade" }),
+  organizationId: integer("organization_id").references(() => organizations.id, { onDelete: "set null" }),
+  
+  // Report Details
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description").notNull(),
+  category: varchar("category", { length: 50 }).notNull(), // bug, feature-request, feedback, other
+  severity: varchar("severity", { length: 20 }).default("medium"), // low, medium, high, critical
+  status: varchar("status", { length: 20 }).default("pending"), // pending, reviewing, in-progress, resolved, rejected, duplicate
+  
+  // Additional Context
+  stepsToReproduce: text("steps_to_reproduce"),
+  expectedBehavior: text("expected_behavior"),
+  actualBehavior: text("actual_behavior"),
+  screenshots: jsonb("screenshots"), // Array of URLs or base64
+  browserInfo: jsonb("browser_info"), // { name, version, os, userAgent }
+  deviceInfo: jsonb("device_info"), // { type, screenSize, etc }
+  
+  // Sanitization & Moderation
+  sanitized: boolean("sanitized").default(false),
+  sanitizedAt: timestamp("sanitized_at"),
+  sanitizedBy: varchar("sanitized_by", { length: 100 }), // User ID of admin who sanitized
+  moderationNotes: text("moderation_notes"), // Internal notes from moderation
+  
+  // Backlog Integration
+  backlogItemId: integer("backlog_item_id"), // Reference to backlog item if created
+  backlogStatus: varchar("backlog_status", { length: 50 }), // Synced from backlog
+  
+  // Resolution
+  resolvedAt: timestamp("resolved_at"),
+  resolvedBy: varchar("resolved_by", { length: 100 }), // User ID of admin who resolved
+  resolutionNotes: text("resolution_notes"), // Public resolution notes
+  internalResolutionNotes: text("internal_resolution_notes"), // Private admin notes
+  
+  // Notifications
+  initialNotificationSent: boolean("initial_notification_sent").default(false),
+  resolutionNotificationSent: boolean("resolution_notification_sent").default(false),
+  
+  // Metadata
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  userIdIdx: index("bug_reports_user_id_idx").on(table.userId),
+  statusIdx: index("bug_reports_status_idx").on(table.status),
+  createdAtIdx: index("bug_reports_created_at_idx").on(table.createdAt),
+}));
+
 // Zod Schemas
 export const insertUserSchema = createInsertSchema(users);
 export const insertProjectSchema = createInsertSchema(projects);
@@ -525,6 +575,24 @@ export const insertAiUsageSummarySchema = createInsertSchema(aiUsageSummary);
 export const insertCloudStorageConnectionSchema = createInsertSchema(cloudStorageConnections);
 export const insertCloudSyncedFileSchema = createInsertSchema(cloudSyncedFiles);
 export const insertCustomDashboardSchema = createInsertSchema(customDashboards);
+export const insertBugReportSchema = createInsertSchema(bugReports).omit({
+  id: true,
+  sanitized: true,
+  sanitizedAt: true,
+  sanitizedBy: true,
+  moderationNotes: true,
+  backlogItemId: true,
+  backlogStatus: true,
+  resolvedAt: true,
+  resolvedBy: true,
+  resolutionNotes: true,
+  internalResolutionNotes: true,
+  initialNotificationSent: true,
+  resolutionNotificationSent: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export const updateBugReportSchema = insertBugReportSchema.partial();
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
@@ -592,3 +660,6 @@ export type CloudSyncedFile = typeof cloudSyncedFiles.$inferSelect;
 export type InsertCloudSyncedFile = typeof cloudSyncedFiles.$inferInsert;
 export type CustomDashboard = typeof customDashboards.$inferSelect;
 export type InsertCustomDashboard = typeof customDashboards.$inferInsert;
+export type BugReport = typeof bugReports.$inferSelect;
+export type InsertBugReport = z.infer<typeof insertBugReportSchema>;
+export type UpdateBugReport = z.infer<typeof updateBugReportSchema>;

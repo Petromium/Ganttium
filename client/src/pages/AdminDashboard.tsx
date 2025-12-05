@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Label } from "@/components/ui/label";
 import { MetricCard } from "@/components/MetricCard";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
@@ -269,6 +270,10 @@ export default function AdminDashboard() {
           <TabsTrigger value="marketing" data-testid="tab-marketing">Marketing & SEO</TabsTrigger>
           <TabsTrigger value="organizations" data-testid="tab-organizations">Organizations</TabsTrigger>
           <TabsTrigger value="users" data-testid="tab-users">Users</TabsTrigger>
+          <TabsTrigger value="bug-reports" data-testid="tab-bug-reports">
+            <AlertCircle className="h-4 w-4 mr-2" />
+            Bug Reports
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-6">
@@ -771,7 +776,425 @@ export default function AdminDashboard() {
             <p className="text-sm mt-2">Select an organization and use the User Management page.</p>
           </div>
         </TabsContent>
+
+        <TabsContent value="bug-reports" className="space-y-6">
+          <BugReportsManagement />
+        </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+// Bug Reports Management Component
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
+import { format } from "date-fns";
+import { Bug, CheckCircle2, XCircle, Clock, Eye, MessageSquare, Sparkles, HelpCircle, Loader2, Trash2, FolderKanban } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
+
+function BugReportsManagement() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [selectedReport, setSelectedReport] = useState<any>(null);
+  const [resolutionNotes, setResolutionNotes] = useState("");
+  const [internalNotes, setInternalNotes] = useState("");
+
+  const { data: reports = [], isLoading } = useQuery({
+    queryKey: ["/api/admin/bug-reports", statusFilter, categoryFilter],
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (statusFilter !== "all") params.append("status", statusFilter);
+      if (categoryFilter !== "all") params.append("category", categoryFilter);
+      const response = await apiRequest("GET", `/api/admin/bug-reports?${params.toString()}`);
+      return response.json();
+    },
+  });
+
+  const updateStatusMutation = useMutation({
+    mutationFn: async ({ id, status, resolutionNotes, internalNotes }: any) => {
+      const response = await apiRequest("PATCH", `/api/admin/bug-reports/${id}`, {
+        status,
+        resolutionNotes,
+        internalResolutionNotes: internalNotes,
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/bug-reports"] });
+      setSelectedReport(null);
+      setResolutionNotes("");
+      setInternalNotes("");
+      toast({ title: "Report updated successfully" });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to update report",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const createBacklogMutation = useMutation({
+    mutationFn: async (id: number) => {
+      const response = await apiRequest("POST", `/api/admin/bug-reports/${id}/create-backlog`);
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/bug-reports"] });
+      toast({
+        title: "Backlog item created",
+        description: `Backlog item #${data.backlogItem.id} created from this report.`,
+      });
+      if (selectedReport) {
+        setSelectedReport({ ...selectedReport, backlogItemId: data.backlogItem.id, backlogStatus: data.backlogItem.status });
+      }
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Failed to create backlog item",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/admin/bug-reports/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/bug-reports"] });
+      toast({ title: "Report deleted successfully" });
+    },
+    onError: () => {
+      toast({
+        title: "Failed to delete report",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const getStatusBadge = (status: string) => {
+    const variants: Record<string, "default" | "secondary" | "destructive" | "outline"> = {
+      pending: "outline",
+      reviewing: "secondary",
+      "in-progress": "default",
+      resolved: "default",
+      rejected: "destructive",
+      duplicate: "secondary",
+    };
+    const icons: Record<string, any> = {
+      pending: Clock,
+      reviewing: Eye,
+      "in-progress": Clock,
+      resolved: CheckCircle2,
+      rejected: XCircle,
+      duplicate: XCircle,
+    };
+    const Icon = icons[status] || AlertCircle;
+    return (
+      <Badge variant={variants[status] || "outline"}>
+        <Icon className="h-3 w-3 mr-1" />
+        {status}
+      </Badge>
+    );
+  };
+
+  const getCategoryIcon = (category: string) => {
+    const icons: Record<string, any> = {
+      bug: Bug,
+      "feature-request": Sparkles,
+      feedback: MessageSquare,
+      other: HelpCircle,
+    };
+    return icons[category] || HelpCircle;
+  };
+
+  const handleOpenReport = (report: any) => {
+    setSelectedReport(report);
+    setResolutionNotes(report.resolutionNotes || "");
+    setInternalNotes(report.internalResolutionNotes || "");
+  };
+
+  const handleUpdateStatus = (status: string) => {
+    if (!selectedReport) return;
+    updateStatusMutation.mutate({
+      id: selectedReport.id,
+      status,
+      resolutionNotes: status === "resolved" ? resolutionNotes : undefined,
+      internalNotes,
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Bug Reports Management</CardTitle>
+          <CardDescription>Review and manage user-submitted bug reports and feedback</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {/* Filters */}
+          <div className="flex gap-4 mb-6">
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Filter by status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Statuses</SelectItem>
+                <SelectItem value="pending">Pending</SelectItem>
+                <SelectItem value="reviewing">Reviewing</SelectItem>
+                <SelectItem value="in-progress">In Progress</SelectItem>
+                <SelectItem value="resolved">Resolved</SelectItem>
+                <SelectItem value="rejected">Rejected</SelectItem>
+                <SelectItem value="duplicate">Duplicate</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Filter by category" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Categories</SelectItem>
+                <SelectItem value="bug">Bug Reports</SelectItem>
+                <SelectItem value="feature-request">Feature Requests</SelectItem>
+                <SelectItem value="feedback">Feedback</SelectItem>
+                <SelectItem value="other">Other</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Reports List */}
+          {isLoading ? (
+            <Skeleton className="h-48" />
+          ) : reports.length === 0 ? (
+            <div className="text-center py-8">
+              <AlertCircle className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+              <p className="text-sm text-muted-foreground">No reports found</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {reports.map((report: any) => {
+                const CategoryIcon = getCategoryIcon(report.category);
+                return (
+                  <div
+                    key={report.id}
+                    className="flex items-start justify-between gap-4 p-4 rounded-lg border bg-card hover-elevate cursor-pointer"
+                    onClick={() => handleOpenReport(report)}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-2">
+                        <CategoryIcon className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-medium truncate">{report.title}</span>
+                        {getStatusBadge(report.status)}
+                      </div>
+                      <p className="text-sm text-muted-foreground line-clamp-2">{report.description}</p>
+                      <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
+                        <span>#{report.id}</span>
+                        <span>•</span>
+                        <span>{format(new Date(report.createdAt), "MMM d, yyyy")}</span>
+                        {report.severity && (
+                          <>
+                            <span>•</span>
+                            <span className="capitalize">{report.severity} severity</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        deleteMutation.mutate(report.id);
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Report Detail Dialog */}
+      <Dialog open={!!selectedReport} onOpenChange={() => setSelectedReport(null)}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          {selectedReport && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  {(() => {
+                    const CategoryIcon = getCategoryIcon(selectedReport.category);
+                    return <CategoryIcon className="h-5 w-5" />;
+                  })()}
+                  {selectedReport.title}
+                </DialogTitle>
+                <DialogDescription>
+                  Report #{selectedReport.id} • {format(new Date(selectedReport.createdAt), "PPpp")}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4">
+                <div className="flex items-center gap-2">
+                  {getStatusBadge(selectedReport.status)}
+                  <Badge variant="outline" className="capitalize">
+                    {selectedReport.category}
+                  </Badge>
+                  {selectedReport.severity && (
+                    <Badge variant="outline" className="capitalize">
+                      {selectedReport.severity}
+                    </Badge>
+                  )}
+                </div>
+
+                <div>
+                  <Label className="text-sm font-medium">Description</Label>
+                  <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap">
+                    {selectedReport.description}
+                  </p>
+                </div>
+
+                {selectedReport.stepsToReproduce && (
+                  <div>
+                    <Label className="text-sm font-medium">Steps to Reproduce</Label>
+                    <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap">
+                      {selectedReport.stepsToReproduce}
+                    </p>
+                  </div>
+                )}
+
+                {selectedReport.expectedBehavior && (
+                  <div>
+                    <Label className="text-sm font-medium">Expected Behavior</Label>
+                    <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap">
+                      {selectedReport.expectedBehavior}
+                    </p>
+                  </div>
+                )}
+
+                {selectedReport.actualBehavior && (
+                  <div>
+                    <Label className="text-sm font-medium">Actual Behavior</Label>
+                    <p className="text-sm text-muted-foreground mt-1 whitespace-pre-wrap">
+                      {selectedReport.actualBehavior}
+                    </p>
+                  </div>
+                )}
+
+                {selectedReport.screenshots && selectedReport.screenshots.length > 0 && (
+                  <div>
+                    <Label className="text-sm font-medium">Screenshots</Label>
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      {selectedReport.screenshots.map((screenshot: string, idx: number) => (
+                        <img
+                          key={idx}
+                          src={screenshot}
+                          alt={`Screenshot ${idx + 1}`}
+                          className="w-full rounded border"
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <Label className="text-sm font-medium">Resolution Notes (Public)</Label>
+                  <Textarea
+                    value={resolutionNotes}
+                    onChange={(e) => setResolutionNotes(e.target.value)}
+                    placeholder="Notes visible to the user..."
+                    rows={3}
+                    className="mt-1"
+                  />
+                </div>
+
+                <div>
+                  <Label className="text-sm font-medium">Internal Notes (Private)</Label>
+                  <Textarea
+                    value={internalNotes}
+                    onChange={(e) => setInternalNotes(e.target.value)}
+                    placeholder="Internal notes for team..."
+                    rows={3}
+                    className="mt-1"
+                  />
+                </div>
+              </div>
+
+              <DialogFooter className="flex-col sm:flex-row gap-2">
+                <div className="flex flex-wrap gap-2">
+                  {!selectedReport.backlogItemId && (
+                    <Button
+                      variant="secondary"
+                      onClick={() => createBacklogMutation.mutate(selectedReport.id)}
+                      disabled={createBacklogMutation.isPending}
+                    >
+                      {createBacklogMutation.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      ) : (
+                        <FolderKanban className="h-4 w-4 mr-2" />
+                      )}
+                      Create Backlog Item
+                    </Button>
+                  )}
+                  {selectedReport.backlogItemId && (
+                    <Badge variant="secondary" className="flex items-center gap-1">
+                      <FolderKanban className="h-3 w-3" />
+                      Backlog #{selectedReport.backlogItemId}
+                    </Badge>
+                  )}
+                  <Button
+                    variant="outline"
+                    onClick={() => handleUpdateStatus("pending")}
+                    disabled={updateStatusMutation.isPending}
+                  >
+                    Set Pending
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => handleUpdateStatus("in-progress")}
+                    disabled={updateStatusMutation.isPending}
+                  >
+                    In Progress
+                  </Button>
+                  <Button
+                    variant="default"
+                    onClick={() => handleUpdateStatus("resolved")}
+                    disabled={updateStatusMutation.isPending}
+                  >
+                    {updateStatusMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      "Resolve"
+                    )}
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={() => handleUpdateStatus("rejected")}
+                    disabled={updateStatusMutation.isPending}
+                  >
+                    Reject
+                  </Button>
+                </div>
+                <Button variant="outline" onClick={() => setSelectedReport(null)}>
+                  Close
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

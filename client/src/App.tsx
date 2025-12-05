@@ -57,6 +57,9 @@ import LoginPage from "@/pages/LoginPage";
 import ForgotPasswordPage from "@/pages/ForgotPasswordPage";
 import ResetPasswordPage from "@/pages/ResetPasswordPage";
 import PaymentPage from "@/pages/PaymentPage";
+import BugReportPage from "@/pages/BugReportPage";
+import BugReportsStatusPage from "@/pages/BugReportsStatusPage";
+import UserGuidePage from "@/pages/UserGuidePage";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -100,6 +103,10 @@ function Router() {
       <Route path="/pmo/inventory" component={PMOInventoryPage} />
       <Route path="/admin" component={AdminDashboard} />
       <Route path="/payment/:action?" component={PaymentPage} />
+      <Route path="/bug-report" component={BugReportPage} />
+      <Route path="/bug-reports" component={BugReportsStatusPage} />
+      <Route path="/bug-reports/:id" component={BugReportsStatusPage} />
+      <Route path="/user-guide" component={UserGuidePage} />
       <Route path="/login" component={() => <Redirect to="/" />} />
       <Route component={NotFound} />
     </Switch>

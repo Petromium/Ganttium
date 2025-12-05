@@ -132,7 +132,7 @@ export default function LandingPage() {
         <div className="container mx-auto px-4 h-16 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <FolderKanban className="h-6 w-6 text-primary" />
-            <span className="font-bold text-xl">ProjectFlow</span>
+            <span className="font-bold text-xl">Ganttium</span>
           </div>
           <nav className="hidden md:flex items-center gap-6">
             <a href="#features" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
@@ -140,9 +140,6 @@ export default function LandingPage() {
             </a>
             <a href="#pricing" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
               Pricing
-            </a>
-            <a href="#testimonials" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-              Testimonials
             </a>
             <a href="#faq" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
               FAQ
@@ -375,81 +372,12 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Testimonials Section */}
-      <section id="testimonials" className="py-20 bg-muted/50">
-        <div className="container mx-auto px-4">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold mb-4">Trusted by Engineering Teams</h2>
-            <p className="text-muted-foreground">See what our customers say</p>
-          </div>
-          <div className="grid gap-6 md:grid-cols-3 max-w-5xl mx-auto">
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex gap-1 mb-4">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                  ))}
-                </div>
-                <p className="text-sm mb-4">"ProjectFlow transformed how we manage our EPC projects. The WBS management is exceptional and the real-time collaboration keeps our team aligned."</p>
-                <div className="flex items-center gap-2">
-                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                    <Users className="h-4 w-4 text-primary" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">John Smith</p>
-                    <p className="text-xs text-muted-foreground">Project Manager, ABC Engineering</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex gap-1 mb-4">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                  ))}
-                </div>
-                <p className="text-sm mb-4">"The cost analytics and earned value analysis features are exactly what we needed. We've improved project visibility by 40% since switching to ProjectFlow."</p>
-                <div className="flex items-center gap-2">
-                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                    <BarChart3 className="h-4 w-4 text-primary" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">Sarah Johnson</p>
-                    <p className="text-xs text-muted-foreground">Finance Director, XYZ Construction</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex gap-1 mb-4">
-                  {[...Array(5)].map((_, i) => (
-                    <Star key={i} className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                  ))}
-                </div>
-                <p className="text-sm mb-4">"As an executive, I love the portfolio view and risk dashboard. It gives me instant visibility across all our projects without getting into the weeds."</p>
-                <div className="flex items-center gap-2">
-                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
-                    <Building2 className="h-4 w-4 text-primary" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium">Michael Chen</p>
-                    <p className="text-xs text-muted-foreground">VP Operations, Global EPC Corp</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </section>
-
       <section id="about" className="py-20">
         <div className="container mx-auto px-4">
           <div className="max-w-3xl mx-auto text-center">
             <h2 className="text-3xl font-bold mb-6">Built for Engineering Excellence</h2>
             <p className="text-muted-foreground mb-8">
-              ProjectFlow was designed from the ground up for EPC (Engineering, Procurement, and Construction)
+              Ganttium was designed from the ground up for EPC (Engineering, Procurement, and Construction)
               projects. We understand the unique challenges of managing complex engineering projects with
               multiple stakeholders, strict deadlines, and significant budgets.
             </p>
@@ -476,7 +404,7 @@ export default function LandingPage() {
         <div className="container mx-auto px-4 max-w-3xl">
           <div className="text-center mb-12">
             <h2 className="text-3xl font-bold mb-4">Frequently Asked Questions</h2>
-            <p className="text-muted-foreground">Everything you need to know about ProjectFlow</p>
+            <p className="text-muted-foreground">Everything you need to know about Ganttium</p>
           </div>
           <Accordion type="single" collapsible className="w-full">
             <AccordionItem value="item-1">
@@ -484,21 +412,21 @@ export default function LandingPage() {
               <AccordionContent>
                 EPC stands for Engineering, Procurement, and Construction. Our platform is specifically designed
                 for managing complex engineering projects with multiple phases, stakeholders, and deliverables.
-                Unlike generic project management tools, ProjectFlow understands the unique workflows and compliance
+                Unlike generic project management tools, Ganttium understands the unique workflows and compliance
                 requirements of EPC projects.
               </AccordionContent>
             </AccordionItem>
             <AccordionItem value="item-2">
-              <AccordionTrigger>How does ProjectFlow differ from MS Project or Primavera P6?</AccordionTrigger>
+              <AccordionTrigger>How does Ganttium differ from MS Project or Primavera P6?</AccordionTrigger>
               <AccordionContent>
-                ProjectFlow is purpose-built for EPC projects with features like NCR (Non-Conformance Report) tracking,
+                Ganttium is purpose-built for EPC projects with features like NCR (Non-Conformance Report) tracking,
                 HSE (Health, Safety, Environment) compliance, and EPC-specific cost structures built-in. Unlike desktop
-                software, ProjectFlow offers real-time collaboration, cloud storage integration, and mobile access. Plus,
+                software, Ganttium offers real-time collaboration, cloud storage integration, and mobile access. Plus,
                 our AI assistant helps automate routine project management tasks.
               </AccordionContent>
             </AccordionItem>
             <AccordionItem value="item-3">
-              <AccordionTrigger>Can I try ProjectFlow before committing?</AccordionTrigger>
+              <AccordionTrigger>Can I try Ganttium before committing?</AccordionTrigger>
               <AccordionContent>
                 Absolutely! Our Free tier includes 3 projects with full access to core features. No credit card required.
                 You can upgrade to a paid plan anytime when you're ready to scale. All plans include a 14-day free trial
@@ -514,9 +442,9 @@ export default function LandingPage() {
               </AccordionContent>
             </AccordionItem>
             <AccordionItem value="item-5">
-              <AccordionTrigger>Can I integrate ProjectFlow with other tools?</AccordionTrigger>
+              <AccordionTrigger>Can I integrate Ganttium with other tools?</AccordionTrigger>
               <AccordionContent>
-                Yes! ProjectFlow integrates with Google Drive, OneDrive, and Dropbox for document management.
+                Yes! Ganttium integrates with Google Drive, OneDrive, and Dropbox for document management.
                 We also support API access for Enterprise customers who need custom integrations with their existing
                 systems like ERP, accounting software, or other project management tools.
               </AccordionContent>
@@ -539,7 +467,7 @@ export default function LandingPage() {
             <CardContent className="pt-6">
           <h2 className="text-3xl font-bold mb-4">Ready to Transform Your Project Management?</h2>
               <p className="text-muted-foreground mb-8">
-            Join hundreds of engineering teams already using ProjectFlow to deliver projects
+            Join hundreds of engineering teams already using Ganttium to deliver projects
             on time and within budget.
           </p>
               <Button size="lg" onClick={handleGetStarted} data-testid="button-cta-final">
@@ -557,7 +485,7 @@ export default function LandingPage() {
             <div>
               <div className="flex items-center gap-2 mb-4">
               <FolderKanban className="h-5 w-5 text-primary" />
-              <span className="font-semibold">ProjectFlow</span>
+              <span className="font-semibold">Ganttium</span>
               </div>
               <p className="text-sm text-muted-foreground">
                 EPC Project Management Information System
@@ -568,7 +496,6 @@ export default function LandingPage() {
               <nav className="space-y-2 text-sm text-muted-foreground">
                 <a href="#features" className="block hover:text-foreground transition-colors">Features</a>
                 <a href="#pricing" className="block hover:text-foreground transition-colors">Pricing</a>
-                <a href="#testimonials" className="block hover:text-foreground transition-colors">Testimonials</a>
                 <a href="#faq" className="block hover:text-foreground transition-colors">FAQ</a>
               </nav>
             </div>
@@ -592,7 +519,7 @@ export default function LandingPage() {
           </div>
           <div className="border-t pt-8 flex flex-col md:flex-row items-center justify-between gap-4">
             <p className="text-sm text-muted-foreground">
-              © 2025 ProjectFlow. All rights reserved.
+              © 2025 Ganttium. All rights reserved.
             </p>
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
               {/* Social media links can be added here */}

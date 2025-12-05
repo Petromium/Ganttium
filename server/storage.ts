@@ -142,6 +142,9 @@ import type {
   PushSubscription,
   CustomDashboard,
   InsertCustomDashboard,
+  BugReport,
+  InsertBugReport,
+  UpdateBugReport,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -597,6 +600,14 @@ export interface IStorage {
   getIssuesByOrganization(organizationId: number): Promise<(Issue & { projectName: string })[]>;
   getResourcesByOrganization(organizationId: number): Promise<(Resource & { projectName: string })[]>;
   getCostItemsByOrganization(organizationId: number): Promise<(CostItem & { projectName: string })[]>;
+
+  // Bug Reports
+  getBugReport(id: number): Promise<BugReport | undefined>;
+  getBugReportsByUser(userId: string): Promise<BugReport[]>;
+  getAllBugReports(filters?: { status?: string; category?: string; limit?: number; offset?: number }): Promise<BugReport[]>;
+  createBugReport(report: InsertBugReport): Promise<BugReport>;
+  updateBugReport(id: number, report: Partial<UpdateBugReport>): Promise<BugReport | undefined>;
+  deleteBugReport(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -4237,6 +4248,77 @@ export class DatabaseStorage implements IStorage {
     await db
       .delete(schema.customDashboards)
       .where(eq(schema.customDashboards.id, id));
+  }
+
+  // Bug Reports Implementation
+  async getBugReport(id: number): Promise<BugReport | undefined> {
+    const [report] = await db
+      .select()
+      .from(schema.bugReports)
+      .where(eq(schema.bugReports.id, id));
+    return report;
+  }
+
+  async getBugReportsByUser(userId: string): Promise<BugReport[]> {
+    return await db
+      .select()
+      .from(schema.bugReports)
+      .where(eq(schema.bugReports.userId, userId))
+      .orderBy(sql`${schema.bugReports.createdAt} DESC`);
+  }
+
+  async getAllBugReports(filters?: { status?: string; category?: string; limit?: number; offset?: number }): Promise<BugReport[]> {
+    let query = db.select().from(schema.bugReports);
+    const conditions: any[] = [];
+
+    if (filters?.status) {
+      conditions.push(eq(schema.bugReports.status, filters.status));
+    }
+    if (filters?.category) {
+      conditions.push(eq(schema.bugReports.category, filters.category));
+    }
+
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions)) as any;
+    }
+
+    query = query.orderBy(sql`${schema.bugReports.createdAt} DESC`) as any;
+
+    if (filters?.limit) {
+      query = query.limit(filters.limit) as any;
+    }
+    if (filters?.offset) {
+      query = query.offset(filters.offset) as any;
+    }
+
+    return await query;
+  }
+
+  async createBugReport(report: InsertBugReport): Promise<BugReport> {
+    const [created] = await db
+      .insert(schema.bugReports)
+      .values({
+        ...report,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .returning();
+    return created;
+  }
+
+  async updateBugReport(id: number, report: Partial<UpdateBugReport>): Promise<BugReport | undefined> {
+    const [updated] = await db
+      .update(schema.bugReports)
+      .set({ ...report, updatedAt: new Date() })
+      .where(eq(schema.bugReports.id, id))
+      .returning();
+    return updated;
+  }
+
+  async deleteBugReport(id: number): Promise<void> {
+    await db
+      .delete(schema.bugReports)
+      .where(eq(schema.bugReports.id, id));
   }
 }
 
