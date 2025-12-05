@@ -245,6 +245,9 @@ export function validateEnvironmentVariables(): void {
     } else if (process.env.NODE_ENV !== 'production' && process.env.SESSION_SECRET.length < 16) {
       invalid.push('SESSION_SECRET must be at least 16 characters long');
     }
+  } else {
+    // SESSION_SECRET is required
+    missing.push('SESSION_SECRET');
   }
 
   if (process.env.ALLOWED_ORIGINS) {
