@@ -65,6 +65,50 @@ Implemented `papaparse` library for robust CSV parsing with flexible column matc
 
 ---
 
+### DEP-001: Cloud Run Deployment Failure
+**Status:** ✅ RESOLVED  
+**Priority:** High  
+**Category:** Deployment  
+**Reported:** 2025-01-04  
+**Resolved:** 2025-01-04
+
+**Description:**  
+Cloud Run container failed to start with "failed to listen on PORT=8080".
+
+**Root Cause:**  
+Dockerfile was exposing port 5000 and setting `ENV PORT=5000`, while Cloud Run requires port 8080 (or dynamic assignment).
+
+**Resolution:**  
+Updated Dockerfile to `EXPOSE 8080`, removed hardcoded ENV, and updated app to use `process.env.PORT`.
+
+**Files Affected:**
+- `Dockerfile`
+- `server/app.ts`
+- `docker-compose.yml` (aligned for consistency)
+
+---
+
+### DEP-002: Environment Variable Validation Failure
+**Status:** ✅ RESOLVED  
+**Priority:** High  
+**Category:** Deployment  
+**Reported:** 2025-01-04  
+**Resolved:** 2025-01-04
+
+**Description:**  
+Application crashed on startup in Cloud Run with "ALLOWED_ORIGINS contains invalid URLs: *".
+
+**Root Cause:**  
+Strict validation regex in `server/middleware/security.ts` did not allow wildcard `*` for CORS origins.
+
+**Resolution:**  
+Updated Cloud Run environment variable `ALLOWED_ORIGINS` to use the specific Cloud Run service URL (`https://ganttium-303401483984.us-central1.run.app`).
+
+**Files Affected:**
+- Cloud Run Configuration
+
+---
+
 ## Medium Priority Bugs 🟡
 
 ### Issue #004: Task Modal Layout Issues
@@ -482,7 +526,6 @@ Implement draggable widget library using `@dnd-kit/core` or `react-grid-layout`.
 ```
 
 ---
-**Last Updated:** 2025-01-03 (Afternoon)  
+**Last Updated:** 2025-01-04 (Afternoon)  
 **Maintainer:** Technical Lead  
 **Review Frequency:** Weekly during active development
-

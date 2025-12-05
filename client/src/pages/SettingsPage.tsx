@@ -1665,7 +1665,12 @@ export default function SettingsPage() {
                         Your organization's subscription and resource usage
                       </CardDescription>
                     </div>
-                    <Button variant="outline" size="sm" data-testid="button-upgrade-plan">
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      data-testid="button-upgrade-plan"
+                      onClick={() => setLocation("/payment/plans")}
+                    >
                       Upgrade Plan
                     </Button>
                   </div>

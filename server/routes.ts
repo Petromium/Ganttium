@@ -9175,6 +9175,222 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ===== PAYPAL PAYMENT ENDPOINTS =====
+  
+  // Create PayPal subscription checkout
+  app.post('/api/paypal/create-subscription', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const { planId, billingCycle } = req.body; // billingCycle: "monthly" | "yearly"
+
+      if (!planId) {
+        return res.status(400).json({ message: "Plan ID is required" });
+      }
+
+      // Get subscription plan
+      const plan = await storage.getSubscriptionPlan(planId);
+      if (!plan) {
+        return res.status(404).json({ message: "Subscription plan not found" });
+      }
+
+      // Get user's organization
+      const userOrgs = await storage.getUserOrganizations(userId);
+      if (userOrgs.length === 0) {
+        return res.status(400).json({ message: "User must belong to an organization" });
+      }
+      const orgId = userOrgs[0].organizationId;
+
+      // Calculate price based on billing cycle
+      const price = billingCycle === "yearly" 
+        ? (plan.priceYearly || plan.priceMonthly! * 12)
+        : plan.priceMonthly!;
+      const cycle = billingCycle === "yearly" ? "YEAR" : "MONTH";
+
+      // Import PayPal service
+      const { createPayPalPlan, createPayPalSubscription } = await import("./services/paypalService");
+
+      // Create PayPal billing plan (or use existing one)
+      // For now, we'll create a plan on-the-fly. In production, you'd want to cache these.
+      const paypalPlanId = await createPayPalPlan({
+        name: plan.name,
+        description: plan.features?.description || `Ganttium ${plan.name} Plan`,
+        price: price,
+        currency: plan.currency || "USD",
+        billingCycle: cycle as "MONTH" | "YEAR",
+      });
+
+      // Create PayPal subscription
+      const baseUrl = process.env.ALLOWED_ORIGINS?.split(",")[0] || "https://ganttium-303401483984.us-central1.run.app";
+      const returnUrl = `${baseUrl}/payment/success?subscriptionId={subscription_id}&orgId=${orgId}&planId=${planId}`;
+      const cancelUrl = `${baseUrl}/payment/cancel`;
+
+      const { subscriptionId, approvalUrl } = await createPayPalSubscription(
+        paypalPlanId,
+        returnUrl,
+        cancelUrl
+      );
+
+      // Create or update organization subscription with pending status
+      const existingSubscription = await storage.getOrganizationSubscription(orgId);
+      if (existingSubscription) {
+        await storage.updateOrganizationSubscription(orgId, {
+          planId: plan.id,
+          status: "pending",
+          paymentMethodId: subscriptionId,
+        });
+      } else {
+        await storage.createOrganizationSubscription({
+          organizationId: orgId,
+          planId: plan.id,
+          status: "pending",
+          paymentMethodId: subscriptionId,
+        });
+      }
+
+      res.json({
+        subscriptionId,
+        approvalUrl,
+        planId: plan.id,
+      });
+    } catch (error: any) {
+      console.error("Error creating PayPal subscription:", error);
+      res.status(500).json({ message: error.message || "Failed to create subscription" });
+    }
+  });
+
+  // Handle PayPal subscription approval (callback)
+  app.get('/api/paypal/subscription-success', isAuthenticated, async (req: any, res) => {
+    try {
+      const { subscription_id, orgId, planId } = req.query;
+      if (!subscription_id || !orgId || !planId) {
+        return res.status(400).json({ message: "Missing required parameters" });
+      }
+
+      const userId = getUserId(req);
+      
+      // Verify user has access to this organization
+      if (!await checkOrganizationAccess(userId, parseInt(orgId as string))) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Import PayPal service
+      const { getPayPalSubscription } = await import("./services/paypalService");
+
+      // Get subscription details from PayPal
+      const paypalSubscription = await getPayPalSubscription(subscription_id as string);
+      
+      // Update organization subscription
+      await storage.updateOrganizationSubscription(parseInt(orgId as string), {
+        planId: parseInt(planId as string),
+        status: "active",
+        paymentMethodId: subscription_id as string,
+        startDate: new Date(),
+        autoRenew: true,
+      });
+
+      res.redirect("/?payment=success");
+    } catch (error: any) {
+      console.error("Error processing PayPal subscription:", error);
+      res.redirect("/?payment=error");
+    }
+  });
+
+  // Cancel PayPal subscription
+  app.post('/api/paypal/cancel-subscription', isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const { organizationId } = req.body;
+
+      if (!organizationId) {
+        return res.status(400).json({ message: "Organization ID is required" });
+      }
+
+      if (!await checkOrganizationAccess(userId, organizationId)) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      const subscription = await storage.getOrganizationSubscription(organizationId);
+      if (!subscription || !subscription.paymentMethodId) {
+        return res.status(404).json({ message: "No active subscription found" });
+      }
+
+      // Import PayPal service
+      const { cancelPayPalSubscription } = await import("./services/paypalService");
+
+      // Cancel subscription in PayPal
+      await cancelPayPalSubscription(subscription.paymentMethodId);
+
+      // Update subscription status
+      await storage.updateOrganizationSubscription(organizationId, {
+        status: "cancelled",
+        autoRenew: false,
+        endDate: new Date(),
+      });
+
+      res.json({ message: "Subscription cancelled successfully" });
+    } catch (error: any) {
+      console.error("Error cancelling PayPal subscription:", error);
+      res.status(500).json({ message: error.message || "Failed to cancel subscription" });
+    }
+  });
+
+  // PayPal webhook handler
+  app.post('/api/paypal/webhook', async (req: any, res) => {
+    try {
+      const headers = req.headers;
+      const body = JSON.stringify(req.body);
+
+      // Import PayPal service
+      const { verifyWebhookSignature, getPayPalSubscription } = await import("./services/paypalService");
+
+      // Verify webhook signature
+      const isValid = await verifyWebhookSignature(headers as Record<string, string>, body);
+      if (!isValid) {
+        return res.status(401).json({ message: "Invalid webhook signature" });
+      }
+
+      const eventType = req.body.event_type;
+      const resource = req.body.resource;
+
+      // Handle different webhook events
+      switch (eventType) {
+        case "BILLING.SUBSCRIPTION.CREATED":
+        case "BILLING.SUBSCRIPTION.ACTIVATED":
+          // Subscription activated
+          if (resource?.id) {
+            const paypalSubscription = await getPayPalSubscription(resource.id);
+            // Find organization by PayPal subscription ID and activate
+            // This would require a query to find org by paymentMethodId
+            console.log("Subscription activated:", resource.id);
+          }
+          break;
+
+        case "BILLING.SUBSCRIPTION.CANCELLED":
+        case "BILLING.SUBSCRIPTION.EXPIRED":
+          // Subscription cancelled
+          if (resource?.id) {
+            // Find and cancel subscription
+            console.log("Subscription cancelled:", resource.id);
+          }
+          break;
+
+        case "PAYMENT.SALE.COMPLETED":
+          // Payment completed
+          console.log("Payment completed:", resource);
+          break;
+
+        case "PAYMENT.SALE.DENIED":
+          // Payment failed
+          console.log("Payment denied:", resource);
+          break;
+      }
+
+      res.status(200).json({ received: true });
+    } catch (error) {
+      console.error("Error processing PayPal webhook:", error);
+      res.status(500).json({ message: "Webhook processing failed" });
+    }
+  });
 
   app.get('/api/admin/stats', isAuthenticated, isAdmin, async (req: any, res) => {
     try {

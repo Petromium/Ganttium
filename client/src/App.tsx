@@ -56,6 +56,7 @@ import ChangeRequestsPage from "@/pages/ChangeRequestsPage";
 import LoginPage from "@/pages/LoginPage";
 import ForgotPasswordPage from "@/pages/ForgotPasswordPage";
 import ResetPasswordPage from "@/pages/ResetPasswordPage";
+import PaymentPage from "@/pages/PaymentPage";
 import NotFound from "@/pages/not-found";
 
 function Router() {
@@ -98,6 +99,7 @@ function Router() {
       <Route path="/pmo/calendar" component={PMOCalendarPage} />
       <Route path="/pmo/inventory" component={PMOInventoryPage} />
       <Route path="/admin" component={AdminDashboard} />
+      <Route path="/payment/:action?" component={PaymentPage} />
       <Route path="/login" component={() => <Redirect to="/" />} />
       <Route component={NotFound} />
     </Switch>
