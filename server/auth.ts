@@ -119,7 +119,8 @@ export function getSession() {
         cookie: {
             httpOnly: true,
             secure: isProduction, // Requires HTTPS in production
-            sameSite: isProduction ? "strict" : "lax", // CSRF protection
+            sameSite: "lax", // Use "lax" to allow OAuth redirects while maintaining CSRF protection
+            // "lax" allows cookies on top-level navigations (OAuth redirects) but blocks them on POST requests from external sites
             maxAge: sessionTtl,
         },
     });
