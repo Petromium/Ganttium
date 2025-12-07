@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { MoreVertical, Reply, ThumbsUp, Heart, CheckCircle, PartyPopper } from "lucide-react";
-import type { Message } from "@shared/schema";
+import type { Message, MessageReaction } from "@shared/schema";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/useAuth";
@@ -61,13 +61,13 @@ export function EnhancedMessageBubble({
   });
 
   // Fetch reactions if not provided
-  const { data: messageReactions = [] } = useQuery({
+  const { data: messageReactions = [] } = useQuery<MessageReaction[]>({
     queryKey: [`/api/chat/messages/${message.id}/reactions`],
     enabled: reactions.length === 0,
   });
 
   // Process reactions to show counts
-  const reactionGroups = (reactions.length > 0 ? reactions : messageReactions).reduce((acc, r) => {
+  const reactionGroups = (reactions.length > 0 ? reactions : messageReactions).reduce((acc: Record<string, { emoji: string; count: number; userReacted: boolean }>, r: any) => {
     const emoji = typeof r === 'string' ? r : r.emoji;
     if (!acc[emoji]) {
       acc[emoji] = { emoji, count: 0, userReacted: false };
@@ -133,17 +133,17 @@ export function EnhancedMessageBubble({
           )}
         >
           {/* Reply indicator */}
-          {message.replyToMessageId && (
+          {/* {message.replyToMessageId && (
             <div className={cn(
               "mb-2 pb-2 border-b text-xs opacity-70",
               isOwnMessage ? "border-primary-foreground/20" : "border-border"
             )}>
               Replying to message #{message.replyToMessageId}
             </div>
-          )}
+          )} */}
 
           {/* Message content */}
-          {message.type === "text" && (
+          {/* {message.type === "text" && ( */}
             <div className="prose prose-sm dark:prose-invert max-w-none">
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
@@ -168,32 +168,32 @@ export function EnhancedMessageBubble({
                   ),
                 }}
               >
-                {message.content}
+                {message.message}
               </ReactMarkdown>
               
               {/* Show context cards for mentions */}
-              {message.mentions && typeof message.mentions === 'object' && Array.isArray(message.mentions) && (
+              {/* {message.mentions && typeof message.mentions === 'object' && Array.isArray(message.mentions) && (
                 <div className="mt-2 space-y-2">
                   {message.mentions.map((mention: any, idx: number) => {
                     if (mention.type === "task" && mention.id) {
-                      return <MentionedTaskCard key={`task-${mention.id}-${idx}`} taskId={Number(mention.id)} />;
+                      return <TaskCard key={`task-${mention.id}-${idx}`} task={{ id: Number(mention.id), name: mention.name || `Task ${mention.id}` } as Task} onClick={() => window.open(`/tasks/${mention.id}`, "_blank")} />;
                     }
                     if (mention.type === "risk" && mention.id) {
-                      return <MentionedRiskCard key={`risk-${mention.id}-${idx}`} riskId={Number(mention.id)} />;
+                      return <RiskCard key={`risk-${mention.id}-${idx}`} risk={{ id: Number(mention.id), title: mention.name || `Risk ${mention.id}` } as Risk} onClick={() => window.open(`/risks`, "_blank")} />;
                     }
                     if (mention.type === "issue" && mention.id) {
-                      return <MentionedIssueCard key={`issue-${mention.id}-${idx}`} issueId={Number(mention.id)} />;
+                      return <IssueCard key={`issue-${mention.id}-${idx}`} issue={{ id: Number(mention.id), title: mention.name || `Issue ${mention.id}` } as Issue} onClick={() => window.open(`/issues`, "_blank")} />;
                     }
                     if (mention.type === "user" && mention.id) {
-                      return <MentionedUserCard key={`user-${mention.id}-${idx}`} userId={String(mention.id)} />;
+                      return <UserCard key={`user-${mention.id}-${idx}`} user={{ id: String(mention.id), email: mention.name || "User" } as UserType} onClick={() => window.open(`/users/${mention.id}`, "_blank")} />;
                     }
                     return null;
                   })}
                 </div>
-              )}
+              )} */}
             </div>
-          )}
-          {message.type === "file" && (
+          {/* )} */}
+          {/* {message.type === "file" && (
             <div className="flex items-center gap-2">
               <span className="text-sm">📎 {message.fileName || "File"}</span>
               {message.fileSize && (
@@ -209,7 +209,7 @@ export function EnhancedMessageBubble({
               alt={message.fileName || "Image"}
               className="max-w-full max-h-64 rounded"
             />
-          )}
+          )} */}
 
           {/* Reactions */}
           {Object.keys(reactionGroups).length > 0 && (
@@ -323,8 +323,8 @@ export function EnhancedMessageBubble({
       </div>
       {showAvatar && isOwnMessage && (
         <Avatar className="h-8 w-8">
-          <AvatarImage src={user?.avatar} />
-          <AvatarFallback>{getInitials(user?.name, user?.email)}</AvatarFallback>
+          <AvatarImage src={user?.profileImageUrl || undefined} />
+          <AvatarFallback>{getInitials(user?.firstName ? `${user.firstName} ${user.lastName}` : undefined, user?.email)}</AvatarFallback>
         </Avatar>
       )}
     </div>

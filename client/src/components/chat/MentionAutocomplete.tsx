@@ -64,10 +64,13 @@ export function MentionAutocomplete({
   }, [query]);
 
   // Filter items based on search query
-  const filteredUsers = users.filter(user =>
-    user.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    user.email?.toLowerCase().includes(searchQuery.toLowerCase())
-  ).slice(0, 5);
+  const filteredUsers = users.filter(user => {
+    const name = user.firstName && user.lastName ? `${user.firstName} ${user.lastName}` : "";
+    return (
+      name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      user.email?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }).slice(0, 5);
 
   const filteredTasks = tasks.filter(task =>
     task.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -88,15 +91,15 @@ export function MentionAutocomplete({
     ...filteredUsers.map(u => ({
       id: u.id,
       type: "user" as const,
-      name: u.name || u.email || "Unknown",
-      avatar: undefined,
+      name: (u.firstName && u.lastName ? `${u.firstName} ${u.lastName}` : u.email) || "Unknown",
+      avatar: u.profileImageUrl || undefined,
       description: u.email,
     })),
     ...filteredTasks.map(t => ({
       id: t.id,
       type: "task" as const,
       name: t.name || `Task ${t.wbsCode}`,
-      description: t.wbsCode,
+      description: t.wbsCode || undefined,
     })),
     ...filteredRisks.map(r => ({
       id: r.id,

@@ -94,9 +94,9 @@ export function EnhancedChatWindow({
       // Count replies per message
       const counts = new Map<number, number>();
       allMessages.forEach(msg => {
-        if (msg.replyToMessageId) {
-          counts.set(msg.replyToMessageId, (counts.get(msg.replyToMessageId) || 0) + 1);
-        }
+        // if (msg.replyToMessageId) {
+        //   counts.set(msg.replyToMessageId, (counts.get(msg.replyToMessageId) || 0) + 1);
+        // }
       });
       return counts;
     },

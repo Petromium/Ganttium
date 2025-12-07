@@ -30,8 +30,7 @@ export function ChatQuickSwitcher({
     if (!searchQuery) return true;
     const query = searchQuery.toLowerCase();
     return (
-      conv.name?.toLowerCase().includes(query) ||
-      conv.description?.toLowerCase().includes(query)
+      conv.name?.toLowerCase().includes(query)
     );
   });
 
@@ -127,9 +126,6 @@ export function ChatQuickSwitcher({
                     {getConversationIcon(conv.type)}
                     <div className="flex-1 min-w-0">
                       <p className="font-medium truncate">{getConversationName(conv)}</p>
-                      {conv.description && (
-                        <p className="text-xs text-muted-foreground truncate">{conv.description}</p>
-                      )}
                     </div>
                   </CommandItem>
                 ))}

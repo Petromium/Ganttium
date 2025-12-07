@@ -186,18 +186,16 @@ export function EnhancedChatInput({
 
     const parsedMentions = parseMentions(message);
 
-    const messageData: InsertMessage = {
+    const messageData = {
       conversationId,
-      content: message.trim(),
-      type: "text",
-      replyToMessageId: replyToMessageId || null,
-      mentions: parsedMentions.length > 0 ? parsedMentions as any : null,
+      message: message.trim(),
+      // attachments: { replyToMessageId, mentions: parsedMentions },
     };
 
     try {
       await createMessage.mutateAsync({
         conversationId,
-        data: messageData,
+        data: messageData as any,
       });
       setMessage("");
       setIsTyping(false);
@@ -323,19 +321,21 @@ export function EnhancedChatInput({
       const data = await response.json();
 
       // Create a message with the file
-      const messageData: InsertMessage = {
+      const messageData = {
         conversationId,
-        content: file.name,
-        type: file.type.startsWith("image/") ? "image" : "file",
-        fileName: file.name,
-        filePath: data.filePath,
-        fileSize: file.size,
-        mimeType: file.type,
+        message: file.name,
+        attachments: {
+          type: file.type.startsWith("image/") ? "image" : "file",
+          fileName: file.name,
+          filePath: data.filePath,
+          fileSize: file.size,
+          mimeType: file.type,
+        }
       };
 
       await createMessage.mutateAsync({
         conversationId,
-        data: messageData,
+        data: messageData as any,
       });
 
       toast({

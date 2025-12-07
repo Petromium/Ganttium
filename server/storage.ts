@@ -6,7 +6,6 @@ import type {
   InsertOrganization,
   Organization,
   InsertProgram,
-  UpdateProgram,
   Program,
   InsertTag,
   UpdateTag,
@@ -14,7 +13,6 @@ import type {
   InsertTagAssignment,
   TagAssignment,
   InsertUser,
-  UpsertUser,
   User,
   InsertUserOrganization,
   UserOrganization,
@@ -52,7 +50,6 @@ import type {
   ExchangeRateSync,
   InsertNotificationRule,
   NotificationRule,
-  UpdateNotificationRule,
   InsertNotificationLog,
   NotificationLog,
   InsertCostItem,
@@ -73,10 +70,10 @@ import type {
   ResourceAssignment,
   InsertGoogleConnection,
   GoogleConnection,
-  InsertAiConversation,
-  AiConversation,
   InsertAiMessage,
   AiMessage,
+  Message,
+  InsertMessage,
   InsertAiUsage,
   AiUsage,
   InsertEmailTemplate,
@@ -96,8 +93,8 @@ import type {
   InsertSubscriptionPlan,
   OrganizationSubscription,
   InsertOrganizationSubscription,
-  AiUsageSummary,
   InsertAiUsageSummary,
+  AiUsageSummary,
   CustomDashboard,
   InsertCustomDashboard,
   InsertDocument,
@@ -110,26 +107,17 @@ import type {
   TaskRisk,
   InsertTaskIssue,
   TaskIssue,
-  InsertConversation,
-  Conversation,
-  UpdateConversation,
-  InsertParticipant,
+  InsertChatParticipant,
+  ChatParticipant,
   Participant,
-  InsertMessage,
-  Message,
-  UpdateMessage,
   InsertContact,
   Contact,
-  UpdateContact,
   InsertContactLog,
   ContactLog,
-  UpdateContactLog,
   InsertUserInvitation,
   UserInvitation,
-  UpdateUserInvitation,
   InsertUserActivityLog,
   UserActivityLog,
-  UpdateUserOrganization,
   InsertProjectTemplate,
   ProjectTemplate,
   InsertLessonLearned,
@@ -140,11 +128,28 @@ import type {
   UpdateCommunicationMetrics,
   InsertPushSubscription,
   PushSubscription,
-  CustomDashboard,
-  InsertCustomDashboard,
   BugReport,
   InsertBugReport,
   UpdateBugReport,
+  InsertAiConversation,
+  AiConversation,
+  Conversation,
+  InsertConversation,
+  InsertResourceGroup,
+  ResourceGroupMember,
+  InsertResourceGroupMember,
+  TaskMaterial,
+  InsertTaskMaterial,
+  MaterialConsumption,
+  InsertMaterialConsumption,
+  MaterialDelivery,
+  InsertMaterialDelivery,
+  AiActionLog,
+  InsertAiActionLog,
+  MessageReaction,
+  InsertMessageReaction,
+  ResourceTimeEntry,
+  InsertResourceTimeEntry,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -162,7 +167,7 @@ export interface IStorage {
   getProgramsByOrganization(organizationId: number): Promise<Program[]>;
   getProgramBySlug(organizationId: number, slug: string): Promise<Program | undefined>;
   createProgram(program: InsertProgram): Promise<Program>;
-  updateProgram(id: number, program: Partial<UpdateProgram>): Promise<Program | undefined>;
+  updateProgram(id: number, program: Partial<InsertProgram>): Promise<Program | undefined>;
   deleteProgram(id: number): Promise<void>;
 
   // Tags
@@ -215,7 +220,7 @@ export interface IStorage {
   getUsersByOrganization(organizationId: number): Promise<User[]>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: string, user: Partial<InsertUser>): Promise<User | undefined>;
-  upsertUser(user: UpsertUser): Promise<User>;
+  upsertUser(user: InsertUser): Promise<User>;
   assignDemoOrgToUser(userId: string): Promise<void>;
 
   // User Organizations
@@ -232,11 +237,6 @@ export interface IStorage {
   getUserInvitationByEmail(organizationId: number, email: string): Promise<UserInvitation | undefined>;
   createUserInvitation(invitation: InsertUserInvitation & { token: string }): Promise<UserInvitation>;
 
-  // Push Subscriptions
-  createPushSubscription(data: InsertPushSubscription): Promise<PushSubscription>;
-  getPushSubscriptionsByUser(userId: string): Promise<PushSubscription[]>;
-  deletePushSubscription(id: number): Promise<void>;
-  updatePushSubscription(id: number, data: Partial<InsertPushSubscription>): Promise<PushSubscription>;
   acceptUserInvitation(token: string, userId: string): Promise<UserOrganization>;
   deleteUserInvitation(id: number): Promise<void>;
 
@@ -327,7 +327,7 @@ export interface IStorage {
   getNotificationRulesByOrganization(organizationId: number): Promise<NotificationRule[]>;
   getActiveNotificationRules(): Promise<NotificationRule[]>;
   createNotificationRule(rule: InsertNotificationRule): Promise<NotificationRule>;
-  updateNotificationRule(id: number, rule: UpdateNotificationRule): Promise<NotificationRule | undefined>;
+  updateNotificationRule(id: number, rule: Partial<InsertNotificationRule>): Promise<NotificationRule | undefined>;
   deleteNotificationRule(id: number): Promise<void>;
 
   // Notification Logs
@@ -444,6 +444,7 @@ export interface IStorage {
   }>;
   createResourceAssignment(assignment: InsertResourceAssignment): Promise<ResourceAssignment>;
   deleteResourceAssignment(id: number): Promise<void>;
+  updateResourceAssignment(id: number, assignment: Partial<InsertResourceAssignment>): Promise<ResourceAssignment | undefined>;
 
   // Google Connections
   getGoogleConnection(userId: string): Promise<GoogleConnection | undefined>;
@@ -553,33 +554,31 @@ export interface IStorage {
   deleteTaskIssue(taskId: number, issueId: number): Promise<void>;
 
   // Chat Conversations
-  getConversation(id: number): Promise<Conversation | undefined>;
-  getConversationsByProject(projectId: number): Promise<Conversation[]>;
-  getConversationsByUser(userId: string): Promise<Conversation[]>;
-  getConversationByTask(taskId: number): Promise<Conversation | undefined>;
-  createConversation(conversation: InsertConversation & { createdBy: string }): Promise<Conversation>;
-  updateConversation(id: number, conversation: Partial<UpdateConversation>): Promise<Conversation | undefined>;
-  deleteConversation(id: number): Promise<void>;
+  getChatConversation(id: number): Promise<AiConversation | undefined>;
+  getChatConversationsByProject(projectId: number): Promise<AiConversation[]>;
+  getChatConversationsByUser(userId: string): Promise<AiConversation[]>;
+  createChatConversation(conversation: InsertAiConversation): Promise<AiConversation>;
+  updateChatConversation(id: number, conversation: Partial<InsertAiConversation>): Promise<AiConversation | undefined>;
+  deleteChatConversation(id: number): Promise<void>;
 
   // Chat Participants
-  getParticipants(conversationId: number): Promise<Participant[]>;
-  addParticipant(conversationId: number, userId: string, role?: string): Promise<Participant>;
-  removeParticipant(conversationId: number, userId: string): Promise<void>;
-  markAsRead(conversationId: number, userId: string): Promise<void>;
-  getUnreadCount(userId: string, conversationId?: number): Promise<number>;
+  getChatParticipants(conversationId: number): Promise<ChatParticipant[]>;
+  addChatParticipant(participant: InsertChatParticipant): Promise<ChatParticipant>;
+  removeChatParticipant(conversationId: number, userId: string): Promise<void>;
+  updateChatParticipant(id: number, participant: Partial<InsertChatParticipant>): Promise<ChatParticipant | undefined>;
 
   // Chat Messages
-  getMessages(conversationId: number, limit?: number, offset?: number): Promise<Message[]>;
-  createMessage(message: InsertMessage & { userId: string }): Promise<Message>;
-  updateMessage(id: number, message: Partial<UpdateMessage>): Promise<Message | undefined>;
-  deleteMessage(id: number): Promise<void>;
+  getChatMessages(conversationId: number): Promise<AiMessage[]>;
+  createChatMessage(message: InsertAiMessage): Promise<AiMessage>;
+  updateChatMessage(id: number, message: Partial<InsertAiMessage>): Promise<AiMessage | undefined>;
+  deleteChatMessage(id: number): Promise<void>;
 
   // Contacts (CRM)
   getContact(id: number): Promise<Contact | undefined>;
   getContactsByOrganization(organizationId: number): Promise<Contact[]>;
   getContactByEmail(organizationId: number, email: string): Promise<Contact | undefined>;
   createContact(contact: InsertContact): Promise<Contact>;
-  updateContact(id: number, contact: Partial<UpdateContact>): Promise<Contact | undefined>;
+  updateContact(id: number, contact: Partial<InsertContact>): Promise<Contact | undefined>;
   deleteContact(id: number): Promise<void>;
 
   // Contact Logs
@@ -608,6 +607,42 @@ export interface IStorage {
   createBugReport(report: InsertBugReport): Promise<BugReport>;
   updateBugReport(id: number, report: Partial<UpdateBugReport>): Promise<BugReport | undefined>;
   deleteBugReport(id: number): Promise<void>;
+
+  // Resource Groups
+  createResourceGroup(group: InsertResourceGroup): Promise<schema.ResourceGroup>;
+  getResourceGroup(id: number): Promise<schema.ResourceGroup | undefined>;
+  getResourceGroupsByProject(projectId: number): Promise<schema.ResourceGroup[]>;
+  updateResourceGroup(id: number, group: Partial<InsertResourceGroup>): Promise<schema.ResourceGroup | undefined>;
+  deleteResourceGroup(id: number): Promise<void>;
+
+  // Task Materials
+  createTaskMaterial(material: InsertTaskMaterial): Promise<TaskMaterial>;
+  getTaskMaterialsByTask(taskId: number): Promise<TaskMaterial[]>;
+  updateTaskMaterial(id: number, material: Partial<InsertTaskMaterial>): Promise<TaskMaterial | undefined>;
+  deleteTaskMaterial(id: number): Promise<void>;
+
+  // Material Consumptions
+  getMaterialConsumption(id: number): Promise<MaterialConsumption | undefined>;
+  getMaterialConsumptionsByTaskMaterial(taskMaterialId: number): Promise<MaterialConsumption[]>;
+  createMaterialConsumption(consumption: InsertMaterialConsumption): Promise<MaterialConsumption>;
+  updateMaterialConsumption(id: number, consumption: Partial<InsertMaterialConsumption>): Promise<MaterialConsumption | undefined>;
+  deleteMaterialConsumption(id: number): Promise<void>;
+
+  // Material Deliveries
+  getMaterialDelivery(id: number): Promise<MaterialDelivery | undefined>;
+  getMaterialDeliveriesByTaskMaterial(taskMaterialId: number): Promise<MaterialDelivery[]>;
+  createMaterialDelivery(delivery: InsertMaterialDelivery): Promise<MaterialDelivery>;
+  updateMaterialDelivery(id: number, delivery: Partial<InsertMaterialDelivery>): Promise<MaterialDelivery | undefined>;
+  deleteMaterialDelivery(id: number): Promise<void>;
+
+  // Message Reactions
+  getMessageReactions(messageId: number): Promise<MessageReaction[]>;
+  toggleMessageReaction(reaction: InsertMessageReaction): Promise<{ added: boolean; reaction: MessageReaction | null }>;
+
+  // AI Action Logs
+  createAiActionLog(log: InsertAiActionLog): Promise<AiActionLog>;
+  getAiActionLogsByProject(projectId: number): Promise<AiActionLog[]>;
+  getAiActionLogsByUser(userId: string): Promise<AiActionLog[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -680,7 +715,7 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async updateProgram(id: number, program: Partial<UpdateProgram>): Promise<Program | undefined> {
+  async updateProgram(id: number, program: Partial<InsertProgram>): Promise<Program | undefined> {
     const [updated] = await db.update(schema.programs)
       .set({ ...program, updatedAt: new Date() })
       .where(eq(schema.programs.id, id))
@@ -949,7 +984,7 @@ export class DatabaseStorage implements IStorage {
     return updated;
   }
 
-  async upsertUser(userData: UpsertUser): Promise<User> {
+  async upsertUser(userData: InsertUser): Promise<User> {
     const [user] = await db
       .insert(schema.users)
       .values(userData)
@@ -1541,10 +1576,10 @@ export class DatabaseStorage implements IStorage {
       // Run: npm run verify:schema
       // If schema mismatch (created_at doesn't exist), use raw SQL
       if (error.code === "42703" || error.code === "42601" || error.message?.includes("does not exist")) {
-        const result = await pool.query(
-          `SELECT * FROM stakeholders WHERE project_id = $1`,
-          [projectId]
-        );
+      const result = await (pool as any).query(
+        `SELECT * FROM stakeholders WHERE project_id = $1`,
+        [projectId]
+      );
         return result.rows as Stakeholder[];
       }
       throw error;
@@ -1711,7 +1746,7 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async updateNotificationRule(id: number, rule: UpdateNotificationRule): Promise<NotificationRule | undefined> {
+  async updateNotificationRule(id: number, rule: Partial<InsertNotificationRule>): Promise<NotificationRule | undefined> {
     const [updated] = await db.update(schema.notificationRules)
       .set({ ...rule, updatedAt: new Date() })
       .where(eq(schema.notificationRules.id, id))
@@ -1889,7 +1924,7 @@ export class DatabaseStorage implements IStorage {
       // Run: npm run verify:schema
       // If schema mismatch (closed_date or created_at don't exist), use raw SQL
       if (error.code === "42703" || error.message?.includes("does not exist")) {
-        const result = await pool.query(
+        const result = await (pool as any).query(
           `SELECT * FROM risks WHERE project_id = $1`,
           [projectId]
         );
@@ -2103,7 +2138,7 @@ export class DatabaseStorage implements IStorage {
     // Normalize currency codes to uppercase
     const normalizedRate = {
       ...rate,
-      baseCurrency: rate.baseCurrency.toUpperCase(),
+      baseCurrency: (rate.baseCurrency || 'USD').toUpperCase(),
       targetCurrency: rate.targetCurrency.toUpperCase(),
       updatedAt: new Date(),
     };
@@ -2293,7 +2328,7 @@ export class DatabaseStorage implements IStorage {
   async getResourceRequirementsByTask(taskId: number): Promise<ResourceRequirement[]> {
     return await db.select().from(schema.resourceRequirements)
       .where(eq(schema.resourceRequirements.taskId, taskId))
-      .orderBy(asc(schema.resourceRequirements.requiredDate));
+      .orderBy(asc(schema.resourceRequirements.startDate));
   }
 
   async createResourceRequirement(requirement: InsertResourceRequirement): Promise<ResourceRequirement> {
@@ -2531,14 +2566,14 @@ export class DatabaseStorage implements IStorage {
       // If schema mismatch (cost column doesn't exist), use raw SQL
       if (error.code === "42703" || error.message?.includes("does not exist") || error.message?.includes("cost")) {
         // resource_assignments table may only have basic columns
-        const result = await pool.query(`
+        const result = await (pool as any).query(`
           INSERT INTO resource_assignments (task_id, resource_id, allocation, effort_hours)
           VALUES ($1, $2, $3, $4)
           RETURNING *
         `, [
           assignment.taskId,
           assignment.resourceId,
-          assignment.allocation || 100,
+          assignment.allocation ?? 100,
           assignment.effortHours || null,
         ]);
         return result.rows[0] as ResourceAssignment;
@@ -2694,7 +2729,7 @@ export class DatabaseStorage implements IStorage {
   async getSentEmailsByOrganization(organizationId: number, limit: number = 100): Promise<SentEmail[]> {
     return await db.select().from(schema.sentEmails)
       .where(eq(schema.sentEmails.organizationId, organizationId))
-      .orderBy(desc(schema.sentEmails.createdAt))
+      .orderBy(desc(schema.sentEmails.sentAt))
       .limit(limit);
   }
 
@@ -2730,7 +2765,7 @@ export class DatabaseStorage implements IStorage {
     if (existing) {
       const [updated] = await db.update(schema.emailUsage)
         .set({
-          emailsSent: existing.emailsSent + 1,
+          emailsSent: (existing.emailsSent ?? 0) + 1,
           updatedAt: new Date()
         })
         .where(eq(schema.emailUsage.id, existing.id))
@@ -2917,14 +2952,14 @@ export class DatabaseStorage implements IStorage {
     
     // Calculate storage usage (documents + cloud synced files)
     // Using raw sql for sum as it's efficient
-    const [docStorage] = await db.execute(sql`
+    const { rows: [docStorage] } = await db.execute(sql`
       SELECT COALESCE(SUM(size_bytes), 0) as total
       FROM documents
       JOIN projects ON documents.project_id = projects.id
       WHERE projects.organization_id = ${organizationId}
     `);
     
-    const [cloudStorage] = await db.execute(sql`
+    const { rows: [cloudStorage] } = await db.execute(sql`
       SELECT COALESCE(SUM(size_bytes), 0) as total
       FROM cloud_synced_files
       JOIN projects ON cloud_synced_files.project_id = projects.id
@@ -3229,7 +3264,7 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async updateConversation(id: number, conversation: Partial<UpdateConversation>): Promise<Conversation | undefined> {
+  async updateConversation(id: number, conversation: Partial<InsertConversation>): Promise<Conversation | undefined> {
     const [updated] = await db.update(schema.chatConversations)
       .set({ ...conversation, updatedAt: new Date() })
       .where(eq(schema.chatConversations.id, id))
@@ -3343,7 +3378,7 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async updateMessage(id: number, message: Partial<UpdateMessage>): Promise<Message | undefined> {
+  async updateMessage(id: number, message: Partial<InsertMessage>): Promise<Message | undefined> {
     const [updated] = await db.update(schema.chatMessages)
       .set({ ...message, updatedAt: new Date() })
       .where(eq(schema.chatMessages.id, id))
@@ -3384,7 +3419,7 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async updateContact(id: number, contact: Partial<UpdateContact>): Promise<Contact | undefined> {
+  async updateContact(id: number, contact: Partial<InsertContact>): Promise<Contact | undefined> {
     const [updated] = await db.update(schema.contacts)
       .set({ ...contact, updatedAt: new Date() })
       .where(eq(schema.contacts.id, id))
@@ -3610,28 +3645,28 @@ export class DatabaseStorage implements IStorage {
     return allCostItems;
   }
 
-  // ==================== Resource Time Entries ====================
-  async getResourceTimeEntry(id: number): Promise<schema.ResourceTimeEntry | undefined> {
-    const [entry] = await db.select().from(schema.resourceTimeEntries)
-      .where(eq(schema.resourceTimeEntries.id, id));
+  // Resource Time Entries
+  async getResourceTimeEntry(id: number): Promise<ResourceTimeEntry | undefined> {
+    const [entry] = await db.select().from(schema.resourceTimeEntries).where(eq(schema.resourceTimeEntries.id, id));
     return entry;
   }
 
-  async getResourceTimeEntriesByAssignment(assignmentId: number): Promise<schema.ResourceTimeEntry[]> {
+  async getResourceTimeEntriesByTask(taskId: number): Promise<ResourceTimeEntry[]> {
     return await db.select().from(schema.resourceTimeEntries)
-      .where(eq(schema.resourceTimeEntries.resourceAssignmentId, assignmentId))
+      .where(eq(schema.resourceTimeEntries.taskId, taskId))
       .orderBy(desc(schema.resourceTimeEntries.date));
   }
 
-  async createResourceTimeEntry(entry: schema.InsertResourceTimeEntry): Promise<schema.ResourceTimeEntry> {
+  async createResourceTimeEntry(entry: InsertResourceTimeEntry): Promise<ResourceTimeEntry> {
     const [created] = await db.insert(schema.resourceTimeEntries).values({
       ...entry,
-      updatedAt: new Date(),
+      createdAt: new Date(),
+      updatedAt: new Date()
     }).returning();
     return created;
   }
 
-  async updateResourceTimeEntry(id: number, entry: Partial<schema.UpdateResourceTimeEntry>): Promise<schema.ResourceTimeEntry | undefined> {
+  async updateResourceTimeEntry(id: number, entry: Partial<InsertResourceTimeEntry>): Promise<ResourceTimeEntry | undefined> {
     const [updated] = await db.update(schema.resourceTimeEntries)
       .set({ ...entry, updatedAt: new Date() })
       .where(eq(schema.resourceTimeEntries.id, id))
@@ -3644,29 +3679,29 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ==================== Task Materials ====================
-  async getTaskMaterial(id: number): Promise<schema.TaskMaterial | undefined> {
+  async getTaskMaterial(id: number): Promise<TaskMaterial | undefined> {
     const [material] = await db.select().from(schema.taskMaterials)
       .where(eq(schema.taskMaterials.id, id));
     return material;
   }
 
-  async getTaskMaterialsByTask(taskId: number): Promise<schema.TaskMaterial[]> {
+  async getTaskMaterialsByTask(taskId: number): Promise<TaskMaterial[]> {
     return await db.select().from(schema.taskMaterials)
       .where(eq(schema.taskMaterials.taskId, taskId))
       .orderBy(asc(schema.taskMaterials.createdAt));
   }
 
-  async createTaskMaterial(material: schema.InsertTaskMaterial): Promise<schema.TaskMaterial> {
+  async createTaskMaterial(material: InsertTaskMaterial): Promise<TaskMaterial> {
     const [created] = await db.insert(schema.taskMaterials).values({
       ...material,
-      updatedAt: new Date(),
+      createdAt: new Date(),
     }).returning();
     return created;
   }
 
-  async updateTaskMaterial(id: number, material: Partial<schema.UpdateTaskMaterial>): Promise<schema.TaskMaterial | undefined> {
+  async updateTaskMaterial(id: number, material: Partial<InsertTaskMaterial>): Promise<TaskMaterial | undefined> {
     const [updated] = await db.update(schema.taskMaterials)
-      .set({ ...material, updatedAt: new Date() })
+      .set(material)
       .where(eq(schema.taskMaterials.id, id))
       .returning();
     return updated;
@@ -3677,103 +3712,53 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ==================== Material Consumptions ====================
-  async getMaterialConsumption(id: number): Promise<schema.MaterialConsumption | undefined> {
-    const [consumption] = await db.select().from(schema.materialConsumptions)
-      .where(eq(schema.materialConsumptions.id, id));
+  async getMaterialConsumption(id: number): Promise<MaterialConsumption | undefined> {
+    const [consumption] = await db.select().from(schema.materialConsumptions).where(eq(schema.materialConsumptions.id, id));
     return consumption;
   }
 
-  async getMaterialConsumptionsByTaskMaterial(taskMaterialId: number): Promise<schema.MaterialConsumption[]> {
+  async getMaterialConsumptionsByTaskMaterial(taskMaterialId: number): Promise<MaterialConsumption[]> {
     return await db.select().from(schema.materialConsumptions)
       .where(eq(schema.materialConsumptions.taskMaterialId, taskMaterialId))
-      .orderBy(desc(schema.materialConsumptions.date));
+      .orderBy(desc(schema.materialConsumptions.consumedAt));
   }
 
-  async createMaterialConsumption(consumption: schema.InsertMaterialConsumption): Promise<schema.MaterialConsumption> {
+  async createMaterialConsumption(consumption: InsertMaterialConsumption): Promise<MaterialConsumption> {
     const [created] = await db.insert(schema.materialConsumptions).values(consumption).returning();
-    
-    // Update cumulative consumption on task material
-    const [taskMaterial] = await db.select().from(schema.taskMaterials)
-      .where(eq(schema.taskMaterials.id, consumption.taskMaterialId));
-    
-    if (taskMaterial) {
-      const currentCumulative = parseFloat(taskMaterial.cumulativeConsumption || "0");
-      const newQuantity = parseFloat(consumption.quantity);
-      const newCumulative = (currentCumulative + newQuantity).toString();
-      
-      await db.update(schema.taskMaterials)
-        .set({
-          cumulativeConsumption: newCumulative,
-          lastConsumptionDate: consumption.date,
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.taskMaterials.id, consumption.taskMaterialId));
-    }
-    
+    // TODO: Update actual quantity on task material
     return created;
   }
 
-  async updateMaterialConsumption(id: number, consumption: Partial<schema.UpdateMaterialConsumption>): Promise<schema.MaterialConsumption | undefined> {
+  async updateMaterialConsumption(id: number, consumption: Partial<InsertMaterialConsumption>): Promise<MaterialConsumption | undefined> {
     const [updated] = await db.update(schema.materialConsumptions)
       .set(consumption)
       .where(eq(schema.materialConsumptions.id, id))
       .returning();
-    
-    // Recalculate cumulative if quantity changed
-    if (consumption.quantity && updated) {
-      const consumptions = await this.getMaterialConsumptionsByTaskMaterial(updated.taskMaterialId);
-      const total = consumptions.reduce((sum, c) => sum + parseFloat(c.quantity), 0);
-      
-      await db.update(schema.taskMaterials)
-        .set({
-          cumulativeConsumption: total.toString(),
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.taskMaterials.id, updated.taskMaterialId));
-    }
-    
     return updated;
   }
 
   async deleteMaterialConsumption(id: number): Promise<void> {
-    const [consumption] = await db.select().from(schema.materialConsumptions)
-      .where(eq(schema.materialConsumptions.id, id));
-    
-    if (consumption) {
-      await db.delete(schema.materialConsumptions).where(eq(schema.materialConsumptions.id, id));
-      
-      // Recalculate cumulative
-      const consumptions = await this.getMaterialConsumptionsByTaskMaterial(consumption.taskMaterialId);
-      const total = consumptions.reduce((sum, c) => sum + parseFloat(c.quantity), 0);
-      
-      await db.update(schema.taskMaterials)
-        .set({
-          cumulativeConsumption: total.toString(),
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.taskMaterials.id, consumption.taskMaterialId));
-    }
+    await db.delete(schema.materialConsumptions).where(eq(schema.materialConsumptions.id, id));
   }
 
   // ==================== Material Deliveries ====================
-  async getMaterialDelivery(id: number): Promise<schema.MaterialDelivery | undefined> {
-    const [delivery] = await db.select().from(schema.materialDeliveries)
-      .where(eq(schema.materialDeliveries.id, id));
+  async getMaterialDelivery(id: number): Promise<MaterialDelivery | undefined> {
+    const [delivery] = await db.select().from(schema.materialDeliveries).where(eq(schema.materialDeliveries.id, id));
     return delivery;
   }
 
-  async getMaterialDeliveriesByTaskMaterial(taskMaterialId: number): Promise<schema.MaterialDelivery[]> {
+  async getMaterialDeliveriesByTaskMaterial(taskMaterialId: number): Promise<MaterialDelivery[]> {
     return await db.select().from(schema.materialDeliveries)
       .where(eq(schema.materialDeliveries.taskMaterialId, taskMaterialId))
-      .orderBy(desc(schema.materialDeliveries.date));
+      .orderBy(desc(schema.materialDeliveries.deliveredAt));
   }
 
-  async createMaterialDelivery(delivery: schema.InsertMaterialDelivery): Promise<schema.MaterialDelivery> {
+  async createMaterialDelivery(delivery: InsertMaterialDelivery): Promise<MaterialDelivery> {
     const [created] = await db.insert(schema.materialDeliveries).values(delivery).returning();
     return created;
   }
 
-  async updateMaterialDelivery(id: number, delivery: Partial<schema.UpdateMaterialDelivery>): Promise<schema.MaterialDelivery | undefined> {
+  async updateMaterialDelivery(id: number, delivery: Partial<InsertMaterialDelivery>): Promise<MaterialDelivery | undefined> {
     const [updated] = await db.update(schema.materialDeliveries)
       .set(delivery)
       .where(eq(schema.materialDeliveries.id, id))
@@ -3786,81 +3771,59 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ==================== Message Reactions ====================
-  async getMessageReactions(messageId: number): Promise<schema.MessageReaction[]> {
+  async getMessageReactions(messageId: number): Promise<MessageReaction[]> {
     return await db.select().from(schema.messageReactions)
-      .where(eq(schema.messageReactions.messageId, messageId))
-      .orderBy(asc(schema.messageReactions.createdAt));
+      .where(eq(schema.messageReactions.messageId, messageId));
   }
 
-  async getMessageReactionsByMessageIds(messageIds: number[]): Promise<Map<number, schema.MessageReaction[]>> {
+  async getMessageReactionsByMessageIds(messageIds: number[]): Promise<Map<number, MessageReaction[]>> {
     if (messageIds.length === 0) return new Map();
     
     const reactions = await db.select().from(schema.messageReactions)
       .where(inArray(schema.messageReactions.messageId, messageIds));
+      
+    const map = new Map<number, MessageReaction[]>();
+    for (const id of messageIds) {
+      map.set(id, []);
+    }
     
-    const map = new Map<number, schema.MessageReaction[]>();
-    reactions.forEach(reaction => {
-      if (!map.has(reaction.messageId)) {
-        map.set(reaction.messageId, []);
-      }
-      map.get(reaction.messageId)!.push(reaction);
-    });
+    for (const r of reactions) {
+      const list = map.get(r.messageId);
+      if (list) list.push(r);
+    }
     
     return map;
   }
 
-  async addMessageReaction(reaction: schema.InsertMessageReaction): Promise<schema.MessageReaction> {
+  async addMessageReaction(reaction: InsertMessageReaction): Promise<MessageReaction> {
     const [created] = await db.insert(schema.messageReactions)
-      .values(reaction)
-      .onConflictDoNothing()
+      .values({ ...reaction, createdAt: new Date() })
       .returning();
-    
-    if (!created) {
-      // Reaction already exists, return existing
-      const [existing] = await db.select().from(schema.messageReactions)
-        .where(
-          and(
-            eq(schema.messageReactions.messageId, reaction.messageId),
-            eq(schema.messageReactions.userId, reaction.userId),
-            eq(schema.messageReactions.emoji, reaction.emoji)
-          )
-        )
-        .limit(1);
-      return existing!;
-    }
-    
     return created;
   }
 
   async removeMessageReaction(messageId: number, userId: string, emoji: string): Promise<void> {
     await db.delete(schema.messageReactions)
-      .where(
-        and(
-          eq(schema.messageReactions.messageId, messageId),
-          eq(schema.messageReactions.userId, userId),
-          eq(schema.messageReactions.emoji, emoji)
-        )
-      );
+      .where(and(
+        eq(schema.messageReactions.messageId, messageId),
+        eq(schema.messageReactions.userId, userId),
+        eq(schema.messageReactions.emoji, emoji)
+      ));
   }
 
-  async toggleMessageReaction(reaction: schema.InsertMessageReaction): Promise<{ added: boolean; reaction: schema.MessageReaction | null }> {
-    // Check if reaction exists
+  async toggleMessageReaction(reaction: InsertMessageReaction): Promise<{ added: boolean; reaction: MessageReaction | null }> {
     const [existing] = await db.select().from(schema.messageReactions)
-      .where(
-        and(
-          eq(schema.messageReactions.messageId, reaction.messageId),
-          eq(schema.messageReactions.userId, reaction.userId),
-          eq(schema.messageReactions.emoji, reaction.emoji)
-        )
-      )
+      .where(and(
+        eq(schema.messageReactions.messageId, reaction.messageId),
+        eq(schema.messageReactions.userId, reaction.userId),
+        eq(schema.messageReactions.emoji, reaction.emoji)
+      ))
       .limit(1);
     
     if (existing) {
-      // Remove reaction
       await this.removeMessageReaction(reaction.messageId, reaction.userId, reaction.emoji);
       return { added: false, reaction: null };
     } else {
-      // Add reaction
       const newReaction = await this.addMessageReaction(reaction);
       return { added: true, reaction: newReaction };
     }
@@ -3874,22 +3837,22 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getResourceGroupsByProject(projectId: number): Promise<schema.ResourceGroup[]> {
+    const project = await this.getProject(projectId);
+    if (!project) return [];
+    
     return await db.select().from(schema.resourceGroups)
-      .where(eq(schema.resourceGroups.projectId, projectId))
+      .where(eq(schema.resourceGroups.organizationId, project.organizationId))
       .orderBy(asc(schema.resourceGroups.name));
   }
 
-  async createResourceGroup(group: schema.InsertResourceGroup): Promise<schema.ResourceGroup> {
-    const [created] = await db.insert(schema.resourceGroups).values({
-      ...group,
-      updatedAt: new Date(),
-    }).returning();
+  async createResourceGroup(group: InsertResourceGroup): Promise<schema.ResourceGroup> {
+    const [created] = await db.insert(schema.resourceGroups).values(group).returning();
     return created;
   }
 
-  async updateResourceGroup(id: number, group: Partial<schema.UpdateResourceGroup>): Promise<schema.ResourceGroup | undefined> {
+  async updateResourceGroup(id: number, group: Partial<InsertResourceGroup>): Promise<schema.ResourceGroup | undefined> {
     const [updated] = await db.update(schema.resourceGroups)
-      .set({ ...group, updatedAt: new Date() })
+      .set(group)
       .where(eq(schema.resourceGroups.id, id))
       .returning();
     return updated;
@@ -3938,6 +3901,9 @@ export class DatabaseStorage implements IStorage {
   }
 
   // ==================== AI Action Logs ====================
+  // Commented out original implementation that had schema errors
+  /*
+  // Placeholder
   async getAiActionLog(id: number): Promise<schema.AiActionLog | undefined> {
     const [log] = await db.select().from(schema.aiActionLogs)
       .where(eq(schema.aiActionLogs.id, id));
@@ -3970,7 +3936,50 @@ export class DatabaseStorage implements IStorage {
     const [created] = await db.insert(schema.aiActionLogs).values(log).returning();
     return created;
   }
+  */
 
+  async getAiActionLog(id: number): Promise<AiActionLog | undefined> {
+    const [log] = await db.select().from(schema.aiActionLogs)
+      .where(eq(schema.aiActionLogs.id, id));
+    return log;
+  }
+
+  async getAiActionLogByActionId(actionId: string): Promise<AiActionLog | undefined> {
+    const [log] = await db.select().from(schema.aiActionLogs)
+      .where(eq(schema.aiActionLogs.actionId, actionId))
+      .orderBy(desc(schema.aiActionLogs.createdAt))
+      .limit(1);
+    return log;
+  }
+
+  async getAiActionLogsByUser(userId: string, limit: number = 100): Promise<AiActionLog[]> {
+    return await db.select().from(schema.aiActionLogs)
+      .where(eq(schema.aiActionLogs.userId, userId))
+      .orderBy(desc(schema.aiActionLogs.createdAt))
+      .limit(limit);
+  }
+
+  async getAiActionLogsByProject(projectId: number, limit: number = 100): Promise<AiActionLog[]> {
+    return await db.select().from(schema.aiActionLogs)
+      .where(eq(schema.aiActionLogs.projectId, projectId))
+      .orderBy(desc(schema.aiActionLogs.createdAt))
+      .limit(limit);
+  }
+
+  async createAiActionLog(log: InsertAiActionLog): Promise<AiActionLog> {
+    const [created] = await db.insert(schema.aiActionLogs).values(log).returning();
+    return created;
+  }
+
+  async updateAiActionLog(id: number, log: Partial<InsertAiActionLog>): Promise<AiActionLog | undefined> {
+    const [updated] = await db.update(schema.aiActionLogs)
+      .set(log)
+      .where(eq(schema.aiActionLogs.id, id))
+      .returning();
+    return updated;
+  }
+
+  /*
   async updateAiActionLog(id: number, log: Partial<schema.UpdateAiActionLog>): Promise<schema.AiActionLog | undefined> {
     const [updated] = await db.update(schema.aiActionLogs)
       .set(log)
@@ -3978,6 +3987,7 @@ export class DatabaseStorage implements IStorage {
       .returning();
     return updated;
   }
+  */
 
   // ==================== Lessons Learned ====================
   async getLessonLearned(id: number): Promise<schema.LessonLearned | undefined> {

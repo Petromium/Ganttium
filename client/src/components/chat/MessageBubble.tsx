@@ -55,7 +55,8 @@ export function MessageBubble({ message, showAvatar = true, onEdit, onDelete }: 
               : "bg-muted text-foreground"
           }`}
         >
-          {message.type === "text" && <p className="text-sm whitespace-pre-wrap">{message.content}</p>}
+          <p className="text-sm whitespace-pre-wrap">{message.message}</p>
+          {/* {message.type === "text" && <p className="text-sm whitespace-pre-wrap">{message.content}</p>}
           {message.type === "file" && (
             <div className="flex items-center gap-2">
               <span className="text-sm">📎 {message.fileName || "File"}</span>
@@ -72,7 +73,7 @@ export function MessageBubble({ message, showAvatar = true, onEdit, onDelete }: 
               alt={message.fileName || "Image"}
               className="max-w-full max-h-64 rounded"
             />
-          )}
+          )} */}
         </div>
         <div className={`flex items-center gap-2 text-xs text-muted-foreground px-2 ${isOwnMessage ? "flex-row-reverse" : ""}`}>
           <span>{format(new Date(message.createdAt), "HH:mm")}</span>

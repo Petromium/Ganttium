@@ -69,6 +69,18 @@ interface RiskCardProps {
 }
 
 export function RiskCard({ risk, onClick }: RiskCardProps) {
+  const getImpactValue = (impact: string | null) => {
+    switch (impact?.toLowerCase()) {
+      case "high": return 5;
+      case "medium": return 3;
+      case "low": return 1;
+      default: return 3;
+    }
+  };
+
+  const impactValue = getImpactValue(risk.impact);
+  const riskScore = (risk.probability || 3) * impactValue;
+
   return (
     <Card
       className={cn("my-2 border cursor-pointer hover:bg-muted/50 transition-colors", onClick && "cursor-pointer")}
@@ -89,23 +101,21 @@ export function RiskCard({ risk, onClick }: RiskCardProps) {
       </CardHeader>
       <CardContent className="pt-0">
         <div className="space-y-1 text-xs text-muted-foreground">
-          {risk.probability && risk.impact && (
-            <div className="flex items-center gap-2">
-              <span>Risk Level:</span>
-              <Badge
-                variant={
-                  risk.probability * risk.impact > 15
-                    ? "destructive"
-                    : risk.probability * risk.impact > 8
-                    ? "default"
-                    : "secondary"
-                }
-                className="text-xs"
-              >
-                {risk.probability * risk.impact}
-              </Badge>
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            <span>Risk Level:</span>
+            <Badge
+              variant={
+                riskScore > 15
+                  ? "destructive"
+                  : riskScore > 8
+                  ? "default"
+                  : "secondary"
+              }
+              className="text-xs"
+            >
+              {riskScore}
+            </Badge>
+          </div>
           {risk.status && (
             <div className="flex items-center gap-2">
               <span>Status:</span>
@@ -146,14 +156,14 @@ export function IssueCard({ issue, onClick }: IssueCardProps) {
       </CardHeader>
       <CardContent className="pt-0">
         <div className="space-y-1 text-xs text-muted-foreground">
-          {issue.severity && (
+          {issue.priority && (
             <div className="flex items-center gap-2">
-              <span>Severity:</span>
+              <span>Priority:</span>
               <Badge
-                variant={issue.severity === "critical" ? "destructive" : issue.severity === "high" ? "default" : "secondary"}
+                variant={issue.priority === "high" ? "destructive" : issue.priority === "medium" ? "default" : "secondary"}
                 className="text-xs"
               >
-                {issue.severity}
+                {issue.priority}
               </Badge>
             </div>
           )}
@@ -177,6 +187,10 @@ interface UserCardProps {
 }
 
 export function UserCard({ user, onClick }: UserCardProps) {
+  const displayName = user.firstName && user.lastName 
+    ? `${user.firstName} ${user.lastName}` 
+    : user.email;
+
   const getInitials = (name?: string, email?: string) => {
     if (name) {
       return name
@@ -200,21 +214,19 @@ export function UserCard({ user, onClick }: UserCardProps) {
       <CardContent className="p-3">
         <div className="flex items-center gap-3">
           <Avatar className="h-10 w-10">
-            <AvatarImage src={user.avatar || undefined} />
+            <AvatarImage src={user.profileImageUrl || undefined} />
             <AvatarFallback>
               <User className="h-5 w-5" />
             </AvatarFallback>
           </Avatar>
           <div className="flex-1 min-w-0">
-            <p className="font-medium text-sm">{user.name || user.email || "Unknown User"}</p>
+            <p className="font-medium text-sm">{displayName}</p>
             {user.email && (
               <p className="text-xs text-muted-foreground truncate">{user.email}</p>
             )}
-            {user.role && (
-              <Badge variant="secondary" className="text-xs mt-1">
-                {user.role}
-              </Badge>
-            )}
+            <Badge variant="secondary" className="text-xs mt-1">
+              {user.isSystemAdmin ? "System Admin" : "User"}
+            </Badge>
           </div>
         </div>
       </CardContent>

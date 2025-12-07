@@ -51,16 +51,15 @@ export function ChatInput({ conversationId }: ChatInputProps) {
   const handleSend = async () => {
     if (!message.trim() || createMessage.isPending) return;
 
-    const messageData: InsertMessage = {
+    const messageData = {
       conversationId,
-      content: message.trim(),
-      type: "text",
+      message: message.trim(),
     };
 
     try {
       await createMessage.mutateAsync({
         conversationId,
-        data: messageData,
+        data: messageData as any,
       });
       setMessage("");
       setIsTyping(false);

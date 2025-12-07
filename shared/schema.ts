@@ -1,4 +1,4 @@
-import { pgTable, text, serial, integer, boolean, timestamp, varchar, jsonb, pgEnum, unique, index, bigint } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, varchar, jsonb, pgEnum, unique, index, bigint, numeric } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 import { relations } from "drizzle-orm";
@@ -58,6 +58,34 @@ export const userOrganizations = pgTable("user_organizations", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const userInvitations = pgTable("user_invitations", {
+  id: serial("id").primaryKey(),
+  email: varchar("email", { length: 255 }).notNull(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  role: varchar("role", { length: 50 }).default("member").notNull(),
+  token: varchar("token", { length: 255 }).notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  invitedBy: varchar("invited_by", { length: 100 }).references(() => users.id),
+  status: varchar("status", { length: 20 }).default("pending").notNull(), // pending, accepted, expired, revoked
+  acceptedAt: timestamp("accepted_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const userActivityLogs = pgTable("user_activity_logs", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id", { length: 100 }).references(() => users.id, { onDelete: "set null" }),
+  organizationId: integer("organization_id").references(() => organizations.id, { onDelete: "cascade" }),
+  projectId: integer("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  action: varchar("action", { length: 100 }).notNull(),
+  entityType: varchar("entity_type", { length: 100 }),
+  entityId: integer("entity_id"),
+  details: jsonb("details"),
+  ipAddress: varchar("ip_address", { length: 45 }),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const programs = pgTable("programs", {
   id: serial("id").primaryKey(),
   organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
@@ -75,9 +103,6 @@ export const programs = pgTable("programs", {
   orgSlugUnique: unique().on(table.organizationId, table.slug),
 }));
 
-// Helper for numeric column since Drizzle numeric is string in JS
-const numeric = (name: string) => varchar(name, { length: 50 });
-
 export const projects = pgTable("projects", {
   id: serial("id").primaryKey(),
   organizationId: integer("organization_id").notNull().references(() => organizations.id),
@@ -91,6 +116,18 @@ export const projects = pgTable("projects", {
   currency: varchar("currency", { length: 3 }).default("USD"),
   status: varchar("status", { length: 50 }).default("planning"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const projectTemplates = pgTable("project_templates", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id),
+  name: varchar("name", { length: 100 }).notNull(),
+  description: text("description"),
+  structure: jsonb("structure"),
+  usageCount: integer("usage_count").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 export const tasks = pgTable("tasks", {
@@ -100,9 +137,26 @@ export const tasks = pgTable("tasks", {
   wbsCode: varchar("wbs_code", { length: 50 }),
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
-  assignedTo: varchar("assigned_to", { length: 100 }),
+  assignedTo: varchar("assigned_to", { length: 100 }).references(() => users.id),
+  assignedToName: varchar("assigned_to_name", { length: 255 }),
   status: varchar("status", { length: 50 }).default("not-started"),
   priority: varchar("priority", { length: 20 }).default("medium"),
+  customStatusId: integer("custom_status_id").references(() => projectStatuses.id),
+  
+  // Advanced Fields
+  discipline: varchar("discipline", { length: 50 }),
+  disciplineLabel: varchar("discipline_label", { length: 100 }),
+  areaCode: varchar("area_code", { length: 50 }),
+  weightFactor: numeric("weight_factor"),
+  constraintType: varchar("constraint_type", { length: 50 }),
+  constraintDate: timestamp("constraint_date"),
+  baselineStart: timestamp("baseline_start"),
+  baselineFinish: timestamp("baseline_finish"),
+  actualStartDate: timestamp("actual_start_date"),
+  actualFinishDate: timestamp("actual_finish_date"),
+  workMode: varchar("work_mode", { length: 20 }).default("fixed-duration"),
+  isMilestone: boolean("is_milestone").default(false),
+  isCriticalPath: boolean("is_critical_path").default(false),
   estimatedHours: numeric("estimated_hours"),
   actualHours: numeric("actual_hours"),
   startDate: timestamp("start_date"),
@@ -110,6 +164,7 @@ export const tasks = pgTable("tasks", {
   progress: integer("progress").default(0),
   createdBy: varchar("created_by", { length: 100 }), // User ID
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 // Self-relation for tasks
@@ -128,6 +183,38 @@ export const taskRelations = relations(tasks, ({ one, many }) => ({
   }),
 }));
 
+export const taskMaterials = pgTable("task_materials", {
+  id: serial("id").primaryKey(),
+  taskId: integer("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  materialId: integer("material_id").notNull(), 
+  name: varchar("name", { length: 255 }).notNull(),
+  quantity: decimal("quantity").notNull(),
+  unit: varchar("unit", { length: 50 }).notNull(),
+  cost: decimal("cost").default("0").notNull(),
+  actualQuantity: decimal("actual_quantity").default("0"),
+  actualCost: decimal("actual_cost").default("0"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const materialConsumptions = pgTable("material_consumptions", {
+  id: serial("id").primaryKey(),
+  taskMaterialId: integer("task_material_id").notNull().references(() => taskMaterials.id),
+  quantity: decimal("quantity").notNull(),
+  consumedAt: timestamp("consumed_at").defaultNow().notNull(),
+  consumedBy: varchar("consumed_by", { length: 100 }).references(() => users.id),
+  notes: text("notes"),
+});
+
+export const materialDeliveries = pgTable("material_deliveries", {
+  id: serial("id").primaryKey(),
+  taskMaterialId: integer("task_material_id").notNull().references(() => taskMaterials.id),
+  quantity: decimal("quantity").notNull(),
+  deliveredAt: timestamp("delivered_at").defaultNow().notNull(),
+  supplier: varchar("supplier", { length: 100 }),
+  notes: text("notes"),
+});
+
 export const risks = pgTable("risks", {
   id: serial("id").primaryKey(),
   projectId: integer("project_id").notNull().references(() => projects.id),
@@ -142,6 +229,8 @@ export const risks = pgTable("risks", {
   owner: varchar("owner", { length: 100 }),
   identifiedDate: timestamp("identified_date").defaultNow(),
   closedDate: timestamp("closed_date"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 export const issues = pgTable("issues", {
@@ -159,6 +248,8 @@ export const issues = pgTable("issues", {
   resolvedDate: timestamp("resolved_date"),
   resolution: text("resolution"),
   issueType: varchar("issue_type", { length: 50 }).default("standard"), // 'standard', 'ncr', 'hse', etc.
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 export const stakeholders = pgTable("stakeholders", {
@@ -178,16 +269,22 @@ export const stakeholders = pgTable("stakeholders", {
   updateFrequency: varchar("update_frequency", { length: 50 }), // 'daily', 'weekly', 'bi-weekly', 'milestone-only'
   engagementLevel: integer("engagement_level"), // 1-5 (Manual or calculated)
   lastInteractionDate: timestamp("last_interaction_date"), // Auto-updated from messages/comments
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 export const costItems = pgTable("cost_items", {
   id: serial("id").primaryKey(),
   projectId: integer("project_id").notNull().references(() => projects.id),
+  taskId: integer("task_id").references(() => tasks.id),
   category: varchar("category", { length: 100 }).notNull(),
   description: varchar("description", { length: 255 }).notNull(),
   budgeted: numeric("budgeted").notNull(),
   actual: numeric("actual").default("0"),
   variance: numeric("variance").default("0"), // Calculated
+  date: timestamp("date").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 // Communication Intelligence System
@@ -227,6 +324,13 @@ export const resourceGroups = pgTable("resource_groups", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const resourceGroupMembers = pgTable("resource_group_members", {
+  id: serial("id").primaryKey(),
+  groupId: integer("group_id").notNull().references(() => resourceGroups.id, { onDelete: "cascade" }),
+  resourceId: integer("resource_id").notNull(), // ref defined later
+  joinedAt: timestamp("joined_at").defaultNow().notNull(),
+});
+
 // Resource Pricing Tiers
 export const resourcePricingTiers = pgTable("resource_pricing_tiers", {
   id: serial("id").primaryKey(),
@@ -263,6 +367,7 @@ export const resources = pgTable("resources", {
   
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 // Add foreign key for resourcePricingTiers
@@ -277,11 +382,23 @@ export const resourceAssignments = pgTable("resource_assignments", {
   id: serial("id").primaryKey(),
   taskId: integer("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
   resourceId: integer("resource_id").notNull().references(() => resources.id),
-  allocation: integer("allocation").default(100), // Percentage
+  allocation: integer("allocation").default(100).notNull(), // Percentage
   effortHours: numeric("effort_hours"), // Planned effort for this resource on this task
   cost: numeric("cost"), // Calculated cost
   startDate: timestamp("start_date"),
   endDate: timestamp("end_date"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const resourceTimeEntries = pgTable("resource_time_entries", {
+  id: serial("id").primaryKey(),
+  resourceId: integer("resource_id").notNull().references(() => resources.id),
+  taskId: integer("task_id").references(() => tasks.id),
+  projectId: integer("project_id").notNull().references(() => projects.id),
+  date: timestamp("date").notNull(),
+  hours: decimal("hours").notNull(),
+  description: text("description"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -337,7 +454,7 @@ export const lessonsLearned = pgTable("lessons_learned", {
   // Metadata for applicability
   applicability: varchar("applicability", { length: 50 }).default("global"), // 'global', 'project_specific', 'department'
   
-  createdBy: integer("created_by").references(() => users.id),
+  createdBy: varchar("created_by", { length: 100 }).references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -360,6 +477,7 @@ export const documents = pgTable("documents", {
 // Notification rules (schema placeholder – align with actual DB structure)
 export const notificationRules = pgTable("notification_rules", {
   id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id),
   projectId: integer("project_id").references(() => projects.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 150 }).notNull(),
   description: text("description"),
@@ -367,10 +485,23 @@ export const notificationRules = pgTable("notification_rules", {
   condition: jsonb("condition"),
   recipients: jsonb("recipients").$type<number[]>().default([]),
   channel: varchar("channel", { length: 20 }).default("email"),
-  enabled: boolean("enabled").default(true),
+  isActive: boolean("is_active").default(true),
   createdBy: varchar("created_by", { length: 100 }).references(() => users.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const notificationLogs = pgTable("notification_logs", {
+  id: serial("id").primaryKey(),
+  notificationId: integer("notification_id").references(() => notifications.id),
+  ruleId: integer("rule_id").references(() => notificationRules.id),
+  projectId: integer("project_id").references(() => projects.id),
+  recipient: varchar("recipient", { length: 255 }),
+  channel: varchar("channel", { length: 20 }),
+  status: varchar("status", { length: 50 }),
+  sentAt: timestamp("sent_at").defaultNow(),
+  error: text("error"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 // Push notification subscriptions for PWA
@@ -413,6 +544,18 @@ export const organizationSubscriptions = pgTable("organization_subscriptions", {
   endDate: timestamp("end_date"),
   autoRenew: boolean("auto_renew").default(true),
   paymentMethodId: varchar("payment_method_id", { length: 100 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const aiActionLogs = pgTable("ai_action_logs", {
+  id: serial("id").primaryKey(),
+  actionId: varchar("action_id", { length: 100 }).notNull(),
+  userId: varchar("user_id", { length: 100 }).references(() => users.id),
+  projectId: integer("project_id").references(() => projects.id),
+  action: varchar("action", { length: 100 }).notNull(),
+  details: jsonb("details"),
+  status: varchar("status", { length: 50 }).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -525,10 +668,373 @@ export const bugReports = pgTable("bug_reports", {
   createdAtIdx: index("bug_reports_created_at_idx").on(table.createdAt),
 }));
 
+// --- RESTORED MISSING TABLES ---
+
+export const contacts = pgTable("contacts", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  firstName: varchar("first_name", { length: 100 }).notNull(),
+  lastName: varchar("last_name", { length: 100 }).notNull(),
+  email: varchar("email", { length: 255 }),
+  phone: varchar("phone", { length: 50 }),
+  role: varchar("role", { length: 100 }),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const contactLogs = pgTable("contact_logs", {
+  id: serial("id").primaryKey(),
+  contactId: integer("contact_id").notNull().references(() => contacts.id, { onDelete: "cascade" }),
+  userId: varchar("user_id", { length: 100 }).references(() => users.id),
+  type: varchar("type", { length: 50 }), // 'call', 'email', 'meeting'
+  notes: text("notes"),
+  date: timestamp("date").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const chatConversations = pgTable("chat_conversations", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  taskId: integer("task_id").references(() => tasks.id, { onDelete: "cascade" }),
+  type: varchar("type", { length: 50 }).default("channel"), // 'channel', 'dm'
+  name: varchar("name", { length: 100 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const   chatParticipants = pgTable("chat_participants", {
+  id: serial("id").primaryKey(),
+  conversationId: integer("conversation_id").notNull().references(() => chatConversations.id, { onDelete: "cascade" }),
+  userId: varchar("user_id", { length: 100 }).notNull().references(() => users.id),
+  joinedAt: timestamp("joined_at").defaultNow().notNull(),
+  lastReadAt: timestamp("last_read_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const chatMessages = pgTable("chat_messages", {
+  id: serial("id").primaryKey(),
+  conversationId: integer("conversation_id").references(() => chatConversations.id, { onDelete: "cascade" }), // Changed from projectId
+  userId: varchar("user_id", { length: 100 }).notNull().references(() => users.id),
+  message: text("message").notNull(),
+  attachments: jsonb("attachments"),
+  deletedAt: timestamp("deleted_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const messageReactions = pgTable("message_reactions", {
+  id: serial("id").primaryKey(),
+  messageId: integer("message_id").notNull().references(() => chatMessages.id, { onDelete: "cascade" }),
+  userId: varchar("user_id", { length: 100 }).notNull().references(() => users.id, { onDelete: "cascade" }),
+  emoji: varchar("emoji", { length: 50 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const changeRequests = pgTable("change_requests", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => projects.id),
+  code: varchar("code", { length: 50 }).notNull(),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description"),
+  status: varchar("status", { length: 50 }).default("draft"),
+  priority: varchar("priority", { length: 20 }).default("medium"),
+  reason: text("reason"),
+  impactAnalysis: text("impact_analysis"),
+  costImpact: numeric("cost_impact"),
+  scheduleImpact: integer("schedule_impact"), // Days
+  requestedBy: varchar("requested_by", { length: 100 }).references(() => users.id),
+  requestedDate: timestamp("requested_date").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const changeRequestApprovals = pgTable("change_request_approvals", {
+  id: serial("id").primaryKey(),
+  changeRequestId: integer("change_request_id").notNull().references(() => changeRequests.id, { onDelete: "cascade" }),
+  reviewerId: varchar("reviewer_id", { length: 100 }).references(() => users.id),
+  status: varchar("status", { length: 50 }).default("pending"),
+  sequence: integer("sequence").default(1),
+  comments: text("comments"),
+  approvalDate: timestamp("approval_date"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const changeRequestTasks = pgTable("change_request_tasks", {
+  id: serial("id").primaryKey(),
+  changeRequestId: integer("change_request_id").notNull().references(() => changeRequests.id, { onDelete: "cascade" }),
+  taskId: integer("task_id").references(() => tasks.id), // Existing task modified
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const changeRequestTemplates = pgTable("change_request_templates", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id),
+  name: varchar("name", { length: 100 }).notNull(),
+  fields: jsonb("fields"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const taskDependencies = pgTable("task_dependencies", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").references(() => projects.id),
+  predecessorId: integer("predecessor_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  successorId: integer("successor_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  type: varchar("type", { length: 20 }).default("fs"), // FS, SS, FF, SF
+  lag: integer("lag").default(0),
+  lagDays: integer("lag_days").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const projectStatuses = pgTable("project_status", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 50 }).notNull(),
+  code: varchar("code", { length: 20 }),
+  color: varchar("color", { length: 20 }),
+  order: integer("order").default(0),
+  isDefault: boolean("is_default").default(false),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const kanbanColumns = pgTable("kanban_columns", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 50 }).notNull(),
+  statusId: integer("status_id"), // For mapping to system statuses
+  customStatusId: integer("custom_status_id").references(() => projectStatuses.id),
+  order: integer("order").default(0),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const exchangeRates = pgTable("exchange_rates", {
+  id: serial("id").primaryKey(),
+  baseCurrency: varchar("base_currency", { length: 3 }).default("USD").notNull(),
+  targetCurrency: varchar("target_currency", { length: 3 }).notNull(),
+  rate: numeric("rate").notNull(), // base -> target
+  date: timestamp("date").notNull(),
+  source: varchar("source", { length: 50 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const exchangeRateSyncs = pgTable("exchange_rate_sync", {
+  id: serial("id").primaryKey(),
+  status: varchar("status", { length: 50 }),
+  syncDate: timestamp("sync_date"),
+  error: text("error"),
+});
+
+export const costBreakdownStructure = pgTable("cost_breakdown_structure", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  parentId: integer("parent_id"),
+  code: varchar("code", { length: 50 }).notNull(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  level: integer("level").default(1),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const costItemCBSLinks = pgTable("cost_item_cbs_links", {
+  id: serial("id").primaryKey(),
+  costItemId: integer("cost_item_id").notNull().references(() => costItems.id, { onDelete: "cascade" }),
+  cbsId: integer("cbs_id").notNull().references(() => costBreakdownStructure.id, { onDelete: "cascade" }),
+  allocation: numeric("allocation").default("100"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const procurementRequisitions = pgTable("procurement_requisitions", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => projects.id),
+  description: text("description").notNull(),
+  requisitionNumber: varchar("requisition_number", { length: 50 }),
+  requestedBy: varchar("requested_by", { length: 100 }).references(() => users.id),
+  status: varchar("status", { length: 50 }).default("draft"),
+  requestedDate: timestamp("requested_date"),
+  requiredDate: timestamp("required_date"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const resourceRequirements = pgTable("resource_requirements", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").references(() => projects.id),
+  taskId: integer("task_id").references(() => tasks.id),
+  resourceType: varchar("resource_type", { length: 50 }),
+  quantity: numeric("quantity"),
+  startDate: timestamp("start_date"),
+  endDate: timestamp("end_date"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const inventoryAllocations = pgTable("inventory_allocations", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => projects.id),
+  resourceId: integer("resource_id").references(() => resources.id),
+  quantity: numeric("quantity"),
+  allocatedDate: timestamp("allocated_date"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const googleConnections = pgTable("google_connections", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id", { length: 100 }).notNull().references(() => users.id),
+  accessToken: text("access_token"),
+  refreshToken: text("refresh_token"),
+  scope: text("scope"),
+  expiryDate: bigint("expiry_date", { mode: "number" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const aiConversations = pgTable("ai_conversations", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id", { length: 100 }).notNull().references(() => users.id),
+  projectId: integer("project_id").references(() => projects.id),
+  title: varchar("title", { length: 255 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const aiMessages = pgTable("ai_messages", {
+  id: serial("id").primaryKey(),
+  conversationId: integer("conversation_id").notNull().references(() => aiConversations.id, { onDelete: "cascade" }),
+  role: varchar("role", { length: 20 }).notNull(), // user, assistant, system
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const aiUsage = pgTable("ai_usage", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id", { length: 100 }).notNull().references(() => users.id),
+  organizationId: integer("organization_id").references(() => organizations.id),
+  tokensInput: integer("tokens_input"),
+  tokensOutput: integer("tokens_output"),
+  model: varchar("model", { length: 50 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const emailTemplates = pgTable("email_templates", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id),
+  name: varchar("name", { length: 100 }).notNull(),
+  type: varchar("type", { length: 50 }),
+  subject: varchar("subject", { length: 255 }),
+  body: text("body"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const sentEmails = pgTable("sent_emails", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id),
+  recipient: varchar("recipient", { length: 255 }).notNull(),
+  subject: varchar("subject", { length: 255 }),
+  sentAt: timestamp("sent_at").defaultNow().notNull(),
+  status: varchar("status", { length: 50 }),
+});
+
+export const emailUsage = pgTable("email_usage", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id),
+  emailsSent: integer("emails_sent").default(0).notNull(),
+  month: varchar("month", { length: 7 }), // YYYY-MM
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const projectFiles = pgTable("project_files", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => projects.id),
+  organizationId: integer("organization_id").references(() => organizations.id), // Added for direct org access
+  name: varchar("name", { length: 255 }).notNull(),
+  url: text("url").notNull(),
+  size: integer("size"),
+  type: varchar("type", { length: 50 }),
+  uploadedBy: varchar("uploaded_by", { length: 100 }).references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const storageQuotas = pgTable("storage_quota", {
+  id: serial("id").primaryKey(),
+  organizationId: integer("organization_id").notNull().references(() => organizations.id),
+  usedBytes: bigint("used_bytes", { mode: "number" }).default(0),
+  limitBytes: bigint("limit_bytes", { mode: "number" }),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const taskDocuments = pgTable("task_documents", {
+  id: serial("id").primaryKey(),
+  taskId: integer("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  documentId: integer("document_id").notNull().references(() => documents.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const taskRisks = pgTable("task_risks", {
+  id: serial("id").primaryKey(),
+  taskId: integer("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  riskId: integer("risk_id").notNull().references(() => risks.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const taskIssues = pgTable("task_issues", {
+  id: serial("id").primaryKey(),
+  taskId: integer("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  issueId: integer("issue_id").notNull().references(() => issues.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const notifications = pgTable("notifications", {
+  id: serial("id").primaryKey(),
+  userId: varchar("user_id", { length: 100 }).notNull().references(() => users.id),
+  title: varchar("title", { length: 255 }).notNull(),
+  message: text("message"),
+  type: varchar("type", { length: 50 }), // info, warning, error
+  read: boolean("read").default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const projectEvents = pgTable("project_events", {
+  id: serial("id").primaryKey(),
+  projectId: integer("project_id").notNull().references(() => projects.id),
+  title: varchar("title", { length: 255 }).notNull(),
+  description: text("description"),
+  startDate: timestamp("start_date"),
+  endDate: timestamp("end_date"),
+  type: varchar("type", { length: 50 }), // milestone, meeting, etc
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Helper for stakeholderRaci
+export const stakeholderRaci = pgTable("stakeholder_raci", {
+  id: serial("id").primaryKey(),
+  taskId: integer("task_id").notNull().references(() => tasks.id),
+  stakeholderId: integer("stakeholder_id").notNull().references(() => stakeholders.id),
+  projectId: integer("project_id").references(() => projects.id), // Added for project level context
+  resourceId: integer("resource_id").references(() => resources.id), // Added for resource linkage
+  inheritedFromTaskId: integer("inherited_from_task_id").references(() => tasks.id), // Added for inheritance
+  raciType: varchar("raci_type", { length: 1 }).notNull(), // R, A, C, I
+  isInherited: boolean("is_inherited").default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // Zod Schemas
 export const insertUserSchema = createInsertSchema(users);
+export const insertProjectTemplateSchema = createInsertSchema(projectTemplates);
 export const insertProjectSchema = createInsertSchema(projects);
-export const insertTaskSchema = createInsertSchema(tasks);
 export const insertRiskSchema = createInsertSchema(risks);
 export const insertIssueSchema = createInsertSchema(issues);
 export const insertStakeholderSchema = createInsertSchema(stakeholders);
@@ -594,6 +1100,50 @@ export const insertBugReportSchema = createInsertSchema(bugReports).omit({
 });
 export const updateBugReportSchema = insertBugReportSchema.partial();
 
+export const insertContactSchema = createInsertSchema(contacts);
+export const insertContactLogSchema = createInsertSchema(contactLogs);
+export const insertChatConversationSchema = createInsertSchema(chatConversations);
+export const insertChatParticipantSchema = createInsertSchema(chatParticipants);
+export const insertChatMessageSchema = createInsertSchema(chatMessages);
+export const insertChangeRequestSchema = createInsertSchema(changeRequests);
+export const insertChangeRequestApprovalSchema = createInsertSchema(changeRequestApprovals);
+export const insertChangeRequestTaskSchema = createInsertSchema(changeRequestTasks);
+export const insertChangeRequestTemplateSchema = createInsertSchema(changeRequestTemplates);
+export const insertTaskDependencySchema = createInsertSchema(taskDependencies);
+export const insertProjectStatusSchema = createInsertSchema(projectStatuses);
+export const updateProjectStatusSchema = insertProjectStatusSchema.partial();
+export const insertKanbanColumnSchema = createInsertSchema(kanbanColumns);
+export const updateKanbanColumnSchema = insertKanbanColumnSchema.partial();
+export const insertExchangeRateSchema = createInsertSchema(exchangeRates);
+export const insertExchangeRateSyncSchema = createInsertSchema(exchangeRateSyncs);
+export const insertProcurementRequisitionSchema = createInsertSchema(procurementRequisitions);
+export const insertResourceRequirementSchema = createInsertSchema(resourceRequirements);
+export const insertInventoryAllocationSchema = createInsertSchema(inventoryAllocations);
+export const insertGoogleConnectionSchema = createInsertSchema(googleConnections);
+export const insertAiConversationSchema = createInsertSchema(aiConversations);
+export const insertAiMessageSchema = createInsertSchema(aiMessages);
+export const insertAiUsageSchema = createInsertSchema(aiUsage);
+export const insertEmailTemplateSchema = createInsertSchema(emailTemplates);
+export const insertSentEmailSchema = createInsertSchema(sentEmails);
+export const insertEmailUsageSchema = createInsertSchema(emailUsage);
+export const insertProjectFileSchema = createInsertSchema(projectFiles);
+export const insertStorageQuotaSchema = createInsertSchema(storageQuotas);
+export const insertTaskDocumentSchema = createInsertSchema(taskDocuments);
+export const insertTaskRiskSchema = createInsertSchema(taskRisks);
+export const insertTaskIssueSchema = createInsertSchema(taskIssues);
+export const insertNotificationSchema = createInsertSchema(notifications);
+export const updateNotificationSchema = insertNotificationSchema.partial();
+export const insertNotificationLogSchema = createInsertSchema(notificationLogs);
+export const insertProjectEventSchema = createInsertSchema(projectEvents);
+export const insertStakeholderRaciSchema = createInsertSchema(stakeholderRaci);
+export const insertCostBreakdownStructureSchema = createInsertSchema(costBreakdownStructure);
+export const insertCostItemCBSLinkSchema = createInsertSchema(costItemCBSLinks);
+
+export type CostBreakdownStructure = typeof costBreakdownStructure.$inferSelect;
+export type InsertCostBreakdownStructure = typeof costBreakdownStructure.$inferInsert;
+export type CostItemCBSLink = typeof costItemCBSLinks.$inferSelect;
+export type InsertCostItemCBSLink = typeof costItemCBSLinks.$inferInsert;
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type UserOrganization = typeof userOrganizations.$inferSelect;
@@ -606,6 +1156,8 @@ export type Project = typeof projects.$inferSelect;
 export type InsertProject = typeof projects.$inferInsert;
 export type Task = typeof tasks.$inferSelect;
 export type InsertTask = typeof tasks.$inferInsert;
+export type ProjectTemplate = typeof projectTemplates.$inferSelect;
+export type InsertProjectTemplate = typeof projectTemplates.$inferInsert;
 export type Risk = typeof risks.$inferSelect;
 export type InsertRisk = typeof risks.$inferInsert;
 export type Issue = typeof issues.$inferSelect;
@@ -617,6 +1169,16 @@ export type InsertCostItem = typeof costItems.$inferInsert;
 export type Resource = typeof resources.$inferSelect;
 export type InsertResource = typeof resources.$inferInsert;
 export type ResourceAssignment = typeof resourceAssignments.$inferSelect;
+export const insertResourceAssignmentSchema = createInsertSchema(resourceAssignments);
+export type InsertResourceAssignment = typeof resourceAssignments.$inferInsert;
+
+export const insertUserInvitationSchema = createInsertSchema(userInvitations);
+export type UserInvitation = typeof userInvitations.$inferSelect;
+export type InsertUserInvitation = typeof userInvitations.$inferInsert;
+
+export const insertUserActivityLogSchema = createInsertSchema(userActivityLogs);
+export type UserActivityLog = typeof userActivityLogs.$inferSelect;
+export type InsertUserActivityLog = typeof userActivityLogs.$inferInsert;
 
 // Tags Types
 export type Tag = typeof tags.$inferSelect;
@@ -654,6 +1216,7 @@ export type InsertSubscriptionPlan = typeof subscriptionPlans.$inferInsert;
 export type OrganizationSubscription = typeof organizationSubscriptions.$inferSelect;
 export type InsertOrganizationSubscription = typeof organizationSubscriptions.$inferInsert;
 export type AiUsageSummary = typeof aiUsageSummary.$inferSelect;
+export type InsertAiUsageSummary = typeof aiUsageSummary.$inferInsert;
 export type CloudStorageConnection = typeof cloudStorageConnections.$inferSelect;
 export type InsertCloudStorageConnection = typeof cloudStorageConnections.$inferInsert;
 export type CloudSyncedFile = typeof cloudSyncedFiles.$inferSelect;
@@ -663,3 +1226,105 @@ export type InsertCustomDashboard = typeof customDashboards.$inferInsert;
 export type BugReport = typeof bugReports.$inferSelect;
 export type InsertBugReport = z.infer<typeof insertBugReportSchema>;
 export type UpdateBugReport = z.infer<typeof updateBugReportSchema>;
+
+// Types for Restored Tables
+export type Contact = typeof contacts.$inferSelect;
+export type InsertContact = typeof contacts.$inferInsert;
+export type ContactLog = typeof contactLogs.$inferSelect;
+export type InsertContactLog = typeof contactLogs.$inferInsert;
+export type ChatConversation = typeof chatConversations.$inferSelect;
+export type InsertChatConversation = typeof chatConversations.$inferInsert;
+export type ChatParticipant = typeof chatParticipants.$inferSelect;
+export type InsertChatParticipant = typeof chatParticipants.$inferInsert;
+export type ChatMessage = typeof chatMessages.$inferSelect;
+export type InsertChatMessage = typeof chatMessages.$inferInsert;
+export type ChangeRequest = typeof changeRequests.$inferSelect;
+export type InsertChangeRequest = typeof changeRequests.$inferInsert;
+export type ChangeRequestApproval = typeof changeRequestApprovals.$inferSelect;
+export type InsertChangeRequestApproval = typeof changeRequestApprovals.$inferInsert;
+export type ChangeRequestTask = typeof changeRequestTasks.$inferSelect;
+export type InsertChangeRequestTask = typeof changeRequestTasks.$inferInsert;
+export type ChangeRequestTemplate = typeof changeRequestTemplates.$inferSelect;
+export type InsertChangeRequestTemplate = typeof changeRequestTemplates.$inferInsert;
+export type TaskDependency = typeof taskDependencies.$inferSelect;
+export type InsertTaskDependency = typeof taskDependencies.$inferInsert;
+export type ProjectStatus = typeof projectStatuses.$inferSelect;
+export type InsertProjectStatus = typeof projectStatuses.$inferInsert;
+export type UpdateProjectStatus = z.infer<typeof updateProjectStatusSchema>;
+export type KanbanColumn = typeof kanbanColumns.$inferSelect;
+export type InsertKanbanColumn = typeof kanbanColumns.$inferInsert;
+export type UpdateKanbanColumn = z.infer<typeof updateKanbanColumnSchema>;
+export type ExchangeRate = typeof exchangeRates.$inferSelect;
+export type InsertExchangeRate = typeof exchangeRates.$inferInsert;
+export type ExchangeRateSync = typeof exchangeRateSyncs.$inferSelect;
+export type InsertExchangeRateSync = typeof exchangeRateSyncs.$inferInsert;
+export type ProcurementRequisition = typeof procurementRequisitions.$inferSelect;
+export type InsertProcurementRequisition = typeof procurementRequisitions.$inferInsert;
+export type ResourceRequirement = typeof resourceRequirements.$inferSelect;
+export type InsertResourceRequirement = typeof resourceRequirements.$inferInsert;
+export type InventoryAllocation = typeof inventoryAllocations.$inferSelect;
+export type InsertInventoryAllocation = typeof inventoryAllocations.$inferInsert;
+export type GoogleConnection = typeof googleConnections.$inferSelect;
+export type InsertGoogleConnection = typeof googleConnections.$inferInsert;
+export type AiConversation = typeof aiConversations.$inferSelect;
+export type InsertAiConversation = typeof aiConversations.$inferInsert;
+export type AiMessage = typeof aiMessages.$inferSelect;
+export type InsertAiMessage = typeof aiMessages.$inferInsert;
+export type AiUsage = typeof aiUsage.$inferSelect;
+export type InsertAiUsage = typeof aiUsage.$inferInsert;
+export type EmailTemplate = typeof emailTemplates.$inferSelect;
+export type InsertEmailTemplate = typeof emailTemplates.$inferInsert;
+export type SentEmail = typeof sentEmails.$inferSelect;
+export type InsertSentEmail = typeof sentEmails.$inferInsert;
+export type EmailUsage = typeof emailUsage.$inferSelect;
+export type InsertEmailUsage = typeof emailUsage.$inferInsert;
+export type ProjectFile = typeof projectFiles.$inferSelect;
+export type InsertProjectFile = typeof projectFiles.$inferInsert;
+export type StorageQuota = typeof storageQuotas.$inferSelect;
+export type TaskDocument = typeof taskDocuments.$inferSelect;
+export type InsertTaskDocument = typeof taskDocuments.$inferInsert;
+export type TaskRisk = typeof taskRisks.$inferSelect;
+export type InsertTaskRisk = typeof taskRisks.$inferInsert;
+export type TaskIssue = typeof taskIssues.$inferSelect;
+export type InsertTaskIssue = typeof taskIssues.$inferInsert;
+export type Notification = typeof notifications.$inferSelect;
+export type InsertNotification = typeof notifications.$inferInsert;
+export type UpdateNotification = z.infer<typeof updateNotificationSchema>;
+export type NotificationLog = typeof notificationLogs.$inferSelect;
+export type InsertNotificationLog = typeof notificationLogs.$inferInsert;
+export type ProjectEvent = typeof projectEvents.$inferSelect;
+export type InsertProjectEvent = typeof projectEvents.$inferInsert;
+export type StakeholderRaci = typeof stakeholderRaci.$inferSelect;
+export type InsertStakeholderRaci = typeof stakeholderRaci.$inferInsert;
+
+export type ResourceGroupMember = typeof resourceGroupMembers.$inferSelect;
+export type InsertResourceGroupMember = typeof resourceGroupMembers.$inferInsert;
+
+export type InsertResourceGroup = typeof resourceGroups.$inferInsert;
+export type ResourceGroup = typeof resourceGroups.$inferSelect;
+
+export type TaskMaterial = typeof taskMaterials.$inferSelect;
+export type InsertTaskMaterial = typeof taskMaterials.$inferInsert;
+
+export type MaterialConsumption = typeof materialConsumptions.$inferSelect;
+export type InsertMaterialConsumption = typeof materialConsumptions.$inferInsert;
+
+export type MaterialDelivery = typeof materialDeliveries.$inferSelect;
+export type InsertMaterialDelivery = typeof materialDeliveries.$inferInsert;
+
+export type AiActionLog = typeof aiActionLogs.$inferSelect;
+export type InsertAiActionLog = typeof aiActionLogs.$inferInsert;
+
+export type MessageReaction = typeof messageReactions.$inferSelect;
+export type InsertMessageReaction = typeof messageReactions.$inferInsert;
+
+export type ResourceTimeEntry = typeof resourceTimeEntries.$inferSelect;
+export type InsertResourceTimeEntry = typeof resourceTimeEntries.$inferInsert;
+
+// Legacy Aliases
+export type Conversation = ChatConversation;
+export type InsertConversation = InsertChatConversation;
+export type Message = ChatMessage;
+export type InsertMessage = InsertChatMessage;
+export type Participant = ChatParticipant;
+export type InsertParticipant = InsertChatParticipant;

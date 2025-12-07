@@ -50,8 +50,7 @@ export function ChatSidebar({
     if (!searchQuery) return true;
     const query = searchQuery.toLowerCase();
     return (
-      conv.name?.toLowerCase().includes(query) ||
-      conv.description?.toLowerCase().includes(query)
+      conv.name?.toLowerCase().includes(query)
     );
   });
 
@@ -131,13 +130,6 @@ export function ChatSidebar({
                           </Badge>
                         )}
                       </div>
-                      {conversation.description && (
-                        <p className={`text-sm truncate ${
-                          isSelected ? "text-primary-foreground/80" : "text-muted-foreground"
-                        }`}>
-                          {conversation.description}
-                        </p>
-                      )}
                       <p className={`text-xs mt-1 ${
                         isSelected ? "text-primary-foreground/70" : "text-muted-foreground"
                       }`}>

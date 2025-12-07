@@ -21,11 +21,12 @@ process.env.FORCE_PG_DRIVER = 'true';
 
 // Mock environment variables for testing if not set
 if (!process.env.DATABASE_URL) {
-  process.env.DATABASE_URL = process.env.TEST_DATABASE_URL || 'postgresql://localhost:5432/projectflow_test';
+  // Update default to match Docker Compose credentials
+  process.env.DATABASE_URL = process.env.TEST_DATABASE_URL || 'postgresql://postgres:password@localhost:5432/projectflow_test';
 }
 
 if (!process.env.SESSION_SECRET) {
-  process.env.SESSION_SECRET = 'test-session-secret-for-testing-only';
+  process.env.SESSION_SECRET = 'test-session-secret-for-testing-only-must-be-32-chars';
 }
 
 // Global test setup
@@ -62,4 +63,3 @@ afterAll(async () => {
     // Don't throw - cleanup errors shouldn't fail the test suite
   }
 }, 30000); // 30 second timeout for cleanup
-
