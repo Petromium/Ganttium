@@ -213,7 +213,8 @@ export function EditIssueModal({ issue, open, onOpenChange, onSuccess }: EditIss
       code: formData.code || "", 
       title: formData.title || "",
       // Map booleans to numeric/integer values for schema
-      impactCost: formData.impactCost ? "1" : "0", // Using "1" to indicate presence, string for numeric type
+      // Using 1/0 to represent boolean state in numeric columns
+      impactCost: formData.impactCost ? 1 : 0,
       impactSchedule: formData.impactSchedule ? 1 : 0,
     };
 

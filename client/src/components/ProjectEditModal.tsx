@@ -91,7 +91,7 @@ export function ProjectEditModal({
 
   // General tab mutations
   const updateProjectMutation = useMutation({
-    mutationFn: async (data: { name?: string; code?: string; description?: string; status?: string }) => {
+    mutationFn: async (data: { name?: string; code?: string; description?: string; status?: string; organizationId?: number }) => {
       if (!project) return;
       const res = await apiRequest("PATCH", `/api/projects/${project.id}`, data);
       return res.json();

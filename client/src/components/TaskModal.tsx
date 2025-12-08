@@ -2461,7 +2461,7 @@ export function TaskModal({
         </DialogFooter>
       </DialogContent>
 
-      {selectedAssignmentForTimeEntry && task && (
+      {selectedAssignmentForTimeEntry && task && assignments.find(a => a.id === selectedAssignmentForTimeEntry) && (
         <TimeEntryModal
           open={!!selectedAssignmentForTimeEntry}
           onOpenChange={(open) => {
@@ -2470,7 +2470,7 @@ export function TaskModal({
               setSelectedTimeEntry(undefined);
             }
           }}
-          resourceId={assignments.find(a => a.id === selectedAssignmentForTimeEntry)?.resourceId || 0}
+          resourceId={assignments.find(a => a.id === selectedAssignmentForTimeEntry)!.resourceId}
           taskId={task.id}
           projectId={task.projectId}
           entry={selectedTimeEntry}

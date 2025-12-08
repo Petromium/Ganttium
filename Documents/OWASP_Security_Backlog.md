@@ -19,11 +19,11 @@
 
 ## 🔐 A01:2021 – Broken Access Control
 
-**Current State:** ✅ RBAC middleware exists, ✅ Basic tests passing.
+**Current State:** ✅ RBAC middleware exists, ✅ Basic tests passing, ✅ Tests passed (accessControl.test.ts).
 
 | ID | Story | Story Points | Priority | Status |
 |----|-------|--------------|----------|--------|
-| **A01-001** | **Organization Isolation:** As a Tenant, I want automated tests that verify I cannot access data from other organizations, even with manipulated IDs. | 8 | Critical | 🟡 In Progress |
+| **A01-001** | **Organization Isolation:** As a Tenant, I want automated tests that verify I cannot access data from other organizations, even with manipulated IDs. | 8 | Critical | ✅ Verified |
 | **A01-002** | **Role Escalation Prevention:** As an Admin, I want tests that verify I cannot escalate my role to Owner without explicit permission. | 5 | High | 🔴 Todo |
 | **A01-003** | **Project Access Control:** As a Viewer, I want tests that verify I cannot modify projects even if I know the project ID. | 5 | High | 🔴 Todo |
 | **A01-004** | **API Endpoint Authorization:** As a Developer, I want all API endpoints to have explicit RBAC middleware, verified by automated tests. | 13 | Critical | ✅ Verified |
@@ -55,14 +55,14 @@
 
 ## 💉 A03:2021 – Injection
 
-**Current State:** ✅ Drizzle ORM (parameterized queries), ✅ Input sanitization middleware, ✅ Injection tests passing.
+**Current State:** ✅ Drizzle ORM (parameterized queries), ✅ Input sanitization middleware, ✅ Injection tests passing (injection.test.ts).
 
 | ID | Story | Story Points | Priority | Status |
 |----|-------|--------------|----------|--------|
 | **A03-001** | **SQL Injection Tests:** As a Security Engineer, I want automated tests that attempt SQL injection in all user inputs (search, filters, IDs), so that injection attacks are prevented. | 8 | Critical | ✅ Complete |
 | **A03-002** | **XSS Prevention Tests:** As a Frontend Developer, I want automated tests that verify user-generated content is properly escaped/encoded before rendering. | 5 | Critical | 🔴 Todo |
 | **A03-003** | **Command Injection Audit:** As a Developer, I want to verify no `exec()`, `eval()`, or shell commands are executed with user input. | 3 | High | 🔴 Todo |
-| **A03-004** | **Input Validation Coverage:** As a QA, I want all API endpoints to have Zod schema validation, verified by tests with malicious inputs. | 13 | Critical | 🟡 In Progress |
+| **A03-004** | **Input Validation Coverage:** As a QA, I want all API endpoints to have Zod schema validation, verified by tests with malicious inputs. | 13 | Critical | ✅ Verified |
 
 **Acceptance Criteria:**
 - SQL injection test suite passes
@@ -126,7 +126,7 @@
 
 ## 🔑 A07:2021 – Identification and Authentication Failures
 
-**Current State:** ✅ Rate limiting on auth endpoints, ✅ 2FA available, ✅ Tests passing.
+**Current State:** ✅ Rate limiting on auth endpoints, ✅ 2FA available, ✅ Tests passing (auth.test.ts).
 
 | ID | Story | Points | Priority | Status |
 |----|-------|--------|----------|--------|

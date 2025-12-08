@@ -142,6 +142,7 @@ export function ResourceGroupModal({ open, onOpenChange, projectId, group }: Res
 
     const data: InsertResourceGroup = {
       organizationId: (project as any).organizationId,
+      projectId,
       name: name.trim(),
       description: description.trim() || undefined,
       color,
