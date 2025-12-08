@@ -55,6 +55,13 @@ describe('Import/Export Service', () => {
       baselineCost: '50000',
       actualCost: '52000',
       earnedValue: '48000',
+      id: 1,
+      projectId: 1,
+      parentId: null,
+      customStatusId: null,
+      assignedToName: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     } as unknown as Task;
 
     const risk = {
@@ -76,6 +83,10 @@ describe('Import/Export Service', () => {
       targetResolutionDate: '2025-02-01T00:00:00.000Z',
       identifiedDate: '2025-01-05T00:00:00.000Z',
       closedDate: '2025-03-01T00:00:00.000Z',
+      id: 1,
+      projectId: 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     } as unknown as Risk;
 
     const issue = {
@@ -98,6 +109,10 @@ describe('Import/Export Service', () => {
       targetResolutionDate: '2025-02-10T00:00:00.000Z',
       reportedDate: '2025-01-12T00:00:00.000Z',
       resolvedDate: '2025-02-20T00:00:00.000Z',
+      id: 1,
+      projectId: 1,
+      createdAt: new Date(),
+      updatedAt: new Date(),
     } as unknown as Issue;
 
     const payload = buildProjectExportPayload({
@@ -207,6 +222,28 @@ describe('Import/Export Service', () => {
     expect(insert.discipline).toBe('construction');
     expect(insert.reportedBy).toBe('user-1');
   });
+
+  it('should allow defaults for missing dates in Risk and Issue', () => {
+    // For Risk: identifiedDate should be undefined (not null) to trigger defaultNow()
+    const riskInsert = buildRiskInsertData({
+      projectId: 1,
+      code: 'R-2',
+      rawRisk: { title: 'No Date Risk' },
+      mappedStatus: 'identified',
+      mappedImpact: 'low',
+    });
+    // We expect undefined, because null overrides defaultNow()
+    expect(riskInsert.identifiedDate).toBeUndefined();
+
+    // For Issue: reportedDate should be undefined (not null) to trigger defaultNow()
+    const issueInsert = buildIssueInsertData({
+      projectId: 1,
+      code: 'I-2',
+      rawIssue: { title: 'No Date Issue' },
+      mappedStatus: 'open',
+      mappedPriority: 'low',
+      fallbackReporter: 'user-1',
+    });
+    expect(issueInsert.reportedDate).toBeUndefined();
+  });
 });
-
-

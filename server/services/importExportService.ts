@@ -234,7 +234,7 @@ export function buildRiskInsertData(options: RiskInsertOptions) {
     riskExposure: rawRisk.riskExposure || null,
     contingencyReserve: rawRisk.contingencyReserve || null,
     targetResolutionDate: normalizeDate(rawRisk.targetResolutionDate),
-    identifiedDate: normalizeDate(rawRisk.identifiedDate),
+    identifiedDate: normalizeDate(rawRisk.identifiedDate) || undefined,
     closedDate: normalizeDate(rawRisk.closedDate),
   };
 }
@@ -269,7 +269,7 @@ export function buildIssueInsertData(options: IssueInsertOptions) {
     discipline: rawIssue.discipline || null,
     escalationLevel: rawIssue.escalationLevel || null,
     targetResolutionDate: normalizeDate(rawIssue.targetResolutionDate),
-    reportedDate: normalizeDate(rawIssue.reportedDate),
+    reportedDate: normalizeDate(rawIssue.reportedDate) || undefined,
     resolvedDate: normalizeDate(rawIssue.resolvedDate),
   };
 }
