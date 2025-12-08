@@ -111,6 +111,9 @@ import { logger } from "./services/cloudLogging";
 
 // Helper to get user ID from request
 function getUserId(req: any): string {
+  if (!req.user || !req.user.id) {
+    throw new Error("User not authenticated");
+  }
   return req.user.id;
 }
 
@@ -1143,16 +1146,53 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = getUserId(req);
       const orgId = parseInt(req.params.orgId);
 
-      // Check access
-      if (!await checkOrganizationAccess(userId, orgId)) {
-        return res.status(403).json({ message: "Access denied" });
+      // Validate orgId
+      if (isNaN(orgId)) {
+        return res.status(400).json({ message: "Invalid organization ID" });
       }
 
-      const projects = await storage.getProjectsByOrganization(orgId);
-      res.json(projects);
-    } catch (error) {
+      // Check access with better error handling
+      try {
+        if (!await checkOrganizationAccess(userId, orgId)) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      } catch (accessError: any) {
+        console.error("Error checking organization access:", accessError);
+        logger.error("Error checking organization access", accessError instanceof Error ? accessError : new Error(String(accessError)), {
+          userId,
+          orgId,
+          error: accessError?.message || String(accessError),
+        });
+        return res.status(500).json({ message: "Failed to verify access" });
+      }
+
+      // Fetch projects with error handling
+      try {
+        const projects = await storage.getProjectsByOrganization(orgId);
+        res.json(projects);
+      } catch (dbError: any) {
+        console.error("Error fetching projects from database:", dbError);
+        logger.error("Error fetching projects from database", dbError instanceof Error ? dbError : new Error(String(dbError)), {
+          userId,
+          orgId,
+          error: dbError?.message || String(dbError),
+        });
+        return res.status(500).json({ 
+          message: "Failed to fetch projects",
+          error: process.env.NODE_ENV === "development" ? dbError?.message : undefined
+        });
+      }
+    } catch (error: any) {
       console.error("Error fetching projects:", error);
-      res.status(500).json({ message: "Failed to fetch projects" });
+      logger.error("Error fetching projects", error instanceof Error ? error : new Error(String(error)), {
+        userId: (req as any).user?.id,
+        orgId: req.params.orgId,
+        error: error?.message || String(error),
+      });
+      res.status(500).json({ 
+        message: "Failed to fetch projects",
+        error: process.env.NODE_ENV === "development" ? error?.message : undefined
+      });
     }
   });
 
@@ -6402,11 +6442,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/ai/conversations', isAuthenticated, async (req: any, res) => {
     try {
       const userId = getUserId(req);
-      const conversations = await storage.getAiConversationsByUser(userId);
-      res.json(conversations);
-    } catch (error) {
-      console.error("Error fetching conversations:", error);
-      res.status(500).json({ message: "Failed to fetch conversations" });
+      
+      if (!userId) {
+        return res.status(401).json({ message: "User not authenticated" });
+      }
+
+      try {
+        const conversations = await storage.getAiConversationsByUser(userId);
+        res.json(conversations);
+      } catch (dbError: any) {
+        console.error("Error fetching conversations from database:", dbError);
+        logger.error("Error fetching AI conversations from database", dbError instanceof Error ? dbError : new Error(String(dbError)), {
+          userId,
+          error: dbError?.message || String(dbError),
+        });
+        return res.status(500).json({ 
+          message: "Failed to fetch conversations",
+          error: process.env.NODE_ENV === "development" ? dbError?.message : undefined
+        });
+      }
+    } catch (error: any) {
+      console.error("Unexpected error fetching conversations:", error);
+      logger.error("Unexpected error fetching AI conversations", error instanceof Error ? error : new Error(String(error)), {
+        userId: (req as any).user?.id,
+        error: error?.message || String(error),
+      });
+      res.status(500).json({ 
+        message: "Failed to fetch conversations",
+        error: process.env.NODE_ENV === "development" ? error?.message : undefined
+      });
     }
   });
 
@@ -6437,25 +6501,72 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/ai/conversations', isAuthenticated, async (req: any, res) => {
     try {
       const userId = getUserId(req);
-      const data = createConversationSchema.parse(req.body);
+      
+      // Parse and validate request body
+      let data;
+      try {
+        data = createConversationSchema.parse(req.body);
+      } catch (validationError: any) {
+        console.error("Validation error creating conversation:", validationError);
+        if (validationError instanceof z.ZodError) {
+          return res.status(400).json({ 
+            message: "Validation failed", 
+            errors: validationError.errors 
+          });
+        }
+        return res.status(400).json({ 
+          message: "Invalid request data",
+          error: process.env.NODE_ENV === "development" ? validationError?.message : undefined
+        });
+      }
 
       // Verify project access if projectId is provided
       if (data.projectId) {
-        if (!await checkProjectAccess(userId, data.projectId)) {
-          return res.status(403).json({ message: "Access denied" });
+        try {
+          if (!await checkProjectAccess(userId, data.projectId)) {
+            return res.status(403).json({ message: "Access denied" });
+          }
+        } catch (accessError: any) {
+          console.error("Error checking project access:", accessError);
+          logger.error("Error checking project access for AI conversation", accessError instanceof Error ? accessError : new Error(String(accessError)), {
+            userId,
+            projectId: data.projectId,
+          });
+          return res.status(500).json({ message: "Failed to verify project access" });
         }
       }
 
-      const conversation = await storage.createAiConversation({
-        title: data.title || "New Conversation",
-        projectId: data.projectId || null,
-        userId
-      });
+      // Create conversation
+      try {
+        const conversation = await storage.createAiConversation({
+          title: data.title || "New Conversation",
+          projectId: data.projectId || null,
+          userId
+        });
 
-      res.json(conversation);
-    } catch (error) {
-      console.error("Error creating conversation:", error);
-      res.status(400).json({ message: "Failed to create conversation" });
+        res.json(conversation);
+      } catch (dbError: any) {
+        console.error("Error creating conversation in database:", dbError);
+        logger.error("Error creating AI conversation in database", dbError instanceof Error ? dbError : new Error(String(dbError)), {
+          userId,
+          projectId: data.projectId,
+          error: dbError?.message || String(dbError),
+        });
+        return res.status(500).json({ 
+          message: "Failed to create conversation",
+          error: process.env.NODE_ENV === "development" ? dbError?.message : undefined
+        });
+      }
+    } catch (error: any) {
+      console.error("Unexpected error creating conversation:", error);
+      logger.error("Unexpected error creating AI conversation", error instanceof Error ? error : new Error(String(error)), {
+        userId: (req as any).user?.id,
+        error: error?.message || String(error),
+      });
+      res.status(500).json({ 
+        message: "Failed to create conversation",
+        error: process.env.NODE_ENV === "development" ? error?.message : undefined
+      });
     }
   });
 
