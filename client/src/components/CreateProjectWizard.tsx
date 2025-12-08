@@ -310,6 +310,9 @@ export function CreateProjectWizard({ open, onOpenChange }: CreateProjectWizardP
                         />
                       </FormControl>
                         <FormMessage />
+                        <p className="text-[10px] text-muted-foreground mt-1">
+                          Optional. Leave blank to calculate from schedule.
+                        </p>
                       </FormItem>
                     )}
                   />

@@ -125,10 +125,13 @@ export const projects = pgTable("projects", {
 
 export const projectTemplates = pgTable("project_templates", {
   id: serial("id").primaryKey(),
-  organizationId: integer("organization_id").notNull().references(() => organizations.id),
+  organizationId: integer("organization_id").references(() => organizations.id),
   name: varchar("name", { length: 100 }).notNull(),
   description: text("description"),
-  structure: jsonb("structure"),
+  category: varchar("category", { length: 100 }),
+  isPublic: boolean("is_public").default(false),
+  metadata: jsonb("metadata"),
+  templateData: jsonb("template_data"),
   usageCount: integer("usage_count").default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
