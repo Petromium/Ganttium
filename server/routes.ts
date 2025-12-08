@@ -1493,11 +1493,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(403).json({ message: "Access denied" });
       }
 
+      // If programId is provided, verify it belongs to the organization
+      if (data.programId) {
+        const program = await storage.getProgram(data.programId);
+        if (!program || program.organizationId !== data.organizationId) {
+          return res.status(400).json({ message: "Invalid program ID or program does not belong to organization" });
+        }
+      }
+
       const project = await storage.createProject(data);
       res.json(project);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error creating project:", error);
-      res.status(400).json({ message: "Failed to create project" });
+      logger.error("Error creating project", error instanceof Error ? error : new Error(String(error)), {
+        userId,
+        organizationId: req.body.organizationId,
+        programId: req.body.programId,
+      });
+      
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ 
+          message: "Validation error", 
+          errors: error.errors 
+        });
+      }
+      
+      if (error?.code === '23505') { // PostgreSQL unique constraint violation
+        return res.status(400).json({ 
+          message: "A project with this code already exists in this organization" 
+        });
+      }
+      
+      res.status(400).json({ 
+        message: error?.message || "Failed to create project",
+        details: process.env.NODE_ENV === 'development' ? error?.stack : undefined
+      });
     }
   });
 
@@ -7788,12 +7818,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Get all templates
   app.get('/api/project-templates', isAuthenticated, async (req: any, res) => {
     try {
-      // Get public templates AND user's templates
+      const userId = getUserId(req);
+      // Get templates for user's organization or public templates
       const templates = await storage.getProjectTemplates();
-      res.json(templates);
+      
+      // Transform templates to match client expectations
+      const transformedTemplates = templates.map(t => ({
+        ...t,
+        category: (t.structure as any)?.category || "general",
+        metadata: {
+          estimatedDuration: (t.structure as any)?.estimatedDuration,
+          complexity: (t.structure as any)?.complexity || "medium",
+          industry: (t.structure as any)?.industry,
+          taskCount: (t.structure as any)?.taskCount || 0,
+        },
+        templateData: t.structure,
+      }));
+      
+      res.json(transformedTemplates);
     } catch (error: any) {
       console.error("Error fetching templates:", error);
-      res.status(500).json({ message: "Failed to fetch templates" });
+      logger.error("Error fetching templates", error instanceof Error ? error : new Error(String(error)));
+      res.status(500).json({ 
+        message: "Failed to fetch templates",
+        details: process.env.NODE_ENV === 'development' ? error?.stack : undefined
+      });
     }
   });
 

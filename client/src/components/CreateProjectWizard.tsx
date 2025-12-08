@@ -36,24 +36,6 @@ import { TemplateSelector } from "./TemplateSelector";
 import { TemplatePreview } from "./TemplatePreview";
 import { CreateProjectAIStep } from "./CreateProjectAIStep";
 
-// Component to handle navigation to AI Assistant for project creation
-function AICreateProjectRedirect({ 
-  organizationId, 
-  onClose,
-  navigate 
-}: { 
-  organizationId: number; 
-  onClose: () => void;
-  navigate: (path: string) => void;
-}) {
-  useEffect(() => {
-    onClose();
-    navigate(`/ai-assistant?mode=create-project&orgId=${organizationId}`);
-  }, [organizationId, onClose, navigate]);
-  
-  return null;
-}
-
 // Extend shared schema for UI specific needs (e.g. optional code for templates)
 const projectSchema = insertProjectSchema.extend({
   name: z.string().min(1, "Name is required"),
@@ -85,7 +67,7 @@ export function CreateProjectWizard({ open, onOpenChange }: CreateProjectWizardP
   const [step, setStep] = useState<number>(1);
   const [method, setMethod] = useState<CreationMethod | null>(null);
   const { toast } = useToast();
-  const { selectedOrgId } = useProject();
+  const { selectedOrgId, selectedProgramId } = useProject();
   const queryClient = useQueryClient();
   const [, navigate] = useLocation();
   const [selectedTemplate, setSelectedTemplate] = useState<any>(null);
@@ -125,6 +107,7 @@ export function CreateProjectWizard({ open, onOpenChange }: CreateProjectWizardP
       const res = await apiRequest("POST", "/api/projects", {
         ...data,
         organizationId: selectedOrgId,
+        programId: selectedProgramId || undefined, // Include programId if selected
         startDate: data.startDate ? new Date(data.startDate) : null,
         endDate: data.endDate ? new Date(data.endDate) : null,
       });
@@ -459,11 +442,18 @@ export function CreateProjectWizard({ open, onOpenChange }: CreateProjectWizardP
         )}
 
         {step === 2 && method === 'ai' && selectedOrgId && (
-          <AICreateProjectRedirect 
-            organizationId={selectedOrgId}
-            onClose={() => onOpenChange(false)}
-            navigate={navigate}
-          />
+          <div className="px-6 pb-6 flex-1 overflow-y-auto">
+            <CreateProjectAIStep
+              organizationId={selectedOrgId}
+              onBack={handleBack}
+              onCancel={() => onOpenChange(false)}
+              onProjectCreated={(projectId) => {
+                queryClient.invalidateQueries({ queryKey: ["/api/projects"] });
+                toast({ title: "Success", description: "Project created successfully" });
+                onOpenChange(false);
+              }}
+            />
+          </div>
         )}
       </DialogContent>
     </Dialog>

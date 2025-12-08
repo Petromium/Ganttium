@@ -80,7 +80,7 @@ export function ImportFieldMapper({ onBack, onClose }: ImportFieldMapperProps) {
   const [mappings, setMappings] = useState<Record<string, FieldMapping[]>>({});
   const [isImporting, setIsImporting] = useState(false);
   const { toast } = useToast();
-  const { selectedOrgId } = useProject();
+  const { selectedOrgId, selectedProgramId } = useProject();
   const queryClient = useQueryClient();
 
   // Step 1: File Upload & Analysis
@@ -179,6 +179,7 @@ export function ImportFieldMapper({ onBack, onClose }: ImportFieldMapperProps) {
       const projectRes = await apiRequest("POST", "/api/projects", {
         ...projectData,
         organizationId: selectedOrgId,
+        programId: selectedProgramId || undefined, // Include programId if selected
         startDate: projectData.startDate ? new Date(projectData.startDate) : null,
         endDate: projectData.endDate ? new Date(projectData.endDate) : null,
       });
