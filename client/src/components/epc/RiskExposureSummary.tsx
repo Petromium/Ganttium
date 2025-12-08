@@ -86,7 +86,8 @@ function calculateRiskSummary(risks: Risk[], totalBudget: number): RiskSummary {
 
   const categoryMap = new Map<string, { count: number; exposure: number }>();
   openRisks.forEach(risk => {
-    const category = risk.categoryEpc || 'technical';
+    // Use type assertion or check property existence safely if types are not updated yet
+    const category = (risk as any).category || risk.category || 'technical';
     const current = categoryMap.get(category) || { count: 0, exposure: 0 };
     current.count++;
     

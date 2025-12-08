@@ -7,7 +7,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import {
   Table,
@@ -35,9 +34,25 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Plus, Edit, Trash2, MoreVertical, Search, Loader2, Bell, Clock, Calendar, AlertTriangle } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatDistanceToNow } from "date-fns";
 import type { NotificationRule } from "@shared/schema";
 import { NotificationRuleModal } from "@/components/modals/NotificationRuleModal";
+
+interface RuleCondition {
+  triggerType?: string;
+  triggerConfig?: any;
+  scopeType?: string;
+  recipientType?: string;
+  recipientConfig?: {
+    stakeholderIds?: number[];
+    resourceIds?: number[];
+    contactIds?: number[];
+    userIds?: number[];
+    raciTypes?: string[];
+    roles?: string[];
+    groupIds?: number[];
+  };
+  frequency?: string;
+}
 
 export function NotificationRulesSection() {
   const { selectedProject } = useProject();
@@ -131,11 +146,18 @@ export function NotificationRulesSection() {
     rule.description?.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const getCondition = (rule: NotificationRule): RuleCondition => {
+    return (rule.condition as unknown as RuleCondition) || {};
+  };
+
   const getTriggerDescription = (rule: NotificationRule): string => {
-    const config = rule.triggerConfig;
+    const condition = getCondition(rule);
+    const config = condition.triggerConfig;
+    const triggerType = condition.triggerType;
+
     if (!config) return "No trigger configured";
 
-    switch (rule.triggerType) {
+    switch (triggerType) {
       case "time-based":
         if (config.triggerOn === "baseline-start" && config.daysBefore) {
           return `${config.daysBefore} days before baseline start`;
@@ -162,10 +184,13 @@ export function NotificationRulesSection() {
   };
 
   const getRecipientDescription = (rule: NotificationRule): string => {
-    const recipients = rule.recipients;
+    const condition = getCondition(rule);
+    const recipients = condition.recipientConfig;
+    const recipientType = condition.recipientType;
+
     if (!recipients) return "No recipients";
 
-    switch (rule.recipientType) {
+    switch (recipientType) {
       case "individual":
         const count = (recipients.stakeholderIds?.length || 0) +
                      (recipients.resourceIds?.length || 0) +
@@ -247,87 +272,80 @@ export function NotificationRulesSection() {
                   <TableHead>Frequency</TableHead>
                   <TableHead>Scope</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Last Triggered</TableHead>
                   <TableHead className="w-[50px]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredRules.map((rule) => (
-                  <TableRow key={rule.id}>
-                    <TableCell>
-                      <div>
-                        <div className="font-medium">{rule.name}</div>
-                        {rule.description && (
-                          <div className="text-xs text-muted-foreground mt-1">{rule.description}</div>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        {rule.triggerType === "time-based" && <Clock className="h-4 w-4 text-muted-foreground" />}
-                        {rule.triggerType === "event-based" && <AlertTriangle className="h-4 w-4 text-muted-foreground" />}
-                        {rule.triggerType === "custom-date" && <Calendar className="h-4 w-4 text-muted-foreground" />}
-                        <span className="text-sm">{getTriggerDescription(rule)}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <span className="text-sm">{getRecipientDescription(rule)}</span>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{rule.frequency || "one-time"}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">
-                        {rule.projectId ? "Project" : rule.organizationId ? "Organization" : "Unknown"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Switch
-                          checked={rule.isActive}
-                          onCheckedChange={(checked) =>
-                            toggleActiveMutation.mutate({ id: rule.id, isActive: checked })
-                          }
-                          disabled={toggleActiveMutation.isPending}
-                        />
-                        <Badge variant={rule.isActive ? "default" : "secondary"}>
-                          {rule.isActive ? "Active" : "Inactive"}
+                {filteredRules.map((rule) => {
+                  const condition = getCondition(rule);
+                  return (
+                    <TableRow key={rule.id}>
+                      <TableCell>
+                        <div>
+                          <div className="font-medium">{rule.name}</div>
+                          {rule.description && (
+                            <div className="text-xs text-muted-foreground mt-1">{rule.description}</div>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          {condition.triggerType === "time-based" && <Clock className="h-4 w-4 text-muted-foreground" />}
+                          {condition.triggerType === "event-based" && <AlertTriangle className="h-4 w-4 text-muted-foreground" />}
+                          {condition.triggerType === "custom-date" && <Calendar className="h-4 w-4 text-muted-foreground" />}
+                          <span className="text-sm">{getTriggerDescription(rule)}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <span className="text-sm">{getRecipientDescription(rule)}</span>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="outline">{condition.frequency || "one-time"}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant="secondary">
+                          {rule.projectId ? "Project" : rule.organizationId ? "Organization" : "Unknown"}
                         </Badge>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {rule.lastTriggeredAt ? (
-                        <span className="text-xs text-muted-foreground">
-                          {formatDistanceToNow(new Date(rule.lastTriggeredAt), { addSuffix: true })}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">Never</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => handleEdit(rule)}>
-                            <Edit className="h-4 w-4 mr-2" />
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onClick={() => handleDelete(rule)}
-                            className="text-destructive"
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            checked={rule.isActive || false}
+                            onCheckedChange={(checked) =>
+                              toggleActiveMutation.mutate({ id: rule.id, isActive: checked })
+                            }
+                            disabled={toggleActiveMutation.isPending}
+                          />
+                          <Badge variant={rule.isActive ? "default" : "secondary"}>
+                            {rule.isActive ? "Active" : "Inactive"}
+                          </Badge>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={() => handleEdit(rule)}>
+                              <Edit className="h-4 w-4 mr-2" />
+                              Edit
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              onClick={() => handleDelete(rule)}
+                              className="text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           )}
@@ -373,4 +391,3 @@ export function NotificationRulesSection() {
     </div>
   );
 }
-

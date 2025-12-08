@@ -115,7 +115,7 @@ export function RightSidebar() {
     total: resources.length,
     human: resources.filter(r => r.type === "human").length,
     equipment: resources.filter(r => r.type === "equipment").length,
-    avgAvailability: resources.length > 0 ? Math.round(resources.reduce((sum, r) => sum + (r.availability || 0), 0) / resources.length) : 0,
+    avgAvailability: resources.length > 0 ? Math.round(resources.reduce((sum, r) => sum + Number(r.availability || 0), 0) / resources.length) : 0,
   };
 
   const documentStats = {

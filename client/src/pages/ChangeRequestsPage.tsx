@@ -45,19 +45,42 @@ const STATUS_OPTIONS = [
 interface ChangeRequestFormData {
   title: string;
   description: string;
-  justification: string;
+  reason: string;
   status: "submitted" | "under-review" | "approved" | "rejected" | "implemented";
-  impactAssessment: string;
+  impactAnalysis: string;
   costImpact: string;
   scheduleImpact: string;
+}
+
+interface CRAnalytics {
+  summary: {
+    total: number;
+    byStatus: Record<string, number>;
+    totalCostImpact: number;
+    totalScheduleImpact: number;
+  };
+  approvals: {
+    approvalRate: number;
+    approved: number;
+    rejected: number;
+    pending: number;
+  };
+  trends: {
+    monthly: Record<string, { submitted: number; approved: number; rejected: number }>;
+    avgApprovalTime: number;
+    avgRejectionTime: number;
+  };
+  costImpact: {
+    byStatus: Record<string, number>;
+  };
 }
 
 const initialFormData: ChangeRequestFormData = {
   title: "",
   description: "",
-  justification: "",
+  reason: "",
   status: "submitted",
-  impactAssessment: "",
+  impactAnalysis: "",
   costImpact: "",
   scheduleImpact: "",
 };
@@ -85,7 +108,7 @@ export default function ChangeRequestsPage() {
   }, []);
 
   // Fetch analytics
-  const { data: analytics, isLoading: analyticsLoading } = useQuery({
+  const { data: analytics, isLoading: analyticsLoading } = useQuery<CRAnalytics>({
     queryKey: [`/api/projects/${selectedProjectId}/change-requests/analytics`],
     enabled: !!selectedProjectId && activeTab === "analytics",
     retry: 1,
@@ -120,8 +143,8 @@ export default function ChangeRequestsPage() {
         projectId: selectedProjectId,
         costImpact: data.costImpact ? parseFloat(data.costImpact) : null,
         scheduleImpact: data.scheduleImpact ? parseInt(data.scheduleImpact) : null,
-        impactAssessment: data.impactAssessment || null,
-        justification: data.justification || null,
+        impactAnalysis: data.impactAnalysis || null,
+        reason: data.reason || null,
       };
       await apiRequest("POST", "/api/change-requests", payload);
     },
@@ -143,8 +166,8 @@ export default function ChangeRequestsPage() {
         ...data,
         costImpact: data.costImpact ? parseFloat(data.costImpact) : null,
         scheduleImpact: data.scheduleImpact ? parseInt(data.scheduleImpact) : null,
-        impactAssessment: data.impactAssessment || null,
-        justification: data.justification || null,
+        impactAnalysis: data.impactAnalysis || null,
+        reason: data.reason || null,
       };
       await apiRequest("PATCH", `/api/change-requests/${id}`, payload);
     },
@@ -191,9 +214,9 @@ export default function ChangeRequestsPage() {
     setFormData({
       title: cr.title,
       description: cr.description || "",
-      justification: cr.justification || "",
-      status: cr.status as ChangeRequestFormData["status"],
-      impactAssessment: cr.impactAssessment || "",
+      reason: cr.reason || "",
+      status: (cr.status || "submitted") as ChangeRequestFormData["status"],
+      impactAnalysis: cr.impactAnalysis || "",
       costImpact: cr.costImpact ? cr.costImpact.toString() : "",
       scheduleImpact: cr.scheduleImpact ? cr.scheduleImpact.toString() : "",
     });
@@ -308,7 +331,8 @@ export default function ChangeRequestsPage() {
             <div>Status</div>
           </div>
           {filteredChangeRequests.map((cr) => {
-            const StatusIcon = getStatusIcon(cr.status);
+            const status = cr.status || "submitted";
+            const StatusIcon = getStatusIcon(status);
             return (
               <TableRowCard
                 key={cr.id}
@@ -329,8 +353,8 @@ export default function ChangeRequestsPage() {
                     )}
                   </div>
                   <div className="text-sm text-muted-foreground">
-                    {cr.impactAssessment ? (
-                      <span className="line-clamp-2">{cr.impactAssessment}</span>
+                    {cr.impactAnalysis ? (
+                      <span className="line-clamp-2">{cr.impactAnalysis}</span>
                     ) : (
                       <span className="text-muted-foreground">-</span>
                     )}
@@ -356,9 +380,9 @@ export default function ChangeRequestsPage() {
                     )}
                   </div>
                   <div className="flex items-center gap-2">
-                    <Badge variant={getStatusVariant(cr.status)} className="capitalize">
+                    <Badge variant={getStatusVariant(status)} className="capitalize">
                       <StatusIcon className="h-3 w-3 mr-1" />
-                      {cr.status.replace("-", " ")}
+                      {status.replace("-", " ")}
                     </Badge>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -416,11 +440,11 @@ export default function ChangeRequestsPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="justification">Justification *</Label>
+                <Label htmlFor="reason">Justification *</Label>
                 <Textarea
-                  id="justification"
-                  value={formData.justification}
-                  onChange={(e) => setFormData({ ...formData, justification: e.target.value })}
+                  id="reason"
+                  value={formData.reason}
+                  onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
                   placeholder="Why is this change necessary?"
                   rows={3}
                   required
@@ -453,11 +477,11 @@ export default function ChangeRequestsPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="impactAssessment">Impact Assessment</Label>
+                <Label htmlFor="impactAnalysis">Impact Assessment</Label>
                 <Textarea
-                  id="impactAssessment"
-                  value={formData.impactAssessment}
-                  onChange={(e) => setFormData({ ...formData, impactAssessment: e.target.value })}
+                  id="impactAnalysis"
+                  value={formData.impactAnalysis}
+                  onChange={(e) => setFormData({ ...formData, impactAnalysis: e.target.value })}
                   placeholder="Assessment of overall impact on project scope, quality, resources, etc."
                   rows={4}
                 />

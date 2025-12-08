@@ -39,7 +39,8 @@ export function ResourceMaterialsTab({ projectId, materialResourceId }: Resource
       // Fetch materials for each task
       const materialsPromises = tasks.map(async (task) => {
         try {
-          const taskMaterials = await apiRequest<TaskMaterial[]>("GET", `/api/tasks/${task.id}/materials`);
+          const res = await apiRequest("GET", `/api/tasks/${task.id}/materials`);
+          const taskMaterials: TaskMaterial[] = await res.json();
           return taskMaterials.map((tm) => ({
             ...tm,
             task,
@@ -53,7 +54,7 @@ export function ResourceMaterialsTab({ projectId, materialResourceId }: Resource
       
       // Filter by materialResourceId if provided
       if (materialResourceId) {
-        return allTaskMaterials.filter(m => m.materialResourceId === materialResourceId);
+        return allTaskMaterials.filter(m => m.materialId === materialResourceId);
       }
       
       return allTaskMaterials;
@@ -73,8 +74,8 @@ export function ResourceMaterialsTab({ projectId, materialResourceId }: Resource
     }
 
     // Status filter
-    const plannedQty = parseFloat(material.plannedQuantity || "0");
-    const consumedQty = parseFloat(material.cumulativeConsumption || "0");
+    const plannedQty = parseFloat(material.quantity || "0");
+    const consumedQty = parseFloat(material.actualQuantity || "0");
     const percentageUsed = plannedQty > 0 ? (consumedQty / plannedQty) * 100 : 0;
 
     if (statusFilter === "on-track" && percentageUsed > 80) return false;
@@ -85,14 +86,14 @@ export function ResourceMaterialsTab({ projectId, materialResourceId }: Resource
   });
 
   // Aggregate statistics
-  const totalPlanned = filteredMaterials.reduce((sum, m) => sum + parseFloat(m.plannedQuantity || "0"), 0);
-  const totalConsumed = filteredMaterials.reduce((sum, m) => sum + parseFloat(m.cumulativeConsumption || "0"), 0);
+  const totalPlanned = filteredMaterials.reduce((sum, m) => sum + parseFloat(m.quantity || "0"), 0);
+  const totalConsumed = filteredMaterials.reduce((sum, m) => sum + parseFloat(m.actualQuantity || "0"), 0);
   const totalRemaining = totalPlanned - totalConsumed;
   const overallPercentage = totalPlanned > 0 ? (totalConsumed / totalPlanned) * 100 : 0;
 
   // Group by material resource
   const materialsByResource = filteredMaterials.reduce((acc, material) => {
-    const key = material.materialResourceId;
+    const key = material.materialId;
     if (!acc[key]) {
       acc[key] = [];
     }
@@ -238,8 +239,8 @@ export function ResourceMaterialsTab({ projectId, materialResourceId }: Resource
       ) : (
         <div className="space-y-4">
           {Object.entries(materialsByResource).map(([resourceId, materials]) => {
-            const resourceTotalPlanned = materials.reduce((sum, m) => sum + parseFloat(m.plannedQuantity || "0"), 0);
-            const resourceTotalConsumed = materials.reduce((sum, m) => sum + parseFloat(m.cumulativeConsumption || "0"), 0);
+            const resourceTotalPlanned = materials.reduce((sum, m) => sum + parseFloat(m.quantity || "0"), 0);
+            const resourceTotalConsumed = materials.reduce((sum, m) => sum + parseFloat(m.actualQuantity || "0"), 0);
             const resourcePercentage = resourceTotalPlanned > 0 ? (resourceTotalConsumed / resourceTotalPlanned) * 100 : 0;
 
             return (
@@ -258,8 +259,8 @@ export function ResourceMaterialsTab({ projectId, materialResourceId }: Resource
                 <CardContent>
                   <div className="space-y-3">
                     {materials.map((material) => {
-                      const plannedQty = parseFloat(material.plannedQuantity || "0");
-                      const consumedQty = parseFloat(material.cumulativeConsumption || "0");
+                      const plannedQty = parseFloat(material.quantity || "0");
+                      const consumedQty = parseFloat(material.actualQuantity || "0");
                       const remaining = plannedQty - consumedQty;
                       const percentageUsed = plannedQty > 0 ? (consumedQty / plannedQty) * 100 : 0;
 

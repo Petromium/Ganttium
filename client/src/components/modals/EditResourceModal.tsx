@@ -164,6 +164,8 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
     currency: "USD",
     description: "",
     notes: "",
+    // Fields not in schema
+    /*
     contractType: "",
     vendorName: "",
     vendorContactEmail: "",
@@ -176,8 +178,11 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
     efficiencyRating: "1.0",
     productivityFactor: "1.0",
     qualityScore: "",
+    */
   });
 
+  // State for extended fields - commented out
+  /*
   const [skills, setSkills] = useState<string[]>([]);
   const [newSkill, setNewSkill] = useState("");
   const [certifications, setCertifications] = useState<string[]>([]);
@@ -185,6 +190,7 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
   const [workingDays, setWorkingDays] = useState<string[]>(["monday", "tuesday", "wednesday", "thursday", "friday"]);
   const [pricingModels, setPricingModels] = useState<PricingModel[]>([]);
   const [calendarExceptions, setCalendarExceptions] = useState<CalendarException[]>([]);
+  */
 
   useEffect(() => {
     if (resource) {
@@ -192,36 +198,41 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
         name: resource.name,
         type: resource.type,
         discipline: resource.discipline || "general",
-        availability: resource.availability,
-        availabilityStatus: resource.availabilityStatus || "available",
-        rate: resource.rate || "",
-        rateType: resource.rateType || "per-hour",
-        unitType: resource.unitType || "hr",
+        availability: resource.availability ? Number(resource.availability) : 100,
+        availabilityStatus: resource.status || "available",
+        rate: resource.baseRate || "",
+        rateType: resource.costType || "per-hour",
+        unitType: resource.unit || "hr",
         currency: resource.currency || "USD",
-        description: resource.description || "",
+        description: resource.notes || "",
         notes: resource.notes || "",
-        contractType: resource.contractType || "",
-        vendorName: resource.vendorName || "",
-        vendorContactEmail: resource.vendorContactEmail || "",
-        vendorContactPhone: resource.vendorContactPhone || "",
-        contractStartDate: resource.contractStartDate ? new Date(resource.contractStartDate).toISOString().split("T")[0] : "",
-        contractEndDate: resource.contractEndDate ? new Date(resource.contractEndDate).toISOString().split("T")[0] : "",
-        contractReference: resource.contractReference || "",
-        maxHoursPerDay: resource.maxHoursPerDay || 8,
-        maxHoursPerWeek: resource.maxHoursPerWeek || 40,
-        efficiencyRating: resource.efficiencyRating || "1.0",
-        productivityFactor: resource.productivityFactor || "1.0",
-        qualityScore: resource.qualityScore?.toString() || "",
+        // Fields not in schema commented out
+        /*
+        contractType: "",
+        vendorName: "",
+        vendorContactEmail: "",
+        vendorContactPhone: "",
+        contractStartDate: "",
+        contractEndDate: "",
+        contractReference: "",
+        maxHoursPerDay: 8,
+        maxHoursPerWeek: 40,
+        efficiencyRating: "1.0",
+        productivityFactor: "1.0",
+        qualityScore: "",
+        */
       });
 
-      const resourceSkills = (resource.skillsArray as string[] | null) || 
-        (resource.skills?.split(",").map(s => s.trim()).filter(Boolean) || []);
+      // Fields not in schema commented out
+      /*
+      const resourceSkills: string[] = [];
       setSkills(resourceSkills);
       
-      setCertifications((resource.certifications as string[] | null) || []);
-      setWorkingDays((resource.workingDays as string[] | null) || ["monday", "tuesday", "wednesday", "thursday", "friday"]);
-      setPricingModels((resource.pricingModels as PricingModel[] | null) || []);
-      setCalendarExceptions((resource.calendarExceptions as CalendarException[] | null) || []);
+      setCertifications([]);
+      setWorkingDays(["monday", "tuesday", "wednesday", "thursday", "friday"]);
+      setPricingModels([]);
+      setCalendarExceptions([]);
+      */
     } else {
       resetForm();
     }
@@ -240,6 +251,8 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
       currency: "USD",
       description: "",
       notes: "",
+      // Fields not in schema commented out
+      /*
       contractType: "",
       vendorName: "",
       vendorContactEmail: "",
@@ -252,7 +265,9 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
       efficiencyRating: "1.0",
       productivityFactor: "1.0",
       qualityScore: "",
+      */
     });
+    /*
     setSkills([]);
     setNewSkill("");
     setCertifications([]);
@@ -260,6 +275,7 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
     setWorkingDays(["monday", "tuesday", "wednesday", "thursday", "friday"]);
     setPricingModels([]);
     setCalendarExceptions([]);
+    */
   };
 
   const createMutation = useMutation({
@@ -296,6 +312,7 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
     },
   });
 
+  /*
   const handleAddSkill = () => {
     if (newSkill.trim() && skills.length < MAX_SKILLS && !skills.includes(newSkill.trim())) {
       setSkills([...skills, newSkill.trim()]);
@@ -346,6 +363,7 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
   const handleRemovePricingModel = (index: number) => {
     setPricingModels(pricingModels.filter((_, i) => i !== index));
   };
+  */
 
   const handleSave = () => {
     if (!formData.name.trim()) {
@@ -380,36 +398,35 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
       return isNaN(num) ? null : String(num);
     };
 
-    const data: any = {
+      const data: any = {
       name: formData.name,
       type: formData.type,
       discipline: formData.discipline,
-      availability: formData.availability,
-      availabilityStatus: formData.availabilityStatus,
-      rate: normalizeDecimal(formData.rate),
-      rateType: formData.rateType,
-      unitType: formData.unitType,
+      availability: normalizeDecimal(formData.availability),
+      status: formData.availabilityStatus, // Mapped to status
+      baseRate: normalizeDecimal(formData.rate), // Mapped to baseRate
+      costType: formData.rateType, // Mapped to costType
+      unit: formData.unitType, // Mapped to unit
       currency: formData.currency,
-      description: formData.description?.trim() || null,
-      notes: formData.notes?.trim() || null,
-      contractType: formData.contractType || null,
-      vendorName: formData.vendorName?.trim() || null,
-      vendorContactEmail: formData.vendorContactEmail?.trim() || null,
-      vendorContactPhone: formData.vendorContactPhone?.trim() || null,
-      contractStartDate: normalizeDate(formData.contractStartDate),
-      contractEndDate: normalizeDate(formData.contractEndDate),
-      contractReference: formData.contractReference?.trim() || null,
-      maxHoursPerDay: formData.maxHoursPerDay || null,
-      maxHoursPerWeek: formData.maxHoursPerWeek || null,
-      efficiencyRating: normalizeDecimal(formData.efficiencyRating),
-      productivityFactor: normalizeDecimal(formData.productivityFactor),
-      qualityScore: formData.qualityScore ? parseInt(formData.qualityScore) : null,
-      skillsArray: skills.length > 0 ? skills : null,
-      skills: skills.length > 0 ? skills.join(", ") : null,
-      certifications: certifications.length > 0 ? certifications : null,
-      workingDays: workingDays.length > 0 ? workingDays : null,
-      pricingModels: pricingModels.length > 0 ? pricingModels : null,
-      calendarExceptions: calendarExceptions.length > 0 ? calendarExceptions : null,
+      notes: formData.description?.trim() || formData.notes?.trim() || null, // Mapped to notes
+      // contractType: formData.contractType || null, // Removed as not in schema
+      // vendorName: formData.vendorName?.trim() || null, // Not in schema
+      // vendorContactEmail: formData.vendorContactEmail?.trim() || null, // Not in schema
+      // vendorContactPhone: formData.vendorContactPhone?.trim() || null, // Not in schema
+      // contractStartDate: normalizeDate(formData.contractStartDate), // Not in schema
+      // contractEndDate: normalizeDate(formData.contractEndDate), // Not in schema
+      // contractReference: formData.contractReference?.trim() || null, // Not in schema
+      // maxHoursPerDay: formData.maxHoursPerDay || null, // Not in schema
+      // maxHoursPerWeek: formData.maxHoursPerWeek || null, // Not in schema
+      // efficiencyRating: normalizeDecimal(formData.efficiencyRating), // Not in schema
+      // productivityFactor: normalizeDecimal(formData.productivityFactor), // Not in schema
+      // qualityScore: formData.qualityScore ? parseInt(formData.qualityScore) : null, // Not in schema
+      // skillsArray: skills.length > 0 ? skills : null, // Not in schema
+      // skills: skills.length > 0 ? skills.join(", ") : null, // Not in schema
+      // certifications: certifications.length > 0 ? certifications : null, // Not in schema
+      // workingDays: workingDays.length > 0 ? workingDays : null, // Not in schema
+      // pricingModels: pricingModels.length > 0 ? pricingModels : null, // Not in schema
+      // calendarExceptions: calendarExceptions.length > 0 ? calendarExceptions : null, // Not in schema
       projectId: selectedProjectId,
     };
 
@@ -493,17 +510,18 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
           <Tabs defaultValue="basic" className="w-full">
             <TabsList className={cn(
               "grid w-full",
-              formData.type === "human" ? "grid-cols-5" : "grid-cols-3"
+              // formData.type === "human" ? "grid-cols-5" : "grid-cols-3"
+              "grid-cols-2"
             )}>
               <TabsTrigger value="basic" data-testid="tab-basic">Basic</TabsTrigger>
               <TabsTrigger value="pricing" data-testid="tab-pricing">Pricing</TabsTrigger>
-              {formData.type === "human" && (
+              {/* {formData.type === "human" && (
                 <TabsTrigger value="skills" data-testid="tab-skills">Skills</TabsTrigger>
               )}
               <TabsTrigger value="contract" data-testid="tab-contract">Contract</TabsTrigger>
               {formData.type === "human" && (
                 <TabsTrigger value="capacity" data-testid="tab-capacity">Capacity</TabsTrigger>
-              )}
+              )} */}
             </TabsList>
 
             <TabsContent value="basic" className="mt-4 space-y-4">
@@ -667,7 +685,7 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
                 </CardContent>
               </Card>
 
-              <Card>
+              {/* <Card>
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-sm flex items-center gap-2">
@@ -734,54 +752,39 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
                     </div>
                   )}
                 </CardContent>
-              </Card>
+              </Card> */}
             </TabsContent>
 
-            <TabsContent value="skills" className="mt-4 space-y-4">
+            {/* <TabsContent value="skills" className="mt-4 space-y-4">
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm flex items-center gap-2">
                     <Award className="h-4 w-4" />
-                    Skills ({skills.length}/{MAX_SKILLS})
+                    Skills
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="flex gap-2">
                     <Input
                       placeholder="Add a skill"
-                      value={newSkill}
-                      onChange={(e) => setNewSkill(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleAddSkill())}
-                      disabled={skills.length >= MAX_SKILLS}
+                      // value={newSkill}
+                      // onChange={(e) => setNewSkill(e.target.value)}
+                      // onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleAddSkill())}
+                      // disabled={skills.length >= MAX_SKILLS}
+                      disabled
                       data-testid="input-new-skill"
                     />
                     <Button 
                       variant="outline" 
-                      onClick={handleAddSkill} 
-                      disabled={skills.length >= MAX_SKILLS || !newSkill.trim()}
+                      // onClick={handleAddSkill} 
+                      // disabled={skills.length >= MAX_SKILLS || !newSkill.trim()}
+                      disabled
                       data-testid="button-add-skill"
                     >
                       <Plus className="h-4 w-4" />
                     </Button>
                   </div>
                   
-                  {skills.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {skills.map((skill) => (
-                        <Badge key={skill} variant="secondary" className="gap-1 pr-1">
-                          {skill}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-4 w-4 p-0 ml-1"
-                            onClick={() => handleRemoveSkill(skill)}
-                          >
-                            <X className="h-3 w-3" />
-                          </Button>
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
                 </CardContent>
               </Card>
 
@@ -796,38 +799,23 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
                   <div className="flex gap-2">
                     <Input
                       placeholder="Add a certification"
-                      value={newCertification}
-                      onChange={(e) => setNewCertification(e.target.value)}
-                      onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleAddCertification())}
+                      // value={newCertification}
+                      // onChange={(e) => setNewCertification(e.target.value)}
+                      // onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), handleAddCertification())}
+                      disabled
                       data-testid="input-new-certification"
                     />
                     <Button 
                       variant="outline" 
-                      onClick={handleAddCertification} 
-                      disabled={!newCertification.trim()}
+                      // onClick={handleAddCertification} 
+                      // disabled={!newCertification.trim()}
+                      disabled
                       data-testid="button-add-certification"
                     >
                       <Plus className="h-4 w-4" />
                     </Button>
                   </div>
                   
-                  {certifications.length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {certifications.map((cert) => (
-                        <Badge key={cert} variant="outline" className="gap-1 pr-1">
-                          {cert}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-4 w-4 p-0 ml-1"
-                            onClick={() => handleRemoveCertification(cert)}
-                          >
-                            <X className="h-3 w-3" />
-                          </Button>
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
                 </CardContent>
               </Card>
             </TabsContent>
@@ -844,7 +832,7 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Contract Type</Label>
-                      <Select value={formData.contractType} onValueChange={(v) => setFormData({ ...formData, contractType: v })}>
+                      <Select disabled>
                         <SelectTrigger data-testid="select-contract-type">
                           <SelectValue placeholder="Select type" />
                         </SelectTrigger>
@@ -860,8 +848,9 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
                       <Label>Contract Reference</Label>
                       <Input
                         placeholder="e.g., CTR-2024-001"
-                        value={formData.contractReference}
-                        onChange={(e) => setFormData({ ...formData, contractReference: e.target.value })}
+                        // value={formData.contractReference}
+                        // onChange={(e) => setFormData({ ...formData, contractReference: e.target.value })}
+                        disabled
                         data-testid="input-contract-reference"
                       />
                     </div>
@@ -872,8 +861,9 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
                       <Label>Contract Start</Label>
                       <Input
                         type="date"
-                        value={formData.contractStartDate}
-                        onChange={(e) => setFormData({ ...formData, contractStartDate: e.target.value })}
+                        // value={formData.contractStartDate}
+                        // onChange={(e) => setFormData({ ...formData, contractStartDate: e.target.value })}
+                        disabled
                         data-testid="input-contract-start"
                       />
                     </div>
@@ -882,8 +872,9 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
                       <Label>Contract End</Label>
                       <Input
                         type="date"
-                        value={formData.contractEndDate}
-                        onChange={(e) => setFormData({ ...formData, contractEndDate: e.target.value })}
+                        // value={formData.contractEndDate}
+                        // onChange={(e) => setFormData({ ...formData, contractEndDate: e.target.value })}
+                        disabled
                         data-testid="input-contract-end"
                       />
                     </div>
@@ -900,8 +891,9 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
                     <Label>Vendor Name</Label>
                     <Input
                       placeholder="Vendor company name"
-                      value={formData.vendorName}
-                      onChange={(e) => setFormData({ ...formData, vendorName: e.target.value })}
+                      // value={formData.vendorName}
+                      // onChange={(e) => setFormData({ ...formData, vendorName: e.target.value })}
+                      disabled
                       data-testid="input-vendor-name"
                     />
                   </div>
@@ -912,8 +904,9 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
                       <Input
                         type="email"
                         placeholder="vendor@example.com"
-                        value={formData.vendorContactEmail}
-                        onChange={(e) => setFormData({ ...formData, vendorContactEmail: e.target.value })}
+                        // value={formData.vendorContactEmail}
+                        // onChange={(e) => setFormData({ ...formData, vendorContactEmail: e.target.value })}
+                        disabled
                         data-testid="input-vendor-email"
                       />
                     </div>
@@ -923,8 +916,9 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
                       <Input
                         type="tel"
                         placeholder="+1 234 567 8900"
-                        value={formData.vendorContactPhone}
-                        onChange={(e) => setFormData({ ...formData, vendorContactPhone: e.target.value })}
+                        // value={formData.vendorContactPhone}
+                        // onChange={(e) => setFormData({ ...formData, vendorContactPhone: e.target.value })}
+                        disabled
                         data-testid="input-vendor-phone"
                       />
                     </div>
@@ -949,8 +943,9 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
                         type="number"
                         min={1}
                         max={24}
-                        value={formData.maxHoursPerDay}
-                        onChange={(e) => setFormData({ ...formData, maxHoursPerDay: parseInt(e.target.value) || 8 })}
+                        // value={formData.maxHoursPerDay}
+                        // onChange={(e) => setFormData({ ...formData, maxHoursPerDay: parseInt(e.target.value) || 8 })}
+                        disabled
                         data-testid="input-max-hours-day"
                       />
                     </div>
@@ -961,8 +956,9 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
                         type="number"
                         min={1}
                         max={168}
-                        value={formData.maxHoursPerWeek}
-                        onChange={(e) => setFormData({ ...formData, maxHoursPerWeek: parseInt(e.target.value) || 40 })}
+                        // value={formData.maxHoursPerWeek}
+                        // onChange={(e) => setFormData({ ...formData, maxHoursPerWeek: parseInt(e.target.value) || 40 })}
+                        disabled
                         data-testid="input-max-hours-week"
                       />
                     </div>
@@ -982,10 +978,11 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
                     {DAYS_OF_WEEK.map((day) => (
                       <Button
                         key={day.value}
-                        variant={workingDays.includes(day.value) ? "default" : "outline"}
+                        variant="outline"
                         size="sm"
                         className="flex-1"
-                        onClick={() => handleToggleWorkingDay(day.value)}
+                        // onClick={() => handleToggleWorkingDay(day.value)}
+                        disabled
                         data-testid={`button-day-${day.value}`}
                       >
                         {day.label}
@@ -1008,8 +1005,9 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
                         step="0.1"
                         min="0.5"
                         max="2.0"
-                        value={formData.efficiencyRating}
-                        onChange={(e) => setFormData({ ...formData, efficiencyRating: e.target.value })}
+                        // value={formData.efficiencyRating}
+                        // onChange={(e) => setFormData({ ...formData, efficiencyRating: e.target.value })}
+                        disabled
                         data-testid="input-efficiency"
                       />
                     </div>
@@ -1021,8 +1019,9 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
                         step="0.1"
                         min="0.5"
                         max="2.0"
-                        value={formData.productivityFactor}
-                        onChange={(e) => setFormData({ ...formData, productivityFactor: e.target.value })}
+                        // value={formData.productivityFactor}
+                        // onChange={(e) => setFormData({ ...formData, productivityFactor: e.target.value })}
+                        disabled
                         data-testid="input-productivity"
                       />
                     </div>
@@ -1033,15 +1032,16 @@ export function EditResourceModal({ resource, open, onOpenChange, onSuccess }: E
                         type="number"
                         min="1"
                         max="100"
-                        value={formData.qualityScore}
-                        onChange={(e) => setFormData({ ...formData, qualityScore: e.target.value })}
+                        // value={formData.qualityScore}
+                        // onChange={(e) => setFormData({ ...formData, qualityScore: e.target.value })}
+                        disabled
                         data-testid="input-quality-score"
                       />
                     </div>
                   </div>
                 </CardContent>
               </Card>
-            </TabsContent>
+            </TabsContent> */}
           </Tabs>
         </ScrollArea>
 

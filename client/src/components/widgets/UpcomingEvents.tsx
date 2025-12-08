@@ -144,12 +144,12 @@ export function UpcomingEvents() {
     }));
 
   const calendarEvents: EventItem[] = projectEvents
-    .filter(e => new Date(e.startDate) >= now && new Date(e.startDate) <= twoWeeksFromNow)
+    .filter(e => e.startDate && new Date(e.startDate) >= now && new Date(e.startDate) <= twoWeeksFromNow)
     .map(e => ({
       id: `event-${e.id}`,
       title: e.title,
-      date: new Date(e.startDate),
-      type: (e.eventType as EventItem["type"]) || "other",
+      date: new Date(e.startDate!),
+      type: (e.type as EventItem["type"]) || "other",
     }));
 
   const allEvents = [...taskEvents, ...calendarEvents]

@@ -33,16 +33,22 @@ export function ResourceGroupModal({ open, onOpenChange, projectId, group }: Res
     enabled: open && !!projectId,
   });
 
+  const { data: project } = useQuery<{ organizationId: number }>({
+    queryKey: [`/api/projects/${projectId}`],
+    enabled: !!projectId,
+  });
+
   // Fetch group members if editing
   const { data: groupMembers = [] } = useQuery<number[]>({
     queryKey: [`/api/resource-groups/${group?.id}/members`],
     enabled: open && !!group?.id,
     queryFn: async () => {
-      const members = await apiRequest<Array<{ resourceId: number }>>(
+      const res = await apiRequest(
         "GET",
         `/api/resource-groups/${group!.id}/members`
       );
-      return members.map(m => m.resourceId);
+      const members = await res.json();
+      return members.map((m: any) => m.resourceId);
     },
   });
 
@@ -67,7 +73,8 @@ export function ResourceGroupModal({ open, onOpenChange, projectId, group }: Res
 
   const createMutation = useMutation({
     mutationFn: async (data: InsertResourceGroup) => {
-      const createdGroup = await apiRequest<ResourceGroup>("POST", "/api/resource-groups", data);
+      const res = await apiRequest("POST", "/api/resource-groups", data);
+      const createdGroup: ResourceGroup = await res.json();
       
       // Add members
       for (const resourceId of selectedResourceIds) {
@@ -131,8 +138,10 @@ export function ResourceGroupModal({ open, onOpenChange, projectId, group }: Res
       return;
     }
 
+    if (!project) return;
+
     const data: InsertResourceGroup = {
-      projectId,
+      organizationId: (project as any).organizationId,
       name: name.trim(),
       description: description.trim() || undefined,
       color,

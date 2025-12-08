@@ -58,12 +58,18 @@ function AICreateProjectRedirect({
 const projectSchema = insertProjectSchema.extend({
   name: z.string().min(1, "Name is required"),
   code: z.string().min(1, "Code is required"),
+  // Override dates to be strings for form handling (input type="date")
+  startDate: z.string().optional().nullable(),
+  endDate: z.string().optional().nullable(),
 });
 
 // Schema for Template Project (no code required, matches existing behavior)
 const templateProjectSchema = insertProjectSchema.extend({
   name: z.string().min(1, "Name is required"),
   code: z.string().optional(),
+  // Override dates to be strings for form handling
+  startDate: z.string().optional().nullable(),
+  endDate: z.string().optional().nullable(),
 });
 
 type ProjectFormValues = z.infer<typeof projectSchema>;
@@ -277,7 +283,7 @@ export function CreateProjectWizard({ open, onOpenChange }: CreateProjectWizardP
                     <FormItem>
                       <FormLabel>Description</FormLabel>
                       <FormControl>
-                        <Textarea placeholder="Project details..." {...field} />
+                        <Textarea placeholder="Project details..." {...field} value={field.value || ""} />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -290,9 +296,16 @@ export function CreateProjectWizard({ open, onOpenChange }: CreateProjectWizardP
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Start Date</FormLabel>
-                        <FormControl>
-                          <Input type="date" {...field} />
-                        </FormControl>
+                      <FormControl>
+                        <Input 
+                          type="date" 
+                          name={field.name}
+                          ref={field.ref}
+                          onBlur={field.onBlur}
+                          onChange={field.onChange}
+                          value={field.value || ""} 
+                        />
+                      </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -303,9 +316,16 @@ export function CreateProjectWizard({ open, onOpenChange }: CreateProjectWizardP
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>End Date</FormLabel>
-                        <FormControl>
-                          <Input type="date" {...field} />
-                        </FormControl>
+                      <FormControl>
+                        <Input 
+                          type="date" 
+                          name={field.name}
+                          ref={field.ref}
+                          onBlur={field.onBlur}
+                          onChange={field.onChange}
+                          value={field.value || ""} 
+                        />
+                      </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -317,7 +337,7 @@ export function CreateProjectWizard({ open, onOpenChange }: CreateProjectWizardP
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Status</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <Select onValueChange={field.onChange} defaultValue={field.value || undefined}>
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Select status" />
@@ -392,7 +412,7 @@ export function CreateProjectWizard({ open, onOpenChange }: CreateProjectWizardP
                           <FormItem className="sm:w-[200px]">
                             <FormLabel className="text-sm">Start Date</FormLabel>
                             <FormControl>
-                              <Input type="date" {...field} className="min-h-[44px]" />
+                              <Input type="date" {...field} className="min-h-[44px]" value={field.value || ""} />
                             </FormControl>
                             <FormMessage />
                           </FormItem>

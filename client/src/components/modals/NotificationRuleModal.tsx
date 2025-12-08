@@ -18,6 +18,21 @@ import { Loader2, Clock, AlertTriangle, Calendar, Users, Mail, FileText, Repeat 
 import type { NotificationRule, EmailTemplate, Task, Stakeholder, Resource, Contact } from "@shared/schema";
 import { insertNotificationRuleSchema } from "@shared/schema";
 
+interface RuleCondition {
+  triggerType?: string;
+  triggerConfig?: any;
+  scopeType?: string;
+  taskIds?: number[];
+  recipientType?: string;
+  recipientConfig?: any;
+  emailTemplateId?: number | null;
+  reportType?: string | null;
+  documentIds?: number[];
+  customMessage?: string;
+  frequency?: string;
+  maxOccurrences?: number | null;
+}
+
 interface NotificationRuleModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -88,21 +103,22 @@ export function NotificationRuleModal({
   // Initialize form data from rule
   useEffect(() => {
     if (rule) {
+      const condition = (rule.condition as unknown as RuleCondition) || {};
       setFormData({
         name: rule.name || "",
         description: rule.description || "",
-        triggerType: rule.triggerType || "time-based",
-        triggerConfig: rule.triggerConfig || {},
-        scopeType: rule.scopeType || "all-tasks",
-        taskIds: rule.taskIds || [],
-        recipientType: rule.recipientType || "individual",
-        recipients: rule.recipients || {},
-        emailTemplateId: rule.emailTemplateId || null,
-        reportType: rule.reportType || null,
-        documentIds: rule.documentIds || [],
-        customMessage: rule.customMessage || "",
-        frequency: rule.frequency || "one-time",
-        maxOccurrences: rule.maxOccurrences || null,
+        triggerType: (condition.triggerType as any) || "time-based",
+        triggerConfig: condition.triggerConfig || {},
+        scopeType: (condition.scopeType as any) || "all-tasks",
+        taskIds: condition.taskIds || [],
+        recipientType: (condition.recipientType as any) || "individual",
+        recipients: condition.recipientConfig || {},
+        emailTemplateId: condition.emailTemplateId || null,
+        reportType: condition.reportType || null,
+        documentIds: condition.documentIds || [],
+        customMessage: condition.customMessage || "",
+        frequency: (condition.frequency as any) || "one-time",
+        maxOccurrences: condition.maxOccurrences || null,
         isActive: rule.isActive ?? true,
       });
     } else {
@@ -129,10 +145,11 @@ export function NotificationRuleModal({
 
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
+      // Filter out nulls from IDs
       const payload = {
         ...data,
-        projectId: formData.scopeType === "project-level" || formData.scopeType === "all-tasks" || formData.scopeType === "specific-tasks" ? projectId : null,
-        organizationId: formData.scopeType === "project-level" ? null : organizationId,
+        projectId: (formData.scopeType === "project-level" || formData.scopeType === "all-tasks" || formData.scopeType === "specific-tasks") && projectId ? projectId : undefined,
+        organizationId: formData.scopeType === "project-level" ? undefined : organizationId,
       };
       await apiRequest("POST", "/api/notification-rules", payload);
     },
@@ -186,24 +203,31 @@ export function NotificationRuleModal({
       return;
     }
 
-    const payload = {
-      name: formData.name,
-      description: formData.description || null,
+    const condition: RuleCondition = {
       triggerType: formData.triggerType,
       triggerConfig: formData.triggerConfig,
       scopeType: formData.scopeType,
-      taskIds: formData.taskIds.length > 0 ? formData.taskIds : null,
+      taskIds: formData.taskIds.length > 0 ? formData.taskIds : undefined,
       recipientType: formData.recipientType,
-      recipients: formData.recipients,
-      emailTemplateId: formData.emailTemplateId || null,
-      reportType: formData.reportType || null,
-      documentIds: formData.documentIds.length > 0 ? formData.documentIds : null,
-      customMessage: formData.customMessage || null,
+      recipientConfig: formData.recipients,
+      emailTemplateId: formData.emailTemplateId,
+      reportType: formData.reportType,
+      documentIds: formData.documentIds.length > 0 ? formData.documentIds : undefined,
+      customMessage: formData.customMessage,
       frequency: formData.frequency,
-      maxOccurrences: formData.maxOccurrences || null,
+      maxOccurrences: formData.maxOccurrences,
+    };
+
+    const payload = {
+      name: formData.name,
+      description: formData.description || null,
+      eventType: formData.triggerType === 'event-based' ? formData.triggerConfig?.eventType : 'scheduled',
+      condition: condition as any,
+      recipients: [], // Store recipients config in condition
+      channel: 'email',
       isActive: formData.isActive,
-      projectId: formData.scopeType === "project-level" || formData.scopeType === "all-tasks" || formData.scopeType === "specific-tasks" ? projectId : null,
-      organizationId: formData.scopeType === "project-level" ? null : organizationId,
+      projectId: (formData.scopeType === "project-level" || formData.scopeType === "all-tasks" || formData.scopeType === "specific-tasks") && projectId ? projectId : undefined,
+      organizationId: formData.scopeType === "project-level" ? undefined : organizationId,
     };
 
     const result = insertNotificationRuleSchema.safeParse(payload);
@@ -488,7 +512,7 @@ export function NotificationRuleModal({
                                       ...formData.recipients,
                                       stakeholderIds: checked
                                         ? [...currentIds, stakeholder.id]
-                                        : currentIds.filter((id) => id !== stakeholder.id),
+                                        : currentIds.filter((id: number) => id !== stakeholder.id),
                                     },
                                   });
                                 }}
@@ -513,7 +537,7 @@ export function NotificationRuleModal({
                                       ...formData.recipients,
                                       resourceIds: checked
                                         ? [...currentIds, resource.id]
-                                        : currentIds.filter((id) => id !== resource.id),
+                                        : currentIds.filter((id: number) => id !== resource.id),
                                     },
                                   });
                                 }}
@@ -542,7 +566,7 @@ export function NotificationRuleModal({
                                     ...formData.recipients,
                                     raciTypes: checked
                                       ? [...currentTypes, type]
-                                      : currentTypes.filter((t) => t !== type),
+                                      : currentTypes.filter((t: string) => t !== type),
                                   },
                                 });
                               }}
@@ -606,7 +630,6 @@ export function NotificationRuleModal({
                       <SelectContent>
                         <SelectItem value="">None</SelectItem>
                         {emailTemplates
-                          .filter((t) => t.isActive)
                           .map((template) => (
                             <SelectItem key={template.id} value={template.id.toString()}>
                               {template.name}

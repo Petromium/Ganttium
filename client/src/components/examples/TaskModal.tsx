@@ -8,7 +8,11 @@ export default function TaskModalExample() {
   return (
     <div className="p-4">
       <Button onClick={() => setOpen(true)}>Open Task Modal</Button>
-      <TaskModal open={open} onClose={() => setOpen(false)} />
+      <TaskModal 
+        open={open} 
+        onOpenChange={setOpen}
+        onClose={() => setOpen(false)} 
+      />
     </div>
   );
 }

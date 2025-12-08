@@ -1,4 +1,12 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { apiRequest } from "@/lib/queryClient";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { format } from "date-fns";
+import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -28,7 +36,14 @@ import {
   Zap,
   CheckCircle,
   XCircle,
-  AlertCircle
+  AlertCircle,
+  Bug,
+  CheckCircle2,
+  MessageSquare,
+  Sparkles,
+  HelpCircle,
+  Loader2,
+  Trash2
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -786,17 +801,6 @@ export default function AdminDashboard() {
 }
 
 // Bug Reports Management Component
-import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
-import { Button } from "@/components/ui/button";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
-import { format } from "date-fns";
-import { Bug, CheckCircle2, XCircle, Clock, Eye, MessageSquare, Sparkles, HelpCircle, Loader2, Trash2, FolderKanban } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
 
 function BugReportsManagement() {
   const { toast } = useToast();

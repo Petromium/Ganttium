@@ -26,7 +26,7 @@ export function ResourceAssignmentCard({
     enabled: !!assignment.id && isEditing,
   });
 
-  const totalActualHours = timeEntries.reduce((sum, e) => sum + parseFloat(e.hoursWorked || "0"), 0);
+  const totalActualHours = timeEntries.reduce((sum, e) => sum + parseFloat(e.hours?.toString() || "0"), 0);
   const plannedHours = parseFloat(assignment.effortHours || "0");
 
   return (

@@ -115,6 +115,10 @@ export const projects = pgTable("projects", {
   budget: numeric("budget"),
   currency: varchar("currency", { length: 3 }).default("USD"),
   status: varchar("status", { length: 50 }).default("planning"),
+  // EPC Performance Metrics
+  baselineCost: numeric("baseline_cost").default("0"),
+  actualCost: numeric("actual_cost").default("0"),
+  earnedValue: numeric("earned_value").default("0"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -159,6 +163,10 @@ export const tasks = pgTable("tasks", {
   isCriticalPath: boolean("is_critical_path").default(false),
   estimatedHours: numeric("estimated_hours"),
   actualHours: numeric("actual_hours"),
+  // Task EVA Metrics
+  baselineCost: numeric("baseline_cost").default("0"),
+  actualCost: numeric("actual_cost").default("0"),
+  earnedValue: numeric("earned_value").default("0"),
   startDate: timestamp("start_date"),
   endDate: timestamp("end_date"),
   progress: integer("progress").default(0),
@@ -226,7 +234,16 @@ export const risks = pgTable("risks", {
   probability: integer("probability").default(3), // 1-5
   impact: varchar("impact", { length: 20 }).default("medium"),
   mitigationPlan: text("mitigation_plan"),
+  // Response Strategy
+  responseStrategy: varchar("response_strategy", { length: 50 }), // 'avoid', 'mitigate', 'transfer', 'accept'
   owner: varchar("owner", { length: 100 }),
+  // Risk Quantitative Metrics
+  costImpact: numeric("cost_impact"),
+  scheduleImpact: integer("schedule_impact"), // Days
+  riskExposure: numeric("risk_exposure"), // Monetary value (Probability% * Cost Impact)
+  contingencyReserve: numeric("contingency_reserve"),
+  assignedTo: varchar("assigned_to", { length: 100 }),
+  targetResolutionDate: timestamp("target_resolution_date"),
   identifiedDate: timestamp("identified_date").defaultNow(),
   closedDate: timestamp("closed_date"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -248,6 +265,13 @@ export const issues = pgTable("issues", {
   resolvedDate: timestamp("resolved_date"),
   resolution: text("resolution"),
   issueType: varchar("issue_type", { length: 50 }).default("standard"), // 'standard', 'ncr', 'hse', etc.
+  impactCost: numeric("impact_cost"),
+  impactSchedule: integer("impact_schedule"), // Days
+  impactQuality: varchar("impact_quality", { length: 50 }),
+  impactSafety: varchar("impact_safety", { length: 50 }),
+  discipline: varchar("discipline", { length: 50 }),
+  escalationLevel: varchar("escalation_level", { length: 50 }),
+  targetResolutionDate: timestamp("target_resolution_date"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -282,6 +306,13 @@ export const costItems = pgTable("cost_items", {
   budgeted: numeric("budgeted").notNull(),
   actual: numeric("actual").default("0"),
   variance: numeric("variance").default("0"), // Calculated
+  committed: numeric("committed").default("0"),
+  forecast: numeric("forecast").default("0"),
+  referenceNumber: varchar("reference_number", { length: 50 }),
+  status: varchar("status", { length: 50 }),
+  invoiceDate: timestamp("invoice_date"),
+  paidDate: timestamp("paid_date"),
+  currency: varchar("currency", { length: 10 }).default("USD"),
   date: timestamp("date").defaultNow(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -320,6 +351,7 @@ export const resourceGroups = pgTable("resource_groups", {
   organizationId: integer("organization_id").notNull().references(() => organizations.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 100 }).notNull(),
   description: text("description"),
+  color: varchar("color", { length: 20 }),
   parentId: integer("parent_id"), // For hierarchy
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -349,6 +381,8 @@ export const resources = pgTable("resources", {
   groupId: integer("group_id").references(() => resourceGroups.id),
   name: varchar("name", { length: 100 }).notNull(),
   type: varchar("type", { length: 50 }).notNull(), // 'labor', 'equipment', 'material'
+  discipline: varchar("discipline", { length: 100 }),
+  role: varchar("role", { length: 100 }),
   status: varchar("status", { length: 50 }).default("active"),
   email: varchar("email", { length: 255 }),
   phone: varchar("phone", { length: 50 }),
@@ -463,9 +497,15 @@ export const lessonsLearned = pgTable("lessons_learned", {
 export const documents = pgTable("documents", {
   id: serial("id").primaryKey(),
   projectId: integer("project_id").references(() => projects.id, { onDelete: "cascade" }),
+  documentNumber: varchar("document_number", { length: 100 }),
   name: varchar("name", { length: 200 }).notNull(),
+  title: varchar("title", { length: 255 }), // Often same as name but formal title
   description: text("description"),
   category: varchar("category", { length: 50 }),
+  discipline: varchar("discipline", { length: 50 }),
+  documentType: varchar("document_type", { length: 50 }), // e.g., 'drawing', 'spec', 'report'
+  revision: varchar("revision", { length: 20 }).default("0"),
+  status: varchar("status", { length: 50 }).default("draft"),
   fileUrl: text("file_url"),
   fileType: varchar("file_type", { length: 50 }),
   sizeBytes: integer("size_bytes"),
@@ -677,6 +717,9 @@ export const contacts = pgTable("contacts", {
   lastName: varchar("last_name", { length: 100 }).notNull(),
   email: varchar("email", { length: 255 }),
   phone: varchar("phone", { length: 50 }),
+  jobTitle: varchar("job_title", { length: 100 }),
+  company: varchar("company", { length: 100 }),
+  type: varchar("type", { length: 50 }),
   role: varchar("role", { length: 100 }),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -806,7 +849,7 @@ export const kanbanColumns = pgTable("kanban_columns", {
   id: serial("id").primaryKey(),
   projectId: integer("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 50 }).notNull(),
-  statusId: integer("status_id"), // For mapping to system statuses
+  statusId: varchar("status_id", { length: 50 }), // For mapping to system statuses
   customStatusId: integer("custom_status_id").references(() => projectStatuses.id),
   order: integer("order").default(0),
   isActive: boolean("is_active").default(true),
@@ -1035,6 +1078,7 @@ export const stakeholderRaci = pgTable("stakeholder_raci", {
 export const insertUserSchema = createInsertSchema(users);
 export const insertProjectTemplateSchema = createInsertSchema(projectTemplates);
 export const insertProjectSchema = createInsertSchema(projects);
+export const insertTaskSchema = createInsertSchema(tasks);
 export const insertRiskSchema = createInsertSchema(risks);
 export const insertIssueSchema = createInsertSchema(issues);
 export const insertStakeholderSchema = createInsertSchema(stakeholders);
@@ -1138,6 +1182,14 @@ export const insertProjectEventSchema = createInsertSchema(projectEvents);
 export const insertStakeholderRaciSchema = createInsertSchema(stakeholderRaci);
 export const insertCostBreakdownStructureSchema = createInsertSchema(costBreakdownStructure);
 export const insertCostItemCBSLinkSchema = createInsertSchema(costItemCBSLinks);
+export const insertTaskMaterialSchema = createInsertSchema(taskMaterials);
+export const insertMaterialConsumptionSchema = createInsertSchema(materialConsumptions);
+export const insertMaterialDeliverySchema = createInsertSchema(materialDeliveries);
+export const insertResourceGroupSchema = createInsertSchema(resourceGroups);
+export const insertResourceGroupMemberSchema = createInsertSchema(resourceGroupMembers);
+export const insertResourceTimeEntrySchema = createInsertSchema(resourceTimeEntries);
+export const insertMessageReactionSchema = createInsertSchema(messageReactions);
+export const insertAiActionLogSchema = createInsertSchema(aiActionLogs);
 
 export type CostBreakdownStructure = typeof costBreakdownStructure.$inferSelect;
 export type InsertCostBreakdownStructure = typeof costBreakdownStructure.$inferInsert;

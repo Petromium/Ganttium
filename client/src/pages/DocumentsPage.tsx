@@ -244,16 +244,16 @@ function DocumentsPageContent() {
     if (doc) {
       setEditingDoc(doc);
       setFormData({
-        documentNumber: doc.documentNumber,
-        title: doc.title,
+        documentNumber: doc.documentNumber || "",
+        title: doc.title || "",
         discipline: doc.discipline || "civil",
         documentType: doc.documentType || "drawing",
         revision: doc.revision || "A",
         status: doc.status || "draft",
         description: doc.description || "",
         file: null,
-        filePath: doc.filePath || null,
-        fileSize: doc.fileSize || null,
+        filePath: doc.fileUrl || null,
+        fileSize: doc.sizeBytes || null,
       });
     } else {
       setEditingDoc(null);

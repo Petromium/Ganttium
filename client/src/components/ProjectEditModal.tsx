@@ -65,7 +65,7 @@ export function ProjectEditModal({
         setName(project.name);
         setCode(project.code);
         setDescription(project.description || "");
-        setStatus(project.status);
+        setStatus(project.status || "active");
         setActiveTab("general");
       } else {
         setName("");
@@ -224,7 +224,7 @@ export function ProjectEditModal({
 
     const data = { name, code, description: description || undefined, organizationId, status };
     if (project && onUpdate) {
-      updateProjectMutation.mutate({ id: project.id, ...data });
+      updateProjectMutation.mutate(data);
     } else if (onCreate) {
       onCreate(data);
     }
@@ -426,7 +426,7 @@ export function ProjectEditModal({
                               </div>
                               <div className="flex items-center gap-2">
                                 <Checkbox
-                                  checked={status.isActive}
+                                  checked={status.isActive || false}
                                   onCheckedChange={(checked) => updateStatusMutation.mutate({ id: status.id, isActive: checked === true })}
                                 />
                                 <Button variant="ghost" size="sm" onClick={() => setEditingStatus(status)}>
@@ -564,7 +564,7 @@ export function ProjectEditModal({
                                 </div>
                                 <div className="flex items-center gap-2">
                                   <Checkbox
-                                    checked={column.isActive}
+                                    checked={column.isActive || false}
                                     onCheckedChange={(checked) => updateColumnMutation.mutate({ id: column.id, isActive: checked === true })}
                                   />
                                   <Button variant="ghost" size="sm" onClick={() => setEditingColumn(column)}>
@@ -822,7 +822,7 @@ function EditStatusDialog({
             <Label htmlFor="edit-status-code">Code</Label>
             <Input
               id="edit-status-code"
-              value={code}
+              value={code || ""}
               onChange={(e) => setCode(e.target.value)}
             />
           </div>

@@ -69,8 +69,8 @@ export function EditDocumentModal({ document, open, onOpenChange, onSuccess }: E
   useEffect(() => {
     if (document) {
       setFormData({
-        documentNumber: document.documentNumber,
-        title: document.title,
+        documentNumber: document.documentNumber || "",
+        title: document.title || "",
         description: document.description || "",
         discipline: document.discipline || "general",
         documentType: document.documentType || "drawing",
@@ -140,7 +140,14 @@ export function EditDocumentModal({ document, open, onOpenChange, onSuccess }: E
 
     const data: any = {
       ...formData,
+      documentNumber: formData.documentNumber, // Explicitly included
+      title: formData.title, // Explicitly included
+      name: formData.title, // Map title to name for schema
       description: formData.description?.trim() || null,
+      discipline: formData.discipline,
+      documentType: formData.documentType,
+      revision: formData.revision,
+      status: formData.status,
       projectId: selectedProjectId,
     };
 

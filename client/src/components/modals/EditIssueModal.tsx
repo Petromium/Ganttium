@@ -56,7 +56,16 @@ export function EditIssueModal({ issue, open, onOpenChange, onSuccess }: EditIss
   const { toast } = useToast();
   const isEditing = !!issue;
 
-  const [formData, setFormData] = useState<Partial<InsertIssue>>({
+  const [formData, setFormData] = useState<{
+    code: string;
+    title: string;
+    description: string;
+    status: string;
+    priority: string;
+    issueType: string;
+    impactCost: boolean;
+    impactSchedule: boolean;
+  }>({
     code: "",
     title: "",
     description: "",
@@ -83,8 +92,8 @@ export function EditIssueModal({ issue, open, onOpenChange, onSuccess }: EditIss
         status: issue.status || "open",
         priority: issue.priority || "medium",
         issueType: issue.issueType || "design",
-        impactCost: issue.impactCost || false,
-        impactSchedule: issue.impactSchedule || false,
+        impactCost: Number(issue.impactCost) > 0,
+        impactSchedule: Number(issue.impactSchedule) > 0,
       });
     } else {
       resetForm();
@@ -203,6 +212,9 @@ export function EditIssueModal({ issue, open, onOpenChange, onSuccess }: EditIss
       // Ensure string fields are not empty or null if required
       code: formData.code || "", 
       title: formData.title || "",
+      // Map booleans to numeric/integer values for schema
+      impactCost: formData.impactCost ? "1" : "0", // Using "1" to indicate presence, string for numeric type
+      impactSchedule: formData.impactSchedule ? 1 : 0,
     };
 
     const result = insertIssueSchema.safeParse(payload);

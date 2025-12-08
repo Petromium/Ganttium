@@ -262,7 +262,7 @@ export function TaskRaciTab({ taskId, projectId, hasParent }: { taskId: number; 
         id: s.id,
         name: s.name,
         type: "stakeholder",
-        role: s.role,
+        role: s.role || undefined,
         organization: s.organization || undefined,
       });
     });

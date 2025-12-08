@@ -18,7 +18,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const [, setLocation] = useLocation();
   const { selectedProjectId } = useProject();
   const { context } = useAIContext();
-  const { setPendingPrompt } = useAIPrompt();
+  const { setExamplePrompt } = useAIPrompt();
 
   // Quick actions
   const quickActions = [
@@ -169,7 +169,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   };
 
   const handleAIPrompt = (prompt: string) => {
-    setPendingPrompt(prompt);
+    setExamplePrompt(prompt);
     setLocation("/ai-assistant");
     onOpenChange(false);
     setSearch("");

@@ -86,27 +86,7 @@ export function ResourceDetailsModal({ resource, open, onOpenChange }: ResourceD
   const TypeIcon = RESOURCE_TYPE_ICONS[resource.type] || User;
   const typeLabel = RESOURCE_TYPE_LABELS[resource.type] || resource.type;
   const disciplineLabel = DISCIPLINE_LABELS[resource.discipline || "general"] || resource.discipline;
-  const contractTypeLabel = CONTRACT_TYPE_LABELS[resource.contractType || ""] || resource.contractType;
-
-  const workingDays = (resource.workingDays as string[] | null) || ["monday", "tuesday", "wednesday", "thursday", "friday"];
-  const pricingModels = resource.pricingModels as Array<{
-    name: string;
-    rateType: string;
-    rate: number;
-    unitType: string;
-    currency: string;
-    effectiveFrom?: string;
-    effectiveTo?: string;
-    isDefault?: boolean;
-  }> | null;
-  const calendarExceptions = resource.calendarExceptions as Array<{
-    date: string;
-    type: string;
-    note?: string;
-  }> | null;
-  const skills = (resource.skillsArray as string[] | null) || (resource.skills?.split(",").map(s => s.trim()) || []);
-  const certifications = (resource.certifications as string[] | null) || [];
-
+  
   const formatRate = (rate: string | number | null, rateType: string | null, unitType: string | null) => {
     if (!rate) return "N/A";
     const amount = typeof rate === "string" ? parseFloat(rate) : rate;
@@ -131,9 +111,9 @@ export function ResourceDetailsModal({ resource, open, onOpenChange }: ResourceD
               <div className="flex items-center gap-2 mt-1">
                 <Badge variant="secondary">{typeLabel}</Badge>
                 <Badge variant="outline">{disciplineLabel}</Badge>
-                {resource.availabilityStatus && (
-                  <Badge className={`${AVAILABILITY_STATUS_COLORS[resource.availabilityStatus]} text-white`}>
-                    {AVAILABILITY_STATUS_LABELS[resource.availabilityStatus] || resource.availabilityStatus}
+                {resource.status && (
+                  <Badge className={`${AVAILABILITY_STATUS_COLORS[resource.status] || "bg-gray-500"} text-white`}>
+                    {AVAILABILITY_STATUS_LABELS[resource.status] || resource.status}
                   </Badge>
                 )}
               </div>
@@ -150,7 +130,7 @@ export function ResourceDetailsModal({ resource, open, onOpenChange }: ResourceD
             <TabsList className="grid w-full grid-cols-4">
               <TabsTrigger value="overview" data-testid="tab-overview">Overview</TabsTrigger>
               <TabsTrigger value="pricing" data-testid="tab-pricing">Pricing</TabsTrigger>
-              <TabsTrigger value="calendar" data-testid="tab-calendar">Calendar</TabsTrigger>
+              {/* <TabsTrigger value="calendar" data-testid="tab-calendar">Calendar</TabsTrigger> */}
               <TabsTrigger value="assignments" data-testid="tab-assignments">Assignments</TabsTrigger>
             </TabsList>
 
@@ -175,26 +155,26 @@ export function ResourceDetailsModal({ resource, open, onOpenChange }: ResourceD
                     <div>
                       <p className="text-xs text-muted-foreground">Availability</p>
                       <div className="flex items-center gap-2">
-                        <Progress value={resource.availability} className="flex-1 h-2" />
-                        <span className="text-sm font-mono">{resource.availability}%</span>
+                        <Progress value={Number(resource.availability || 100)} className="flex-1 h-2" />
+                        <span className="text-sm font-mono">{Number(resource.availability || 100)}%</span>
                       </div>
                     </div>
                     <div>
                       <p className="text-xs text-muted-foreground">Status</p>
-                      <p className="text-sm font-medium">{AVAILABILITY_STATUS_LABELS[resource.availabilityStatus || "available"] || "Available"}</p>
+                      <p className="text-sm font-medium">{AVAILABILITY_STATUS_LABELS[resource.status || "active"] || "Active"}</p>
                     </div>
                   </div>
 
-                  {resource.description && (
+                  {resource.notes && (
                     <div className="pt-2">
-                      <p className="text-xs text-muted-foreground">Description</p>
-                      <p className="text-sm">{resource.description}</p>
+                      <p className="text-xs text-muted-foreground">Notes</p>
+                      <p className="text-sm">{resource.notes}</p>
                     </div>
                   )}
                 </CardContent>
               </Card>
 
-              {(skills.length > 0 || certifications.length > 0) && (
+              {/* {(skills.length > 0 || certifications.length > 0) && (
                 <Card>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm flex items-center gap-2">
@@ -228,9 +208,9 @@ export function ResourceDetailsModal({ resource, open, onOpenChange }: ResourceD
                     )}
                   </CardContent>
                 </Card>
-              )}
+              )} */}
 
-              {(resource.contractType || resource.vendorName) && (
+              {/* {(resource.contractType || resource.vendorName) && (
                 <Card>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm flex items-center gap-2">
@@ -301,9 +281,9 @@ export function ResourceDetailsModal({ resource, open, onOpenChange }: ResourceD
                     )}
                   </CardContent>
                 </Card>
-              )}
+              )} */}
 
-              <Card>
+              {/* <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm flex items-center gap-2">
                     <Star className="h-4 w-4" />
@@ -326,7 +306,7 @@ export function ResourceDetailsModal({ resource, open, onOpenChange }: ResourceD
                     </div>
                   </div>
                 </CardContent>
-              </Card>
+              </Card> */}
 
               {resource.notes && (
                 <Card>
@@ -343,7 +323,7 @@ export function ResourceDetailsModal({ resource, open, onOpenChange }: ResourceD
               )}
             </TabsContent>
 
-            <TabsContent value="pricing" className="mt-4 space-y-4">
+            {/* <TabsContent value="pricing" className="mt-4 space-y-4">
               <Card>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm flex items-center gap-2">
@@ -486,7 +466,7 @@ export function ResourceDetailsModal({ resource, open, onOpenChange }: ResourceD
                   </CardContent>
                 </Card>
               )}
-            </TabsContent>
+            </TabsContent> */}
 
             <TabsContent value="assignments" className="mt-4">
               <Card>
@@ -545,9 +525,9 @@ export function ResourceDetailsModal({ resource, open, onOpenChange }: ResourceD
                                 <Badge data-testid={`allocation-${assignment.id}`}>
                                   {assignment.allocation}% allocated
                                 </Badge>
-                                {assignment.plannedHours && (
+                                {assignment.effortHours && (
                                   <span className="text-xs text-muted-foreground font-mono" data-testid={`planned-hours-${assignment.id}`}>
-                                    {assignment.plannedHours}h planned
+                                    {assignment.effortHours}h planned
                                   </span>
                                 )}
                               </div>

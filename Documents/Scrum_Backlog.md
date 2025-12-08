@@ -10,11 +10,14 @@ We are currently in the **Hardening Phase**. Existing features are treated as "U
 
 | ID | Story | Story Points | Priority | Status |
 |----|-------|--------------|----------|--------|
-| **SP1-01** | **CI/CD Pipeline:** As a DevOps Engineer, I want a `cloudbuild.yaml` that fails on any linting or test error, so that no bad code reaches production. | 5 | Critical | 🟡 In Progress |
-| **SP1-02** | **Type Safety:** As a Developer, I want strict TypeScript checking (no `any`, no ignore) in the build process, so that runtime errors are minimized. | 8 | Critical | 🟡 In Progress |
+| **SP1-01** | **CI/CD Pipeline:** As a DevOps Engineer, I want a `cloudbuild.yaml` that fails on any linting or test error, so that no bad code reaches production. | 5 | Critical | ✅ Complete |
+| **SP1-02** | **Type Safety:** As a Developer, I want strict TypeScript checking (no `any`, no ignore) in the build process, so that runtime errors are minimized. | 8 | Critical | ✅ Complete |
 | **SP1-03** | **Test Infrastructure:** As a QA, I want the Test Database to spin up/down automatically in Docker, so that tests are isolated and reproducible. | 5 | Critical | ✅ Complete |
 
-**Update:** Massive Schema Mismatch in `server/storage.ts` resolved. Schema aligned with storage usage. Remaining errors are in Client layer due to property mismatches (`name` vs `title`).
+**Update:** 
+- Massive Schema Mismatch in `server/storage.ts` resolved.
+- Client-side type errors in key modules (`Tasks`, `Resources`, `ChangeRequests`) fixed.
+- CI/CD Build (`npm run build`) verified locally.
 
 ---
 

@@ -17,22 +17,23 @@ import type { ResourceTimeEntry, InsertResourceTimeEntry } from "@shared/schema"
 interface TimeEntryModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  assignmentId: number;
+  resourceId: number;
+  taskId: number;
+  projectId: number;
   entry?: ResourceTimeEntry;
 }
 
-export function TimeEntryModal({ open, onOpenChange, assignmentId, entry }: TimeEntryModalProps) {
+export function TimeEntryModal({ open, onOpenChange, resourceId, taskId, projectId, entry }: TimeEntryModalProps) {
   const { toast } = useToast();
   const [date, setDate] = useState<Date | undefined>(entry?.date ? new Date(entry.date) : new Date());
-  const [hoursWorked, setHoursWorked] = useState<string>(entry?.hoursWorked || "");
-  const [notes, setNotes] = useState<string>(entry?.notes || "");
+  const [hours, setHours] = useState<string>(entry?.hours?.toString() || "");
+  const [description, setDescription] = useState<string>(entry?.description || "");
 
   const createMutation = useMutation({
     mutationFn: async (data: InsertResourceTimeEntry) => {
       return await apiRequest<ResourceTimeEntry>("POST", "/api/time-entries", data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/assignments/${assignmentId}/time-entries`] });
       queryClient.invalidateQueries({ queryKey: [`/api/tasks`] }); // Refresh assignments
       toast({
         title: "Time Entry Created",
@@ -41,8 +42,8 @@ export function TimeEntryModal({ open, onOpenChange, assignmentId, entry }: Time
       onOpenChange(false);
       // Reset form
       setDate(new Date());
-      setHoursWorked("");
-      setNotes("");
+      setHours("");
+      setDescription("");
     },
     onError: (error: Error) => {
       toast({
@@ -58,7 +59,6 @@ export function TimeEntryModal({ open, onOpenChange, assignmentId, entry }: Time
       return await apiRequest<ResourceTimeEntry>("PATCH", `/api/time-entries/${entry!.id}`, data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [`/api/assignments/${assignmentId}/time-entries`] });
       queryClient.invalidateQueries({ queryKey: [`/api/tasks`] });
       toast({
         title: "Time Entry Updated",
@@ -85,8 +85,8 @@ export function TimeEntryModal({ open, onOpenChange, assignmentId, entry }: Time
       return;
     }
 
-    const hours = parseFloat(hoursWorked);
-    if (isNaN(hours) || hours <= 0) {
+    const hoursNum = parseFloat(hours);
+    if (isNaN(hoursNum) || hoursNum <= 0) {
       toast({
         title: "Invalid Hours",
         description: "Please enter a valid number of hours greater than 0.",
@@ -96,10 +96,12 @@ export function TimeEntryModal({ open, onOpenChange, assignmentId, entry }: Time
     }
 
     const data: InsertResourceTimeEntry = {
-      resourceAssignmentId: assignmentId,
-      date: date.toISOString(),
-      hoursWorked: hours.toString(),
-      notes: notes.trim() || undefined,
+      resourceId,
+      taskId,
+      projectId,
+      date: date, // Pass Date object
+      hours: hoursNum.toString(), // Schema expects decimal string or number? decimal usually string in Drizzle insert
+      description: description.trim() || undefined,
     };
 
     if (entry) {
@@ -149,18 +151,18 @@ export function TimeEntryModal({ open, onOpenChange, assignmentId, entry }: Time
               type="number"
               step="0.25"
               min="0"
-              value={hoursWorked}
-              onChange={(e) => setHoursWorked(e.target.value)}
+              value={hours}
+              onChange={(e) => setHours(e.target.value)}
               placeholder="8.0"
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="notes">Notes (Optional)</Label>
+            <Label htmlFor="description">Description (Optional)</Label>
             <Textarea
-              id="notes"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
+              id="description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
               placeholder="Add any notes about this work..."
               rows={3}
             />

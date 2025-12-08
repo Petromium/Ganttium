@@ -50,7 +50,16 @@ export function EditRiskModal({ risk, open, onOpenChange, onSuccess }: EditRiskM
   const { toast } = useToast();
   const isEditing = !!risk;
 
-  const [formData, setFormData] = useState<Partial<InsertRisk>>({
+  const [formData, setFormData] = useState<{
+    code: string;
+    title: string;
+    description: string;
+    status: string;
+    probability: number;
+    impact: string;
+    mitigationPlan: string;
+    responseStrategy: string;
+  }>({
     code: "",
     title: "",
     description: "",

@@ -162,7 +162,7 @@ export function DocumentDetails() {
           </>
         )}
 
-        {selectedDocument.filePath && (
+        {selectedDocument.fileUrl && (
           <>
             <Separator />
             <div className="flex items-center justify-between p-2 rounded-md bg-muted/30">
@@ -170,8 +170,8 @@ export function DocumentDetails() {
                 <File className="h-4 w-4 text-muted-foreground" />
                 <div>
                   <p className="text-xs">Attached File</p>
-                  {selectedDocument.fileSize && (
-                    <p className="text-xs text-muted-foreground">{formatFileSize(selectedDocument.fileSize)}</p>
+                  {selectedDocument.sizeBytes && (
+                    <p className="text-xs text-muted-foreground">{formatFileSize(selectedDocument.sizeBytes)}</p>
                   )}
                 </div>
               </div>

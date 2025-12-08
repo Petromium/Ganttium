@@ -1574,7 +1574,7 @@ export function TaskModal({
                               {editingDependency === dep.id ? (
                                 <div className="flex-1 flex items-center gap-2 flex-wrap">
                                   <Select
-                                    value={dep.type}
+                                    value={dep.type || undefined}
                                     onValueChange={(v: DependencyType) => {
                                       updateDependencyMutation.mutate({ id: dep.id, type: v, lagDays: dep.lagDays || 0 });
                                     }}
@@ -1617,9 +1617,9 @@ export function TaskModal({
                                 <>
                                   <Badge variant="outline" className="font-mono text-xs shrink-0">{dep.type}</Badge>
                                   <span className="text-sm flex-1 truncate">{getTaskName(dep.predecessorId)}</span>
-                                  {dep.lagDays !== 0 && (
+                                  {(dep.lagDays || 0) !== 0 && (
                                     <Badge variant="secondary" className="text-xs shrink-0">
-                                      {dep.lagDays > 0 ? "+" : ""}{dep.lagDays}d
+                                      {(dep.lagDays || 0) > 0 ? "+" : ""}{dep.lagDays}d
                                     </Badge>
                                   )}
                                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -1774,7 +1774,7 @@ export function TaskModal({
                               {editingDependency === dep.id ? (
                                 <div className="flex-1 flex items-center gap-2 flex-wrap">
                                   <Select
-                                    value={dep.type}
+                                    value={dep.type || undefined}
                                     onValueChange={(v: DependencyType) => {
                                       updateDependencyMutation.mutate({ id: dep.id, type: v, lagDays: dep.lagDays || 0 });
                                     }}
@@ -1817,9 +1817,9 @@ export function TaskModal({
                                 <>
                                   <Badge variant="outline" className="font-mono text-xs shrink-0">{dep.type}</Badge>
                                   <span className="text-sm flex-1 truncate">{getTaskName(dep.successorId)}</span>
-                                  {dep.lagDays !== 0 && (
+                                  {(dep.lagDays || 0) !== 0 && (
                                     <Badge variant="secondary" className="text-xs shrink-0">
-                                      {dep.lagDays > 0 ? "+" : ""}{dep.lagDays}d
+                                      {(dep.lagDays || 0) > 0 ? "+" : ""}{dep.lagDays}d
                                     </Badge>
                                   )}
                                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -2461,7 +2461,7 @@ export function TaskModal({
         </DialogFooter>
       </DialogContent>
 
-      {selectedAssignmentForTimeEntry && (
+      {selectedAssignmentForTimeEntry && task && (
         <TimeEntryModal
           open={!!selectedAssignmentForTimeEntry}
           onOpenChange={(open) => {
@@ -2470,7 +2470,9 @@ export function TaskModal({
               setSelectedTimeEntry(undefined);
             }
           }}
-          assignmentId={selectedAssignmentForTimeEntry}
+          resourceId={assignments.find(a => a.id === selectedAssignmentForTimeEntry)?.resourceId || 0}
+          taskId={task.id}
+          projectId={task.projectId}
           entry={selectedTimeEntry}
         />
       )}

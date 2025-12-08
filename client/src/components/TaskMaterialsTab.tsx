@@ -130,9 +130,9 @@ export function TaskMaterialsTab({ taskId, projectId }: TaskMaterialsTabProps) {
       ) : (
         <div className="space-y-3">
           {materials.map((material) => {
-            const resource = materialResources.find(r => r.id === material.materialResourceId);
-            const plannedQty = parseFloat(material.plannedQuantity || "0");
-            const cumulativeConsumption = parseFloat(material.cumulativeConsumption || "0");
+            const resource = materialResources.find(r => r.id === material.materialId);
+            const plannedQty = parseFloat(material.quantity || "0");
+            const cumulativeConsumption = parseFloat(material.actualQuantity || "0");
             const percentageUsed = plannedQty > 0 ? (cumulativeConsumption / plannedQty) * 100 : 0;
             const remaining = plannedQty - cumulativeConsumption;
 
@@ -141,10 +141,10 @@ export function TaskMaterialsTab({ taskId, projectId }: TaskMaterialsTabProps) {
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
-                      <h5 className="font-medium">{resource?.name || `Material #${material.materialResourceId}`}</h5>
+                      <h5 className="font-medium">{resource?.name || `Material #${material.materialId}`}</h5>
                       <Badge variant="outline">{material.unit}</Badge>
                     </div>
-                    <p className="text-xs text-muted-foreground">{resource?.description || "No description"}</p>
+                    <p className="text-xs text-muted-foreground">{resource?.notes || "No description"}</p>
                   </div>
                   <Button
                     variant="ghost"
@@ -291,10 +291,10 @@ function MaterialModal({
   onSuccess: () => void;
 }) {
   const { toast } = useToast();
-  const [selectedResourceId, setSelectedResourceId] = useState<string>(material?.materialResourceId.toString() || "");
-  const [plannedQuantity, setPlannedQuantity] = useState<string>(material?.plannedQuantity || "");
+  const [selectedResourceId, setSelectedResourceId] = useState<string>(material?.materialId.toString() || "");
+  const [plannedQuantity, setPlannedQuantity] = useState<string>(material?.quantity || "");
   const [unit, setUnit] = useState<string>(material?.unit || "");
-  const [notes, setNotes] = useState<string>(material?.notes || "");
+  // const [notes, setNotes] = useState<string>(material?.notes || "");
 
   const createMutation = useMutation({
     mutationFn: async (data: InsertTaskMaterial) => {
@@ -323,12 +323,16 @@ function MaterialModal({
       return;
     }
 
+    // Find resource name for required field
+    const resourceName = materialResources.find(r => r.id === parseInt(selectedResourceId))?.name || "Unknown Material";
+
     const data: InsertTaskMaterial = {
       taskId,
-      materialResourceId: parseInt(selectedResourceId),
-      plannedQuantity: plannedQuantity,
+      materialId: parseInt(selectedResourceId),
+      quantity: plannedQuantity,
       unit,
-      notes: notes.trim() || undefined,
+      name: resourceName, // Required by schema
+      // notes: notes.trim() || undefined,
     };
 
     createMutation.mutate(data);
@@ -379,7 +383,7 @@ function MaterialModal({
             </div>
           </div>
 
-          <div className="space-y-2">
+          {/* <div className="space-y-2">
             <Label>Notes (Optional)</Label>
             <Textarea
               value={notes}
@@ -387,7 +391,7 @@ function MaterialModal({
               rows={3}
               placeholder="Add any notes about this material..."
             />
-          </div>
+          </div> */}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
@@ -447,7 +451,7 @@ function ConsumptionModal({
     const data: InsertMaterialConsumption = {
       taskMaterialId,
       quantity: quantity,
-      date: date.toISOString(),
+      consumedAt: date, // Pass Date object
       consumedBy: user?.id || "",
       notes: notes.trim() || undefined,
     };
@@ -525,7 +529,7 @@ function DeliveryModal({
   const { toast } = useToast();
   const [date, setDate] = useState<Date | undefined>(new Date());
   const [quantity, setQuantity] = useState<string>("");
-  const [deliveryReference, setDeliveryReference] = useState<string>("");
+  const [supplier, setSupplier] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
 
   const createMutation = useMutation({
@@ -536,7 +540,7 @@ function DeliveryModal({
       toast({ title: "Delivery Recorded", description: "Material delivery has been recorded." });
       onSuccess();
       setQuantity("");
-      setDeliveryReference("");
+      setSupplier("");
       setNotes("");
       setDate(new Date());
     },
@@ -558,8 +562,8 @@ function DeliveryModal({
     const data: InsertMaterialDelivery = {
       taskMaterialId,
       quantity: quantity,
-      date: date.toISOString(),
-      deliveryReference: deliveryReference.trim() || undefined,
+      deliveredAt: date, // Pass Date object
+      supplier: supplier.trim() || undefined, // Corrected from deliveryReference
       notes: notes.trim() || undefined,
     };
 
@@ -601,11 +605,11 @@ function DeliveryModal({
               />
             </div>
             <div className="space-y-2">
-              <Label>Delivery Reference (Optional)</Label>
+              <Label>Supplier (Optional)</Label>
               <Input
-                value={deliveryReference}
-                onChange={(e) => setDeliveryReference(e.target.value)}
-                placeholder="PO number, delivery note"
+                value={supplier}
+                onChange={(e) => setSupplier(e.target.value)}
+                placeholder="Supplier name"
               />
             </div>
           </div>

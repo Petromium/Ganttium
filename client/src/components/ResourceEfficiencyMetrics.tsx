@@ -36,7 +36,6 @@ export function ResourceEfficiencyMetrics({ stats }: ResourceEfficiencyProps) {
           <Progress 
             value={Math.min(stats.cpi * 50, 100)} 
             className={`h-2 mt-2 ${stats.cpi < 1 ? "bg-red-100" : "bg-green-100"}`} 
-            indicatorClassName={stats.cpi < 1 ? "bg-red-500" : "bg-green-500"}
           />
         </CardContent>
       </Card>

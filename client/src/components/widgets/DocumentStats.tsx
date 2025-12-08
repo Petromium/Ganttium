@@ -60,7 +60,7 @@ export function DocumentStats() {
   const ifcDocs = documents.filter(d => d.status === "ifc");
   const asBuiltDocs = documents.filter(d => d.status === "as-built");
   const supersededDocs = documents.filter(d => d.status === "superseded");
-  const withAttachments = documents.filter(d => d.filePath);
+  const withAttachments = documents.filter(d => d.fileUrl);
 
   const technicalDocs = documents.filter(d => 
     ["drawing", "specification", "datasheet", "calculation", "report"].includes(d.documentType || "")
