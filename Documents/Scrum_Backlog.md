@@ -73,10 +73,22 @@ We are currently in the **Hardening Phase**. Existing features are treated as "U
 
 ---
 
-## 📋 Future Sprints (Backlog)
+## 🏃 Sprint 5: Data Integration & Organization Settings (Current)
+**Goal:** Enhance data import/export capabilities and consolidate settings at the organization level.
 
-### Sprint 5: Advanced Integrations
 | ID | Story | Story Points | Priority | Status |
 |----|-------|--------------|----------|--------|
-| **SP5-01** | **Figma Component Library Sync:** As a Designer, I want ProjectFlow components synchronized with Figma design system for consistency. | 8 | Low | 🔴 Todo |
-| **SP5-02** | **Real-time Design Collaboration:** As a Team, I want design changes in Figma to trigger notifications in ProjectFlow. | 5 | Low | 🔴 Todo |
+| **SP5-01** | **Advanced Import/Export:** As a Project Manager, I want to import/export projects including extended EPC fields (risks, issues, costs), so that I can migrate data seamlessly. | 8 | High | ✅ Complete |
+| **SP5-02** | **Organization Settings:** As an Admin, I want to manage settings (Cloud Storage, Users, Usage) at the Organization level, so that configuration is centralized. | 5 | High | ✅ Complete |
+| **SP5-03** | **Unified Navigation:** As a User, I want a consistent TopBar navigation that adapts to Organization/Project context, reducing confusion. | 3 | Medium | ✅ Complete |
+| **SP5-04** | **RBAC for Settings:** As a Security Engineer, I want to ensure only Admins/Owners can modify Organization settings, verified by tests. | 5 | Critical | ✅ Verified |
+
+---
+
+## 📋 Future Sprints (Backlog)
+
+### Sprint 6: Advanced Integrations
+| ID | Story | Story Points | Priority | Status |
+|----|-------|--------------|----------|--------|
+| **SP6-01** | **Figma Component Library Sync:** As a Designer, I want ProjectFlow components synchronized with Figma design system for consistency. | 8 | Low | 🔴 Todo |
+| **SP6-02** | **Real-time Design Collaboration:** As a Team, I want design changes in Figma to trigger notifications in ProjectFlow. | 5 | Low | 🔴 Todo |

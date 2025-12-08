@@ -27,6 +27,7 @@
 | **A01-002** | **Role Escalation Prevention:** As an Admin, I want tests that verify I cannot escalate my role to Owner without explicit permission. | 5 | High | ✅ Complete |
 | **A01-003** | **Project Access Control:** As a Viewer, I want tests that verify I cannot modify projects even if I know the project ID. | 5 | High | ✅ Complete |
 | **A01-004** | **API Endpoint Authorization:** As a Developer, I want all API endpoints to have explicit RBAC middleware, verified by automated tests. | 13 | Critical | ✅ Verified |
+| **A01-005** | **Settings & Import/Export RBAC:** As an Admin, I want to verify that new Organization Settings and Import/Export endpoints strictly enforce role checks. | 5 | Critical | ✅ Verified |
 
 **Acceptance Criteria:**
 - All routes in `server/routes.ts` have explicit `requireRole()` or `isAuthenticated` middleware
@@ -225,6 +226,9 @@
 **Sprint 4 Tests (12 tests):**
 - **Error Handling (A05):** 12 tests ✅ (production sanitization, dev details, logging requirements)
 
+**Sprint 5 Tests (2 tests):**
+- **Settings & Import/Export RBAC (A01):** 2 tests ✅ (Org Settings isolation, Project Import/Export checks)
+
 ### 🎯 Test Coverage Summary
 - **CI/CD Integration:** ✅ Security tests run on every commit
 - **Automated Scanning:** ✅ `npm audit` blocks critical vulnerabilities
@@ -232,9 +236,10 @@
 - **Sprint 2 Security:** ✅ Authentication & Security hardening complete
 - **Sprint 3 Security:** ✅ RBAC & File Upload tests documented
 - **Sprint 4 Security:** ✅ Error handling hardened
+- **Sprint 5 Security:** ✅ Org-level RBAC verified
 
 ---
 
-**Last Updated:** 2025-12-08  
-**Maintainer:** Security Lead  
+**Last Updated:** 2025-12-08
+**Maintainer:** Security Lead
 **Review Frequency:** Weekly during hardening phase

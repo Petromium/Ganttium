@@ -108,6 +108,12 @@ import { uploadLimiter, userApiLimiter } from "./middleware/security";
 import { wsManager } from "./websocket";
 import { schedulingService } from "./scheduling";
 import { logger } from "./services/cloudLogging";
+import {
+  buildProjectExportPayload,
+  buildTaskInsertData,
+  buildRiskInsertData,
+  buildIssueInsertData,
+} from "./services/importExportService";
 
 // Helper to get user ID from request
 function getUserId(req: any): string {
@@ -6932,80 +6938,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         res.setHeader('Content-Type', 'text/csv');
         res.send(csvRows.join('\n'));
       } else {
-        const exportData = {
-          exportDate: new Date().toISOString(),
-          version: "1.0",
-          project: {
-            name: project.name,
-            code: project.code,
-            description: project.description,
-            status: project.status,
-            startDate: project.startDate,
-            endDate: project.endDate,
-            budget: project.budget,
-            currency: project.currency
-          },
-          tasks: tasks.map(t => ({
-            wbsCode: t.wbsCode,
-            name: t.name,
-            description: t.description,
-            status: t.status,
-            progress: t.progress,
-            startDate: t.startDate,
-            endDate: t.endDate,
-            assignedTo: t.assignedTo,
-            priority: t.priority,
-            estimatedHours: t.estimatedHours,
-            actualHours: t.actualHours,
-            discipline: t.discipline
-          })),
-          risks: risks.map(r => ({
-            code: r.code,
-            title: r.title,
-            description: r.description,
-            category: r.category,
-            probability: r.probability,
-            impact: r.impact,
-            status: r.status,
-            owner: r.owner,
-            mitigationStrategy: r.mitigationStrategy,
-            contingencyPlan: r.contingencyPlan
-          })),
-          issues: issues.map(i => ({
-            code: i.code,
-            title: i.title,
-            description: i.description,
-            priority: i.priority,
-            status: i.status,
-            assignedTo: i.assignedTo,
-            reportedBy: i.reportedBy,
-            resolution: i.resolution
-          })),
-          stakeholders: stakeholders.map(s => ({
-            name: s.name,
-            role: s.role,
-            organization: s.organization,
-            email: s.email,
-            phone: s.phone,
-            influence: s.influence,
-            interest: s.interest
-          })),
-          costItems: costItems.map(c => ({
-            description: c.description,
-            category: c.category,
-            budgeted: c.budgeted,
-            actual: c.actual,
-            currency: c.currency
-          })),
-          documents: documents.map(d => ({
-            documentNumber: d.documentNumber,
-            title: d.title,
-            revision: d.revision,
-            discipline: d.discipline,
-            documentType: d.documentType,
-            status: d.status
-          }))
-        };
+        const exportData = buildProjectExportPayload({
+          project,
+          tasks,
+          risks,
+          issues,
+          stakeholders,
+          costItems,
+          documents,
+        });
 
         res.json(exportData);
       }
@@ -7097,7 +7038,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 type: "string",
                 description: "FLEXIBLE: Any discipline text is accepted (e.g., 'management', 'engineering', 'procurement'). Known values auto-map to standard categories. Original text preserved for reporting.",
                 examples: ["management", "engineering", "civil", "mechanical", "electrical", "procurement", "construction"]
-              }
+              },
+              disciplineLabel: { type: "string", description: "Display label for discipline" },
+              areaCode: { type: "string", description: "Area code identifier" },
+              weightFactor: { type: "string", description: "Weight factor as string (e.g., '1.0')" },
+              constraintType: { type: "string", enum: ["asap", "alap", "mso", "mfo", "snet", "fnet"], description: "Task constraint type" },
+              constraintDate: { type: "string", format: "date-time", description: "Constraint date if applicable" },
+              baselineStart: { type: "string", format: "date-time", description: "Baseline start date" },
+              baselineFinish: { type: "string", format: "date-time", description: "Baseline finish date" },
+              actualStartDate: { type: "string", format: "date-time", description: "Actual start date" },
+              actualFinishDate: { type: "string", format: "date-time", description: "Actual finish date" },
+              workMode: { type: "string", enum: ["fixed-duration", "fixed-work", "fixed-units"], default: "fixed-duration", description: "Task work mode" },
+              isMilestone: { type: "boolean", default: false, description: "Whether task is a milestone" },
+              isCriticalPath: { type: "boolean", default: false, description: "Whether task is on critical path" },
+              baselineCost: { type: "string", description: "Baseline cost as string (e.g., '10000.00')" },
+              actualCost: { type: "string", description: "Actual cost as string" },
+              earnedValue: { type: "string", description: "Earned value as string" }
             }
           }
         },
@@ -7115,7 +7071,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
               impact: { type: "string", enum: importEnums.riskImpact, default: "medium" },
               status: { type: "string", enum: importEnums.riskStatus, default: "identified", description: "IMPORTANT: Use 'identified' not 'active'" },
               owner: { type: ["string", "null"], description: "Risk owner identifier" },
-              mitigationPlan: { type: "string" }
+              assignedTo: { type: ["string", "null"], description: "Assigned to identifier" },
+              mitigationPlan: { type: "string", description: "Mitigation plan text" },
+              responseStrategy: { type: "string", enum: ["avoid", "mitigate", "transfer", "accept"], description: "Risk response strategy" },
+              costImpact: { type: "string", description: "Cost impact as string (e.g., '50000.00')" },
+              scheduleImpact: { type: "integer", description: "Schedule impact in days" },
+              riskExposure: { type: "string", description: "Risk exposure (monetary value) as string" },
+              contingencyReserve: { type: "string", description: "Contingency reserve as string" },
+              targetResolutionDate: { type: "string", format: "date-time", description: "Target resolution date" },
+              identifiedDate: { type: "string", format: "date-time", description: "Date risk was identified" },
+              closedDate: { type: "string", format: "date-time", description: "Date risk was closed" }
             }
           }
         },
@@ -7132,7 +7097,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
               status: { type: "string", enum: importEnums.issueStatus, default: "open" },
               assignedTo: { type: ["string", "null"] },
               reportedBy: { type: ["string", "null"] },
-              resolution: { type: ["string", "null"] }
+              resolution: { type: ["string", "null"] },
+              issueType: { type: "string", enum: ["standard", "ncr", "hse", "quality", "safety"], default: "standard", description: "Issue type" },
+              category: { type: "string", description: "Issue category" },
+              impactCost: { type: "string", description: "Cost impact as string (e.g., '10000.00')" },
+              impactSchedule: { type: "integer", description: "Schedule impact in days" },
+              impactQuality: { type: "string", description: "Quality impact" },
+              impactSafety: { type: "string", description: "Safety impact" },
+              discipline: { type: "string", description: "Discipline affected" },
+              escalationLevel: { type: "string", description: "Escalation level" },
+              targetResolutionDate: { type: "string", format: "date-time", description: "Target resolution date" },
+              reportedDate: { type: "string", format: "date-time", description: "Date issue was reported" },
+              resolvedDate: { type: "string", format: "date-time", description: "Date issue was resolved" }
             }
           }
         },
@@ -7532,28 +7508,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
             warnings.push(`Task '${task.name}': assignedTo contains invalid characters, sanitized`);
           }
 
-          const createdTask = await storage.createTask({
-            projectId,
-            parentId,
-            name: task.name || task.title || 'Untitled Task',
-            wbsCode,
-            createdBy: userId,
-            description: task.description,
-            status: mappedStatus as "not-started" | "in-progress" | "review" | "completed" | "on-hold",
-            progress: Math.min(100, Math.max(0, parseInt(task.progress) || 0)),
-            startDate: task.startDate ? new Date(task.startDate) : null,
-            endDate: task.endDate ? new Date(task.endDate) : null,
-            // Use assignedToName text field instead of FK
-            assignedTo: null, // Don't try to set FK from import
-            assignedToName: assignedToName,
-            priority: mappedPriority as "low" | "medium" | "high" | "critical",
-            estimatedHours: task.estimatedHours,
-            actualHours: task.actualHours,
-            // Use enum if valid, otherwise default to 'general'
-            discipline: (disciplineEnumValue || 'general') as any,
-            // Store original discipline text as label for flexibility
-            disciplineLabel: disciplineLabelValue
-          });
+          const createdTask = await storage.createTask(
+            buildTaskInsertData({
+              projectId,
+              parentId,
+              rawTask: { ...task, wbsCode },
+              createdBy: userId,
+              mappedPriority: mappedPriority as "low" | "medium" | "high" | "critical",
+              mappedStatus: mappedStatus as "not-started" | "in-progress" | "review" | "completed" | "on-hold",
+              assignedToName,
+              disciplineEnumValue,
+              disciplineLabelValue,
+            }),
+          );
 
           wbsToTaskId[wbsCode] = createdTask.id;
           importedCounts.tasks++;
@@ -7583,35 +7550,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
             // and if it fails with unique constraint, we'll append a random suffix
             
             try {
-              await storage.createRisk({
-                projectId,
-                code: riskCode,
-                title: risk.title || 'Untitled Risk',
-                description: risk.description,
-                category: risk.category || 'other',
-                probability: Math.min(5, Math.max(1, parseInt(risk.probability) || 3)),
-                impact: mappedImpact as "low" | "medium" | "high" | "critical",
-                status: mappedStatus as "identified" | "assessed" | "mitigating" | "closed",
-                owner: risk.owner || null,
-                mitigationPlan: risk.mitigationPlan || risk.mitigationStrategy || risk.mitigation
-              });
+              await storage.createRisk(
+                buildRiskInsertData({
+                  projectId,
+                  code: riskCode,
+                  rawRisk: risk,
+                  mappedStatus: mappedStatus as "identified" | "assessed" | "mitigating" | "closed",
+                  mappedImpact: mappedImpact as "low" | "medium" | "high" | "critical",
+                }),
+              );
               importedCounts.risks++;
             } catch (innerError: any) {
                if (innerError.message.includes("unique constraint")) {
                  // Retry with suffix
                  const newCode = `${riskCode}-${Math.random().toString(36).substr(2, 4)}`;
-                 await storage.createRisk({
-                    projectId,
-                    code: newCode,
-                    title: risk.title || 'Untitled Risk',
-                    description: risk.description,
-                    category: risk.category || 'other',
-                    probability: Math.min(5, Math.max(1, parseInt(risk.probability) || 3)),
-                    impact: mappedImpact as "low" | "medium" | "high" | "critical",
-                    status: mappedStatus as "identified" | "assessed" | "mitigating" | "closed",
-                    owner: risk.owner || null,
-                    mitigationPlan: risk.mitigationPlan || risk.mitigationStrategy || risk.mitigation
-                  });
+                 await storage.createRisk(
+                   buildRiskInsertData({
+                     projectId,
+                     code: newCode,
+                     rawRisk: risk,
+                     mappedStatus: mappedStatus as "identified" | "assessed" | "mitigating" | "closed",
+                     mappedImpact: mappedImpact as "low" | "medium" | "high" | "critical",
+                   }),
+                 );
                   importedCounts.risks++;
                   warnings.push(`Risk '${risk.title}' code '${riskCode}' already exists, imported as '${newCode}'`);
                } else {
@@ -7638,17 +7599,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
             // Auto-generate code if not provided
             const issueCode = issue.code || `ISS-${String(issueCounter++).padStart(3, '0')}`;
 
-            await storage.createIssue({
-              projectId,
-              code: issueCode,
-              title: issue.title || 'Untitled Issue',
-              description: issue.description,
-              priority: mappedPriority as "low" | "medium" | "high" | "critical",
-              status: mappedStatus as "open" | "in-progress" | "resolved" | "closed",
-              assignedTo: issue.assignedTo || null,
-              reportedBy: issue.reportedBy || userId, // Use current user if not specified
-              resolution: issue.resolution || null
-            });
+            await storage.createIssue(
+              buildIssueInsertData({
+                projectId,
+                code: issueCode,
+                rawIssue: issue,
+                mappedStatus: mappedStatus as "open" | "in-progress" | "resolved" | "closed",
+                mappedPriority: mappedPriority as "low" | "medium" | "high" | "critical",
+                fallbackReporter: userId,
+              }),
+            );
             importedCounts.issues++;
           } catch (issueError: any) {
             errors.push(`Failed to import issue '${rawIssue.title}': ${issueError.message}`);
