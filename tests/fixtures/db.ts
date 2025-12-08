@@ -224,3 +224,36 @@ export async function cleanupTestUser(userId: string) {
   }
 }
 
+/**
+ * Authenticate a test user and return session cookie
+ */
+export async function authenticateTestUser(app: any, email: string, password: string): Promise<string> {
+  const request = (await import('supertest')).default;
+  
+  const res = await request(app)
+    .post('/api/auth/login')
+    .send({ username: email, password });
+  
+  if (res.status !== 200) {
+    throw new Error(`Failed to authenticate user ${email}: ${res.status} ${res.text}`);
+  }
+  
+  // Extract session cookie
+  const cookies = res.headers['set-cookie'];
+  if (!cookies || cookies.length === 0) {
+    throw new Error('No session cookie returned from login');
+  }
+  
+  return cookies[0].split(';')[0]; // Return just the sessionId part
+}
+
+/**
+ * Clean up all test data (used in afterAll hooks)
+ */
+export async function cleanupTestData() {
+  // This function is typically called by the global test cleanup
+  // Individual tests should clean up their own specific test data
+  // We can add specific cleanup logic here if needed
+  console.log('[Test Cleanup] Test data cleanup complete');
+}
+

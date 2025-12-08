@@ -123,22 +123,49 @@ export default async function runApp(
 
   app.use(async (err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
+    const isProd = process.env.NODE_ENV === 'production';
 
-    // Log error with Cloud Logging
+    // Log full error details internally (with stack trace)
     logger.error("Unhandled error in Express middleware", err, {
       httpRequest: {
         requestMethod: _req.method,
         requestUrl: _req.path,
         status,
       },
+      errorDetails: {
+        message: err.message,
+        stack: err.stack,
+        name: err.name,
+      },
     });
 
     // Record error metric
     await recordErrorCount("unhandled_error", _req.path);
 
-    res.status(status).json({ message });
-    throw err;
+    // Send sanitized error to client
+    // In production: hide stack traces and sensitive details
+    // In development: include more details for debugging
+    if (isProd) {
+      // Generic error messages in production
+      const safeMessage = status >= 500 
+        ? "An internal error occurred. Please try again later."
+        : (err.message || "Bad Request");
+
+      res.status(status).json({ 
+        error: safeMessage,
+        requestId: (_req as any).id, // Include request ID for support
+      });
+    } else {
+      // Detailed errors in development
+      res.status(status).json({ 
+        error: err.message || "Internal Server Error",
+        stack: err.stack,
+        details: err.details || undefined,
+      });
+    }
+
+    // Don't re-throw, let Express handle it
+    // throw err;
   });
 
   // importantly run the final setup after setting up all the other routes so
