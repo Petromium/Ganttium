@@ -317,9 +317,7 @@ export function TopBar() {
               >
                 <SelectTrigger data-testid="trigger-organization-mobile">
                   <SelectValue placeholder={
-                    orgsError ? "Error" :
-                      isLoadingOrgs ? "Loading..." :
-                        `Select ${terminology.topLevel}`
+                    isLoadingOrgs ? "Loading..." : `Select ${terminology.topLevel}`
                   } />
                 </SelectTrigger>
                 <SelectContent>
@@ -330,6 +328,9 @@ export function TopBar() {
                   ))}
                 </SelectContent>
               </Select>
+              {orgsError && (
+                <p className="text-xs text-destructive mt-1">Error loading organizations</p>
+              )}
             </div>
             {selectedOrgId && (
               <div className="space-y-2">
@@ -344,9 +345,7 @@ export function TopBar() {
                 >
                   <SelectTrigger data-testid="trigger-program-mobile">
                     <SelectValue placeholder={
-                      programsError ? "Error" :
-                        isLoadingPrograms ? "Loading..." :
-                          `All ${terminology.program}s`
+                      isLoadingPrograms ? "Loading..." : `All ${terminology.program}s`
                     } />
                   </SelectTrigger>
                   <SelectContent>
@@ -358,6 +357,9 @@ export function TopBar() {
                     ))}
                   </SelectContent>
                 </Select>
+                {programsError && (
+                  <p className="text-xs text-destructive mt-1">Error loading programs</p>
+                )}
               </div>
             )}
             <div className="space-y-2">
@@ -372,9 +374,7 @@ export function TopBar() {
               >
                 <SelectTrigger data-testid="trigger-project-mobile">
                   <SelectValue placeholder={
-                    projectsError ? "Error" :
-                      isLoadingProjects ? "Loading..." :
-                        "Select Project"
+                    isLoadingProjects ? "Loading..." : "Select Project"
                   } />
                 </SelectTrigger>
                 <SelectContent>
@@ -385,12 +385,16 @@ export function TopBar() {
                   ))}
                 </SelectContent>
               </Select>
+              {projectsError && (
+                <p className="text-xs text-destructive mt-1">Error loading projects</p>
+              )}
             </div>
           </div>
         </SheetContent>
       </Sheet>
 
       {/* Desktop: Inline selectors */}
+      {/* Organization Selector - Fixed width, consistent placeholder */}
       <Select
         value={selectedOrgId?.toString() || ""}
         onValueChange={(value) => setSelectedOrgId(parseInt(value))}
@@ -399,9 +403,7 @@ export function TopBar() {
       >
         <SelectTrigger className="hidden md:flex w-48" data-testid="trigger-organization">
           <SelectValue placeholder={
-            orgsError ? "Error loading orgs" :
-              isLoadingOrgs ? "Loading..." :
-                `Select ${terminology.topLevel}`
+            isLoadingOrgs ? "Loading..." : `Select ${terminology.topLevel}`
           } />
         </SelectTrigger>
         <SelectContent>
@@ -412,33 +414,48 @@ export function TopBar() {
           ))}
         </SelectContent>
       </Select>
-
-      {/* Program Selector */}
-      {selectedOrgId && (
-        <Select
-          value={selectedProgramId?.toString() || "all"}
-          onValueChange={(value) => setSelectedProgramId(value === "all" ? null : parseInt(value))}
-          disabled={isLoadingPrograms || !!programsError}
-          data-testid="select-program"
-        >
-          <SelectTrigger className="hidden md:flex w-56" data-testid="trigger-program">
-            <SelectValue placeholder={
-              programsError ? "Error loading programs" :
-                isLoadingPrograms ? "Loading..." :
-                  `All ${terminology.program}s`
-            } />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All {terminology.program}s</SelectItem>
-            {programs.map((program) => (
-              <SelectItem key={program.id} value={program.id.toString()}>
-                {program.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      {/* Show error badge instead of changing placeholder */}
+      {orgsError && (
+        <Badge variant="destructive" className="hidden md:flex text-xs" title={orgsError.message || "Error loading organizations"}>
+          <AlertCircle className="h-3 w-3 mr-1" />
+          Error
+        </Badge>
       )}
 
+      {/* Program Selector - Fixed width, consistent placeholder */}
+      {selectedOrgId && (
+        <>
+          <Select
+            value={selectedProgramId?.toString() || "all"}
+            onValueChange={(value) => setSelectedProgramId(value === "all" ? null : parseInt(value))}
+            disabled={isLoadingPrograms || !!programsError}
+            data-testid="select-program"
+          >
+            <SelectTrigger className="hidden md:flex w-56" data-testid="trigger-program">
+              <SelectValue placeholder={
+                isLoadingPrograms ? "Loading..." : `All ${terminology.program}s`
+              } />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All {terminology.program}s</SelectItem>
+              {programs.map((program) => (
+                <SelectItem key={program.id} value={program.id.toString()}>
+                  {program.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {/* Show error badge instead of changing placeholder */}
+          {programsError && (
+            <Badge variant="destructive" className="hidden md:flex text-xs" title={programsError.message || "Error loading programs"}>
+              <AlertCircle className="h-3 w-3 mr-1" />
+              Error
+            </Badge>
+          )}
+        </>
+      )}
+
+      {/* Project Selector - Fixed width, consistent placeholder */}
       <Select
         value={selectedProjectId?.toString() || ""}
         onValueChange={(value) => setSelectedProjectId(parseInt(value))}
@@ -447,9 +464,7 @@ export function TopBar() {
       >
         <SelectTrigger className="hidden md:flex w-56" data-testid="trigger-project">
           <SelectValue placeholder={
-            projectsError ? "Error loading projects" :
-              isLoadingProjects ? "Loading..." :
-                "Select Project"
+            isLoadingProjects ? "Loading..." : "Select Project"
           } />
         </SelectTrigger>
         <SelectContent>
@@ -460,6 +475,13 @@ export function TopBar() {
           ))}
         </SelectContent>
       </Select>
+      {/* Show error badge instead of changing placeholder */}
+      {projectsError && (
+        <Badge variant="destructive" className="hidden md:flex text-xs" title={projectsError.message || "Error loading projects"}>
+          <AlertCircle className="h-3 w-3 mr-1" />
+          Error
+        </Badge>
+      )}
 
       {/* Project Settings Button - Only show when project is selected */}
       {selectedProjectId && selectedProject ? (

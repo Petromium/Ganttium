@@ -1426,7 +1426,7 @@ function UserManagementSection() {
 }
 
 export default function SettingsPage() {
-  const { selectedProject, terminology } = useProject();
+  const { selectedProject, selectedOrgId, terminology } = useProject();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
   const searchParams = new URLSearchParams(window.location.search);
@@ -1435,7 +1435,8 @@ export default function SettingsPage() {
   const [syncingId, setSyncingId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<string>("usage");
 
-  const organizationId = selectedProject?.organizationId;
+  // Use selectedOrgId directly - Settings is at organization level, not project level
+  const organizationId = selectedOrgId;
 
   // Set active tab from URL query parameter
   useEffect(() => {
@@ -1577,15 +1578,15 @@ export default function SettingsPage() {
 
   const getConnectedProviders = () => connections.map((c) => c.provider);
 
-  // Allow Organizations tab to be accessible without a project selected
-  // Other tabs require a project
-  if (!selectedProject && activeTab !== "organizations") {
+  // Settings is at organization level - require organization selection
+  // Some tabs may require a project (like labels), but most are org-level
+  if (!organizationId) {
     return (
       <div className="p-6">
         <Alert>
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>
-            Please select a project to configure settings.
+            Please select an organization to configure settings.
           </AlertDescription>
         </Alert>
       </div>
@@ -1897,15 +1898,23 @@ export default function SettingsPage() {
                           variant="outline"
                           size="sm"
                           onClick={() => {
-                            if (!selectedProject) return;
+                            if (!selectedProject) {
+                              toast({
+                                title: "Project Required",
+                                description: "Please select a project to sync files.",
+                                variant: "destructive",
+                              });
+                              return;
+                            }
                             setSyncingId(connection.id);
                             syncMutation.mutate({
                               connectionId: connection.id,
                               projectId: selectedProject.id,
                             });
                           }}
-                          disabled={syncMutation.isPending && syncingId === connection.id}
+                          disabled={(syncMutation.isPending && syncingId === connection.id) || !selectedProject}
                           data-testid={`button-sync-${connection.provider}`}
+                          title={!selectedProject ? "Select a project to sync files" : "Sync files to selected project"}
                         >
                           {syncMutation.isPending && syncingId === connection.id ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
