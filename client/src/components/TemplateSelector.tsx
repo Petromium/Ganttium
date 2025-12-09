@@ -28,7 +28,7 @@ interface TemplateSelectorProps {
 }
 
 export function TemplateSelector({ onSelect, selectedTemplateId }: TemplateSelectorProps) {
-  const { data: templates, isLoading } = useQuery<ProjectTemplate[]>({
+  const { data: templates, isLoading, error } = useQuery<ProjectTemplate[]>({
     queryKey: ["/api/project-templates"],
   });
 
@@ -38,8 +38,18 @@ export function TemplateSelector({ onSelect, selectedTemplateId }: TemplateSelec
     return <div className="flex justify-center p-8"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>;
   }
 
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center p-8 text-center">
+        <div className="text-destructive font-medium mb-2">Error loading templates</div>
+        <div className="text-sm text-muted-foreground">{(error as Error).message}</div>
+        <Button variant="outline" className="mt-4" onClick={() => window.location.reload()}>Retry</Button>
+      </div>
+    );
+  }
+
   if (!templates?.length) {
-    return <div className="text-center p-8 text-muted-foreground">No templates available.</div>;
+    return <div className="text-center p-8 text-muted-foreground">No templates available. (Backend returned empty list)</div>;
   }
 
   const categories = ["all", ...Array.from(new Set(templates.map(t => t.category)))];
