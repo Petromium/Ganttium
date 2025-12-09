@@ -7776,9 +7776,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ===== Template API Routes =====
 
   // Get all templates
-  app.get('/api/project-templates', isAuthenticated, async (req: any, res) => {
+  // NOTE: Templates must be visible to every user (system Templates org + public templates).
+  // Authentication is optional here to avoid blocking on session issues; when a user is present
+  // we also include their org templates.
+  app.get('/api/project-templates', async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const userId = req.user?.id; // optional
       const requestId = crypto.randomUUID();
       console.info(`[api/project-templates] requestId=${requestId} userId=${userId}`);
       // Get templates for user's organization or public templates
