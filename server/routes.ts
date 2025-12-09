@@ -7780,19 +7780,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const userId = getUserId(req);
       // Get templates for user's organization or public templates
-      const templates = await storage.getProjectTemplates();
+      const templates = await storage.getProjectTemplates(userId);
       
       // Transform templates to match client expectations
       const transformedTemplates = templates.map(t => ({
         ...t,
-        category: (t.structure as any)?.category || "general",
-        metadata: {
-          estimatedDuration: (t.structure as any)?.estimatedDuration,
-          complexity: (t.structure as any)?.complexity || "medium",
-          industry: (t.structure as any)?.industry,
-          taskCount: (t.structure as any)?.taskCount || 0,
+        category: t.category || (t.templateData as any)?.category || (t as any).structure?.category || "general",
+        metadata: t.metadata || (t.templateData as any)?.metadata || (t as any).structure?.metadata || {
+          estimatedDuration: 0,
+          complexity: "medium",
+          industry: "general",
+          taskCount: 0
         },
-        templateData: t.structure,
+        templateData: t.templateData || (t as any).structure,
       }));
       
       res.json(transformedTemplates);

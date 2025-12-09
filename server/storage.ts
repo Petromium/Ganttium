@@ -278,7 +278,7 @@ export interface IStorage {
 
   // Project Templates
   getProjectTemplate(id: number): Promise<ProjectTemplate | undefined>;
-  getProjectTemplates(): Promise<ProjectTemplate[]>;
+  getProjectTemplates(userId?: string): Promise<ProjectTemplate[]>;
   createProjectTemplate(template: InsertProjectTemplate): Promise<ProjectTemplate>;
   updateProjectTemplate(id: number, template: Partial<InsertProjectTemplate>): Promise<ProjectTemplate | undefined>;
   deleteProjectTemplate(id: number): Promise<void>;
@@ -1451,8 +1451,26 @@ export class DatabaseStorage implements IStorage {
     return template;
   }
 
-  async getProjectTemplates(): Promise<ProjectTemplate[]> {
+  async getProjectTemplates(userId?: string): Promise<ProjectTemplate[]> {
+    const conditions = [
+      eq(schema.projectTemplates.organizationId, 1),
+      eq(schema.projectTemplates.isPublic, true)
+    ];
+
+    if (userId) {
+      try {
+        const userOrgs = await this.getOrganizationsByUser(userId);
+        if (userOrgs.length > 0) {
+          conditions.push(inArray(schema.projectTemplates.organizationId, userOrgs.map(o => o.id)));
+        }
+      } catch (error) {
+        // Fallback if user lookup fails (e.g. invalid ID)
+        console.warn("Failed to get user organizations for template filtering:", error);
+      }
+    }
+
     return await db.select().from(schema.projectTemplates)
+      .where(or(...conditions))
       .orderBy(desc(schema.projectTemplates.createdAt));
   }
 

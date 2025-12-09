@@ -475,13 +475,14 @@ export function TopBar() {
           ))}
         </SelectContent>
       </Select>
-      {/* Show error badge instead of changing placeholder */}
+      {/* Show error badge instead of changing placeholder - REMOVED per user request
       {projectsError && (
         <Badge variant="destructive" className="hidden md:flex text-xs" title={projectsError.message || "Error loading projects"}>
           <AlertCircle className="h-3 w-3 mr-1" />
           Error
         </Badge>
-      )}
+      )} 
+      */}
 
       {/* Project Settings Button - Only show when project is selected */}
       {selectedProjectId && selectedProject ? (

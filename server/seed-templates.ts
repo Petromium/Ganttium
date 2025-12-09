@@ -46,155 +46,365 @@ interface EPCProjectTemplate {
 }
 
 export async function seedTemplates() {
-  console.log("Seeding remaining project templates (9-20)...");
+  console.log("Seeding EPC Project Templates...");
 
-  let orgId: number | null = null;
-  const systemOrg = await db.query.organizations.findFirst({
-    where: eq(organizations.name, 'System')
-  });
-  
-  if (systemOrg) {
-    orgId = systemOrg.id;
+  // 1. Ensure Organization 1 [Templates] exists
+  let templatesOrg = await storage.getOrganization(1);
+  if (!templatesOrg) {
+    console.log("Creating Organization 1 [Templates]...");
+    try {
+      // Direct insert to force ID 1 if possible, or create and assume it gets ID 1 if empty
+      // Drizzle doesn't easily support forcing ID on serial unless we use raw sql
+      // But we can check if ID 1 exists. If not, we might need to be careful.
+      // For now, let's try to create it normally and hope it's ID 1 or we use whatever ID it gets
+      // But the user SPECIFICALLY asked for Org 1.
+      // If the DB is empty, the first org created will be ID 1.
+      templatesOrg = await storage.createOrganization({
+        name: "Templates",
+        slug: "templates"
+      });
+      console.log(`Created Templates Org with ID: ${templatesOrg.id}`);
+    } catch (e) {
+      console.error("Failed to create Templates org:", e);
+    }
   } else {
-    const firstOrg = await db.query.organizations.findFirst();
-    if (firstOrg) orgId = firstOrg.id;
+    console.log("Organization 1 [Templates] already exists.");
   }
-  
-  console.log(`Using Organization ID: ${orgId} for templates`);
+
+  // 2. Ensure Organization 2 [Demo] exists
+  let demoOrg = await storage.getOrganization(2);
+  if (!demoOrg) {
+    console.log("Creating Organization 2 [Demo]...");
+    try {
+      demoOrg = await storage.createOrganization({
+        name: "Demo",
+        slug: "demo"
+      });
+      console.log(`Created Demo Org with ID: ${demoOrg.id}`);
+    } catch (e) {
+      console.error("Failed to create Demo org:", e);
+    }
+  } else {
+    console.log("Organization 2 [Demo] already exists.");
+  }
+
+  const TEMPLATES_ORG_ID = 1; // We aim for 1, but should use templatesOrg.id if we want robustness, but user requested 1.
 
   const templates: EPCProjectTemplate[] = [
+    // 1. Solar PV Farm (100MW)
+    {
+      name: "Solar PV Farm (100MW)",
+      description: "Utility-scale solar photovoltaic power plant project.",
+      category: "Energy",
+      isPublic: true,
+      metadata: { estimatedDuration: 540, complexity: "medium", typicalTeamSize: 45, industry: "Energy", taskCount: 45 },
+      templateData: {
+        tasks: [
+          { name: "Project Initiation", wbsCode: "1", description: "Project Kickoff", estimatedHours: 40, durationDays: 10, discipline: "management" },
+          { name: "Permitting & Approvals", wbsCode: "1.1", description: "Environmental & Land permits", estimatedHours: 120, durationDays: 60, discipline: "management" },
+          { name: "Engineering", wbsCode: "2", description: "Design Phase", estimatedHours: 0, durationDays: 90, discipline: "engineering" },
+          { name: "PV Plant Layout", wbsCode: "2.1", description: "Optimization of string layout", estimatedHours: 200, durationDays: 30, discipline: "engineering" },
+          { name: "Civil Design", wbsCode: "2.2", description: "Roads and foundations", estimatedHours: 160, durationDays: 45, discipline: "civil" },
+          { name: "Procurement", wbsCode: "3", description: "Purchasing", estimatedHours: 0, durationDays: 120, discipline: "procurement" },
+          { name: "Module Supply", wbsCode: "3.1", description: "PV Modules", estimatedHours: 80, durationDays: 90, discipline: "procurement" },
+          { name: "Inverter Supply", wbsCode: "3.2", description: "Inverters", estimatedHours: 60, durationDays: 90, discipline: "procurement" },
+          { name: "Construction", wbsCode: "4", description: "Site Execution", estimatedHours: 0, durationDays: 240, discipline: "construction" },
+          { name: "Civil Works", wbsCode: "4.1", description: "Grading & Fencing", estimatedHours: 2000, durationDays: 60, discipline: "civil" },
+          { name: "Piling", wbsCode: "4.2", description: "Mounting Structure Foundations", estimatedHours: 4000, durationDays: 90, discipline: "civil", predecessors: ["4.1"] },
+          { name: "Module Mounting", wbsCode: "4.3", description: "Install Modules", estimatedHours: 8000, durationDays: 120, discipline: "mechanical", predecessors: ["4.2"] },
+          { name: "Electrical Works", wbsCode: "4.4", description: "Cabling & Inverters", estimatedHours: 5000, durationDays: 120, discipline: "electrical", predecessors: ["4.3"] },
+          { name: "Commissioning", wbsCode: "5", description: "Testing & Grid Sync", estimatedHours: 500, durationDays: 30, discipline: "commissioning", predecessors: ["4.4"] }
+        ],
+        risks: [
+          { title: "Land Acquisition Delay", description: "Delay in securing land rights", impact: "high", probability: 4, status: "identified", category: "external", mitigationPlan: "Early engagement with landowners" },
+          { title: "Module Price Volatility", description: "Global market fluctuations", impact: "high", probability: 3, status: "identified", category: "market", mitigationPlan: "Fixed price contracts" }
+        ],
+        documents: [
+          { name: "PV Syst Report", description: "Energy Yield Assessment", type: "report" },
+          { name: "Single Line Diagram", description: "Electrical SLD", type: "drawing" }
+        ]
+      }
+    },
+    // 2. Wind Farm (Onshore)
+    {
+      name: "Wind Farm (Onshore)",
+      description: "50MW Onshore Wind Farm construction.",
+      category: "Energy",
+      isPublic: true,
+      metadata: { estimatedDuration: 730, complexity: "high", typicalTeamSize: 60, industry: "Energy", taskCount: 50 },
+      templateData: {
+        tasks: [
+          { name: "Wind Resource Assessment", wbsCode: "1", description: "Met mast data analysis", estimatedHours: 160, durationDays: 365, discipline: "engineering" },
+          { name: "Turbine Selection", wbsCode: "2", description: "Select WTG model", estimatedHours: 80, durationDays: 60, discipline: "engineering" },
+          { name: "Infrastructure", wbsCode: "3", description: "Roads & Crane Pads", estimatedHours: 3000, durationDays: 120, discipline: "civil" },
+          { name: "WTG Foundations", wbsCode: "4", description: "Concrete pours", estimatedHours: 6000, durationDays: 150, discipline: "civil", predecessors: ["3"] },
+          { name: "Turbine Erection", wbsCode: "5", description: "Lifting & Assembly", estimatedHours: 4000, durationDays: 120, discipline: "mechanical", predecessors: ["4"] },
+          { name: "Grid Connection", wbsCode: "6", description: "Substation & Transmission", estimatedHours: 2000, durationDays: 120, discipline: "electrical" }
+        ],
+        risks: [
+          { title: "Logistics Issues", description: "Blade transport route blocked", impact: "critical", probability: 3, status: "identified", category: "logistics", mitigationPlan: "Route survey & permits" },
+          { title: "High Winds", description: "Crane downtime due to wind", impact: "medium", probability: 5, status: "identified", category: "weather", mitigationPlan: "Weather buffer in schedule" }
+        ],
+        documents: [
+          { name: "Micrositing Report", description: "Turbine locations", type: "report" },
+          { name: "Transport Study", description: "Logistics route", type: "report" }
+        ]
+      }
+    },
+    // 3. Combined Cycle Power Plant
+    {
+      name: "Combined Cycle Power Plant",
+      description: "Gas-fired CCPP with HRSG and Steam Turbine.",
+      category: "Energy",
+      isPublic: true,
+      metadata: { estimatedDuration: 1095, complexity: "high", typicalTeamSize: 200, industry: "Energy", taskCount: 80 },
+      templateData: {
+        tasks: [
+          { name: "Basic Engineering", wbsCode: "1", description: "P&IDs, Plot Plan", estimatedHours: 5000, durationDays: 180, discipline: "engineering" },
+          { name: "Gas Turbine Procurement", wbsCode: "2", description: "GT Ordering", estimatedHours: 200, durationDays: 365, discipline: "procurement" },
+          { name: "HRSG Erection", wbsCode: "3", description: "Boiler install", estimatedHours: 20000, durationDays: 300, discipline: "mechanical" },
+          { name: "Steam Turbine Install", wbsCode: "4", description: "STG on pedestal", estimatedHours: 15000, durationDays: 240, discipline: "mechanical" }
+        ],
+        risks: [
+          { title: "Gas Supply Delay", description: "Pipeline not ready", impact: "critical", probability: 2, status: "identified", category: "external", mitigationPlan: "Coordination with gas supplier" }
+        ],
+        documents: [
+          { name: "Heat Balance Diagram", description: "Cycle efficiency", type: "diagram" }
+        ]
+      }
+    },
+    // 4. Battery Energy Storage System (BESS)
+    {
+      name: "Battery Energy Storage System (BESS)",
+      description: "Grid-scale Lithium-Ion BESS project.",
+      category: "Energy",
+      isPublic: true,
+      metadata: { estimatedDuration: 365, complexity: "medium", typicalTeamSize: 30, industry: "Energy", taskCount: 30 },
+      templateData: {
+        tasks: [
+          { name: "Site Selection", wbsCode: "1", description: "Grid constraints", estimatedHours: 80, durationDays: 60, discipline: "engineering" },
+          { name: "Container Delivery", wbsCode: "2", description: "Battery containers", estimatedHours: 40, durationDays: 180, discipline: "procurement" },
+          { name: "Installation", wbsCode: "3", description: "Place on foundations", estimatedHours: 1000, durationDays: 45, discipline: "construction" },
+          { name: "Integration", wbsCode: "4", description: "SCADA & EMS", estimatedHours: 500, durationDays: 60, discipline: "instrumentation" }
+        ],
+        risks: [
+          { title: "Thermal Runaway", description: "Fire risk", impact: "critical", probability: 2, status: "identified", category: "safety", mitigationPlan: "Fire suppression system" }
+        ],
+        documents: [
+          { name: "Fire Safety Plan", description: "Emergency response", type: "plan" }
+        ]
+      }
+    },
+    // 5. Offshore Platform (Fixed)
+    {
+      name: "Offshore Platform (Fixed)",
+      description: "Fixed jacket platform for oil & gas production.",
+      category: "Oil & Gas",
+      isPublic: true,
+      metadata: { estimatedDuration: 1460, complexity: "very high", typicalTeamSize: 300, industry: "Oil & Gas", taskCount: 100 },
+      templateData: {
+        tasks: [
+          { name: "Jacket Fabrication", wbsCode: "1", description: "Steel jacket in yard", estimatedHours: 50000, durationDays: 365, discipline: "construction" },
+          { name: "Topside Fabrication", wbsCode: "2", description: "Deck & modules", estimatedHours: 80000, durationDays: 450, discipline: "construction" },
+          { name: "Load Out", wbsCode: "3", description: "Load onto barge", estimatedHours: 2000, durationDays: 15, discipline: "marine" },
+          { name: "Installation", wbsCode: "4", description: "Heavy lift at sea", estimatedHours: 5000, durationDays: 30, discipline: "marine" }
+        ],
+        risks: [
+          { title: "Weather Window", description: "Missed installation season", impact: "critical", probability: 3, status: "identified", category: "weather", mitigationPlan: "Flexible schedule" }
+        ],
+        documents: [
+          { name: "Weight Control Report", description: "COG analysis", type: "report" }
+        ]
+      }
+    },
+    // 6. Refinery Turnaround
+    {
+      name: "Refinery Turnaround",
+      description: "Maintenance shutdown for refinery unit.",
+      category: "Oil & Gas",
+      isPublic: true,
+      metadata: { estimatedDuration: 45, complexity: "high", typicalTeamSize: 500, industry: "Oil & Gas", taskCount: 150 },
+      templateData: {
+        tasks: [
+          { name: "Shutdown", wbsCode: "1", description: "Unit cooling & purging", estimatedHours: 1000, durationDays: 5, discipline: "operations" },
+          { name: "Inspection", wbsCode: "2", description: "Vessel entry", estimatedHours: 2000, durationDays: 10, discipline: "qa" },
+          { name: "Repairs", wbsCode: "3", description: "Welding & replacement", estimatedHours: 10000, durationDays: 20, discipline: "mechanical" },
+          { name: "Startup", wbsCode: "4", description: "Leak test & heat up", estimatedHours: 1000, durationDays: 7, discipline: "operations" }
+        ],
+        risks: [
+          { title: "Scope Creep", description: "Found more damage", impact: "high", probability: 5, status: "identified", category: "technical", mitigationPlan: "Contingency budget" }
+        ],
+        documents: [
+          { name: "Blind List", description: "Isolation points", type: "list" }
+        ]
+      }
+    },
+    // 7. Pipeline Construction (Cross-country)
+    {
+      name: "Pipeline Construction",
+      description: "100km Cross-country oil/gas pipeline.",
+      category: "Oil & Gas",
+      isPublic: true,
+      metadata: { estimatedDuration: 365, complexity: "medium", typicalTeamSize: 100, industry: "Oil & Gas", taskCount: 60 },
+      templateData: {
+        tasks: [
+          { name: "ROW Acquisition", wbsCode: "1", description: "Right of Way", estimatedHours: 1000, durationDays: 180, discipline: "management" },
+          { name: "Stringing", wbsCode: "2", description: "Pipe distribution", estimatedHours: 2000, durationDays: 60, discipline: "mechanical" },
+          { name: "Welding", wbsCode: "3", description: "Mainline welding", estimatedHours: 8000, durationDays: 90, discipline: "mechanical", predecessors: ["2"] },
+          { name: "Lowering & Backfill", wbsCode: "4", description: "Trenching", estimatedHours: 4000, durationDays: 90, discipline: "civil", predecessors: ["3"] }
+        ],
+        risks: [
+          { title: "Landowner Protest", description: "Access blocked", impact: "high", probability: 3, status: "identified", category: "external", mitigationPlan: "Community relations" }
+        ],
+        documents: [
+          { name: "Alignment Sheet", description: "Route map", type: "drawing" }
+        ]
+      }
+    },
+    // 8. LNG Terminal
+    {
+      name: "LNG Terminal",
+      description: "Import/Export LNG terminal facility.",
+      category: "Oil & Gas",
+      isPublic: true,
+      metadata: { estimatedDuration: 1825, complexity: "very high", typicalTeamSize: 400, industry: "Oil & Gas", taskCount: 120 },
+      templateData: {
+        tasks: [
+          { name: "Tank Construction", wbsCode: "1", description: "Full containment tank", estimatedHours: 50000, durationDays: 900, discipline: "civil" },
+          { name: "Jetty Works", wbsCode: "2", description: "Loading arms & trestle", estimatedHours: 20000, durationDays: 600, discipline: "marine" },
+          { name: "Cryogenic Piping", wbsCode: "3", description: "Stainless steel piping", estimatedHours: 30000, durationDays: 400, discipline: "mechanical" }
+        ],
+        risks: [
+          { title: "Cryogenic Spill", description: "Safety hazard", impact: "critical", probability: 1, status: "identified", category: "safety", mitigationPlan: "Spill containment" }
+        ],
+        documents: [
+          { name: "HAZOP Report", description: "Safety review", type: "report" }
+        ]
+      }
+    },
     // 9. Highway Expansion
     {
       name: "Highway Expansion",
-      description: "Widening of 20km highway from 2 to 4 lanes.",
+      description: "Adding lanes to existing highway (20km).",
       category: "Infrastructure",
       isPublic: true,
-      metadata: { estimatedDuration: 730, complexity: "medium", typicalTeamSize: 100, industry: "Infrastructure", taskCount: 35 },
+      metadata: { estimatedDuration: 730, complexity: "medium", typicalTeamSize: 80, industry: "Infrastructure", taskCount: 40 },
       templateData: {
         tasks: [
-          { name: "Design", wbsCode: "1", description: "Road alignment", estimatedHours: 2000, durationDays: 180, discipline: "civil" },
-          { name: "Land Acquisition", wbsCode: "2", description: "ROW", estimatedHours: 1000, durationDays: 365, discipline: "legal" },
-          { name: "Earthworks", wbsCode: "3", description: "Cut & Fill", estimatedHours: 10000, durationDays: 200, discipline: "civil", predecessors: ["1", "2"] },
-          { name: "Drainage", wbsCode: "4", description: "Culverts", estimatedHours: 5000, durationDays: 120, discipline: "civil", predecessors: ["3"] },
-          { name: "Paving", wbsCode: "5", description: "Asphalt", estimatedHours: 8000, durationDays: 150, discipline: "civil", predecessors: ["4"] },
-          { name: "Signage", wbsCode: "6", description: "Road furniture", estimatedHours: 1000, durationDays: 60, discipline: "civil", predecessors: ["5"] }
+          { name: "Traffic Management", wbsCode: "1", description: "Detours", estimatedHours: 500, durationDays: 730, discipline: "safety" },
+          { name: "Earthworks", wbsCode: "2", description: "Embankment", estimatedHours: 5000, durationDays: 180, discipline: "civil" },
+          { name: "Paving", wbsCode: "3", description: "Asphalt laying", estimatedHours: 3000, durationDays: 120, discipline: "civil" }
         ],
         risks: [
-          { title: "Traffic Management", description: "Public safety during works", impact: "critical", probability: 4, status: "identified", category: "hse", mitigationPlan: "Detour plan" }
+          { title: "Traffic Accidents", description: "Public safety", impact: "high", probability: 3, status: "identified", category: "safety", mitigationPlan: "Strict TMPs" }
         ],
         documents: [
-          { name: "Traffic Management Plan", description: "Safety procedures", type: "plan" }
+          { name: "Traffic Management Plan", description: "Road safety", type: "plan" }
         ]
       }
     },
     // 10. Railway Electrification
     {
       name: "Railway Electrification",
-      description: "Overhead catenary system installation for 100km track.",
+      description: "Overhead Catenary System (OCS) for rail.",
       category: "Infrastructure",
       isPublic: true,
-      metadata: { estimatedDuration: 500, complexity: "high", typicalTeamSize: 80, industry: "Infrastructure", taskCount: 30 },
+      metadata: { estimatedDuration: 500, complexity: "high", typicalTeamSize: 60, industry: "Infrastructure", taskCount: 50 },
       templateData: {
         tasks: [
-          { name: "Survey", wbsCode: "1", description: "Track survey", estimatedHours: 500, durationDays: 60, discipline: "civil" },
-          { name: "Foundations", wbsCode: "2", description: "Mast bases", estimatedHours: 5000, durationDays: 180, discipline: "civil", predecessors: ["1"] },
-          { name: "Mast Erection", wbsCode: "3", description: "Steel poles", estimatedHours: 4000, durationDays: 150, discipline: "structural", predecessors: ["2"] },
-          { name: "Wiring", wbsCode: "4", description: "Contact wire", estimatedHours: 6000, durationDays: 120, discipline: "electrical", predecessors: ["3"] },
-          { name: "Substations", wbsCode: "5", description: "Traction power", estimatedHours: 3000, durationDays: 200, discipline: "electrical" }
+          { name: "Mast Foundation", wbsCode: "1", description: "Piling along track", estimatedHours: 3000, durationDays: 150, discipline: "civil" },
+          { name: "Mast Erection", wbsCode: "2", description: "Steel masts", estimatedHours: 2000, durationDays: 120, discipline: "structural" },
+          { name: "Wiring", wbsCode: "3", description: "Contact wire stringing", estimatedHours: 4000, durationDays: 120, discipline: "electrical" }
         ],
         risks: [
-          { title: "Track Access", description: "Limited possession windows", impact: "high", probability: 5, status: "identified", category: "operations", mitigationPlan: "Night shifts" }
+          { title: "Track Possession", description: "Limited access time", impact: "high", probability: 5, status: "identified", category: "logistics", mitigationPlan: "Night shifts" }
         ],
         documents: [
-          { name: "Possession Plan", description: "Track access schedule", type: "schedule" }
+          { name: "OCS Layout", description: "Wiring diagram", type: "drawing" }
         ]
       }
     },
     // 11. Port Terminal Expansion
     {
       name: "Port Terminal Expansion",
-      description: "Construction of new container berth and dredging.",
+      description: "New container berth construction.",
       category: "Infrastructure",
       isPublic: true,
-      metadata: { estimatedDuration: 1095, complexity: "high", typicalTeamSize: 150, industry: "Infrastructure", taskCount: 45 },
+      metadata: { estimatedDuration: 1000, complexity: "high", typicalTeamSize: 100, industry: "Infrastructure", taskCount: 60 },
       templateData: {
         tasks: [
           { name: "Dredging", wbsCode: "1", description: "Deepening channel", estimatedHours: 5000, durationDays: 180, discipline: "marine" },
-          { name: "Piling", wbsCode: "2", description: "Wharf piles", estimatedHours: 10000, durationDays: 240, discipline: "civil", predecessors: ["1"] },
-          { name: "Deck Construction", wbsCode: "3", description: "Concrete deck", estimatedHours: 8000, durationDays: 180, discipline: "civil", predecessors: ["2"] },
-          { name: "Equipment Install", wbsCode: "4", description: "STS Cranes", estimatedHours: 2000, durationDays: 90, discipline: "mechanical", predecessors: ["3"] }
+          { name: "Quay Wall", wbsCode: "2", description: "Sheet piles / combi wall", estimatedHours: 10000, durationDays: 300, discipline: "civil" },
+          { name: "Pavement", wbsCode: "3", description: "Container yard", estimatedHours: 5000, durationDays: 200, discipline: "civil" }
         ],
         risks: [
-          { title: "Marine Weather", description: "Storms stopping dredging", impact: "high", probability: 3, status: "identified", category: "environmental", mitigationPlan: "Seasonal work" }
+          { title: "Geotechnical Issues", description: "Soft soil", impact: "high", probability: 3, status: "identified", category: "technical", mitigationPlan: "Soil improvement" }
         ],
         documents: [
-          { name: "Bathymetric Survey", description: "Seabed map", type: "drawing" }
+          { name: "Bathymetry Survey", description: "Seabed levels", type: "survey" }
         ]
       }
     },
     // 12. Water Treatment Plant
     {
       name: "Water Treatment Plant",
-      description: "Greenfield 50 MGD water treatment facility.",
+      description: "50 MLD Water Treatment Facility.",
       category: "Infrastructure",
       isPublic: true,
-      metadata: { estimatedDuration: 730, complexity: "medium", typicalTeamSize: 60, industry: "Infrastructure", taskCount: 40 },
+      metadata: { estimatedDuration: 730, complexity: "medium", typicalTeamSize: 50, industry: "Infrastructure", taskCount: 55 },
       templateData: {
         tasks: [
-          { name: "Process Design", wbsCode: "1", description: "Treatment flows", estimatedHours: 1000, durationDays: 90, discipline: "process" },
-          { name: "Civil Works", wbsCode: "2", description: "Tanks & buildings", estimatedHours: 8000, durationDays: 365, discipline: "civil" },
-          { name: "Mechanical Install", wbsCode: "3", description: "Pumps & pipes", estimatedHours: 6000, durationDays: 180, discipline: "mechanical", predecessors: ["2"] },
-          { name: "Electrical & SCADA", wbsCode: "4", description: "Controls", estimatedHours: 4000, durationDays: 120, discipline: "automation", predecessors: ["3"] }
+          { name: "Civil Structures", wbsCode: "1", description: "Clarifiers & Filters", estimatedHours: 8000, durationDays: 240, discipline: "civil" },
+          { name: "Piping", wbsCode: "2", description: "Interconnecting piping", estimatedHours: 4000, durationDays: 150, discipline: "mechanical" },
+          { name: "MEIC Installation", wbsCode: "3", description: "Pumps & Panels", estimatedHours: 3000, durationDays: 120, discipline: "electrical" }
         ],
         risks: [
-          { title: "Effluent Quality", description: "Not meeting standards", impact: "critical", probability: 2, status: "identified", category: "technical", mitigationPlan: "Pilot testing" }
+          { title: "Leakage Test Fail", description: "Concrete tanks leak", impact: "medium", probability: 2, status: "identified", category: "quality", mitigationPlan: "Waterproofing" }
         ],
         documents: [
-          { name: "Process Flow Diagram", description: "PFD", type: "drawing" }
+          { name: "P&ID", description: "Process diagram", type: "drawing" }
         ]
       }
     },
     // 13. Petrochemical Complex
     {
       name: "Petrochemical Complex",
-      description: "Ethylene cracker and derivatives units.",
+      description: "Ethylene Cracker Unit.",
       category: "Industrial",
       isPublic: true,
-      metadata: { estimatedDuration: 1460, complexity: "critical", typicalTeamSize: 500, industry: "Industrial", taskCount: 80 },
+      metadata: { estimatedDuration: 1460, complexity: "very high", typicalTeamSize: 600, industry: "Industrial", taskCount: 200 },
       templateData: {
         tasks: [
-          { name: "Licensing", wbsCode: "1", description: "Technology license", estimatedHours: 2000, durationDays: 180, discipline: "process" },
-          { name: "EPC Execution", wbsCode: "2", description: "Main contract", estimatedHours: 500000, durationDays: 1000, discipline: "management" },
-          { name: "Furnace Erection", wbsCode: "2.1", description: "Cracking furnaces", estimatedHours: 50000, durationDays: 365, discipline: "mechanical" },
-          { name: "Column Erection", wbsCode: "2.2", description: "Distillation towers", estimatedHours: 30000, durationDays: 200, discipline: "mechanical" }
+          { name: "Furnace Erection", wbsCode: "1", description: "Cracking furnaces", estimatedHours: 20000, durationDays: 300, discipline: "mechanical" },
+          { name: "Column Erection", wbsCode: "2", description: "Distillation columns", estimatedHours: 10000, durationDays: 200, discipline: "mechanical" },
+          { name: "Compressor House", wbsCode: "3", description: "Major compressors", estimatedHours: 15000, durationDays: 250, discipline: "civil" }
         ],
         risks: [
-          { title: "Technology Risk", description: "Scale-up issues", impact: "critical", probability: 2, status: "identified", category: "technical", mitigationPlan: "Proven licensor" }
+          { title: "Material Delay", description: "Exotic alloy piping", impact: "high", probability: 4, status: "identified", category: "procurement", mitigationPlan: "Early ordering" }
         ],
         documents: [
-          { name: "Heat & Material Balance", description: "H&MB", type: "report" }
+          { name: "Equipment List", description: "Master tag list", type: "list" }
         ]
       }
     },
     // 14. Steel Mill Modernization
     {
       name: "Steel Mill Modernization",
-      description: "Blast furnace relining and automation upgrade.",
+      description: "Upgrade of Rolling Mill.",
       category: "Industrial",
       isPublic: true,
-      metadata: { estimatedDuration: 90, complexity: "high", typicalTeamSize: 200, industry: "Industrial", taskCount: 50 },
+      metadata: { estimatedDuration: 365, complexity: "high", typicalTeamSize: 100, industry: "Industrial", taskCount: 70 },
       templateData: {
         tasks: [
-          { name: "Blow Down", wbsCode: "1", description: "Furnace stop", estimatedHours: 200, durationDays: 2, discipline: "operations" },
-          { name: "Demolition", wbsCode: "2", description: "Remove lining", estimatedHours: 5000, durationDays: 20, discipline: "civil" },
-          { name: "Relining", wbsCode: "3", description: "Refractory install", estimatedHours: 10000, durationDays: 40, discipline: "civil", predecessors: ["2"] },
-          { name: "Blow In", wbsCode: "4", description: "Restart", estimatedHours: 500, durationDays: 5, discipline: "operations", predecessors: ["3"] }
+          { name: "Dismantling", wbsCode: "1", description: "Remove old mill", estimatedHours: 2000, durationDays: 30, discipline: "mechanical" },
+          { name: "Foundation Mod", wbsCode: "2", description: "Modify bases", estimatedHours: 1000, durationDays: 30, discipline: "civil" },
+          { name: "New Mill Install", wbsCode: "3", description: "Install stands", estimatedHours: 5000, durationDays: 90, discipline: "mechanical" }
         ],
         risks: [
-          { title: "Safety Incident", description: "Confined space entry", impact: "critical", probability: 3, status: "identified", category: "hse", mitigationPlan: "Rescue team on standby" }
+          { title: "As-Built Accuracy", description: "Old drawings wrong", impact: "medium", probability: 5, status: "identified", category: "technical", mitigationPlan: "Laser scanning" }
         ],
         documents: [
-          { name: "Refractory Procedure", description: "Install guide", type: "procedure" }
+          { name: "Shutdown Plan", description: "Detailed schedule", type: "plan" }
         ]
       }
     },
@@ -245,22 +455,21 @@ export async function seedTemplates() {
     // 17. Open Pit Mine Development
     {
       name: "Open Pit Mine Development",
-      description: "Development of copper mine including pre-stripping and infrastructure.",
+      description: "Development of new open pit copper mine.",
       category: "Mining",
       isPublic: true,
-      metadata: { estimatedDuration: 730, complexity: "high", typicalTeamSize: 100, industry: "Mining", taskCount: 35 },
+      metadata: { estimatedDuration: 1095, complexity: "high", typicalTeamSize: 200, industry: "Mining", taskCount: 60 },
       templateData: {
         tasks: [
-          { name: "Exploration", wbsCode: "1", description: "Drilling", estimatedHours: 2000, durationDays: 180, discipline: "geology" },
-          { name: "Pre-strip", wbsCode: "2", description: "Overburden removal", estimatedHours: 50000, durationDays: 365, discipline: "mining", predecessors: ["1"] },
-          { name: "Haul Roads", wbsCode: "3", description: "Access", estimatedHours: 5000, durationDays: 120, discipline: "civil" },
-          { name: "Camp Construction", wbsCode: "4", description: "Housing", estimatedHours: 3000, durationDays: 150, discipline: "construction" }
+          { name: "Pre-Strip", wbsCode: "1", description: "Remove overburden", estimatedHours: 50000, durationDays: 365, discipline: "mining" },
+          { name: "Haul Roads", wbsCode: "2", description: "Road construction", estimatedHours: 5000, durationDays: 90, discipline: "civil" },
+          { name: "Camp Construction", wbsCode: "3", description: "Accommodation", estimatedHours: 10000, durationDays: 180, discipline: "construction" }
         ],
         risks: [
-          { title: "Ore Grade", description: "Lower than predicted", impact: "high", probability: 3, status: "identified", category: "financial", mitigationPlan: "Geostatistical model" }
+          { title: "Grade Uncertainty", description: "Ore grade lower than expected", impact: "critical", probability: 3, status: "identified", category: "technical", mitigationPlan: "Infill drilling" }
         ],
         documents: [
-          { name: "Mine Plan", description: "Life of mine", type: "plan" }
+          { name: "Mine Plan", description: "LOM plan", type: "plan" }
         ]
       }
     },
@@ -270,87 +479,87 @@ export async function seedTemplates() {
       description: "Concentrator plant for copper ore.",
       category: "Mining",
       isPublic: true,
-      metadata: { estimatedDuration: 540, complexity: "high", typicalTeamSize: 120, industry: "Mining", taskCount: 40 },
+      metadata: { estimatedDuration: 900, complexity: "high", typicalTeamSize: 150, industry: "Mining", taskCount: 75 },
       templateData: {
         tasks: [
-          { name: "SAG Mill Install", wbsCode: "1", description: "Grinding", estimatedHours: 5000, durationDays: 180, discipline: "mechanical" },
-          { name: "Flotation Cells", wbsCode: "2", description: "Separation", estimatedHours: 4000, durationDays: 150, discipline: "mechanical" },
-          { name: "Tailings Dam", wbsCode: "3", description: "Waste storage", estimatedHours: 10000, durationDays: 365, discipline: "civil" }
+          { name: "Ball Mill Install", wbsCode: "1", description: "Grinding circuit", estimatedHours: 8000, durationDays: 180, discipline: "mechanical" },
+          { name: "Flotation Cells", wbsCode: "2", description: "Separation", estimatedHours: 6000, durationDays: 150, discipline: "mechanical" },
+          { name: "Tailings Dam", wbsCode: "3", description: "TSF construction", estimatedHours: 20000, durationDays: 365, discipline: "civil" }
         ],
         risks: [
-          { title: "Tailings Leak", description: "Environmental breach", impact: "critical", probability: 2, status: "identified", category: "environmental", mitigationPlan: "Lined dam" }
+          { title: "Water Supply", description: "Insufficient process water", impact: "critical", probability: 3, status: "identified", category: "external", mitigationPlan: "Borefield expansion" }
         ],
         documents: [
-          { name: "Tailings Management Plan", description: "TSF manual", type: "plan" }
+          { name: "Process Design Criteria", description: "PDC", type: "document" }
         ]
       }
     },
     // 19. Data Center (Tier III)
     {
       name: "Data Center (Tier III)",
-      description: "Hyperscale data center facility.",
+      description: "10MW Tier III Data Center.",
       category: "Buildings",
       isPublic: true,
-      metadata: { estimatedDuration: 400, complexity: "high", typicalTeamSize: 100, industry: "Buildings", taskCount: 45 },
+      metadata: { estimatedDuration: 540, complexity: "high", typicalTeamSize: 80, industry: "Technology", taskCount: 65 },
       templateData: {
         tasks: [
-          { name: "Core & Shell", wbsCode: "1", description: "Structure", estimatedHours: 5000, durationDays: 180, discipline: "construction" },
-          { name: "Electrical", wbsCode: "2", description: "UPS & Generators", estimatedHours: 8000, durationDays: 150, discipline: "electrical", predecessors: ["1"] },
-          { name: "Mechanical", wbsCode: "3", description: "Cooling CRAC", estimatedHours: 6000, durationDays: 150, discipline: "mechanical", predecessors: ["1"] },
-          { name: "IST", wbsCode: "4", description: "Integrated Systems Test", estimatedHours: 1000, durationDays: 30, discipline: "commissioning", predecessors: ["2", "3"] }
+          { name: "Shell & Core", wbsCode: "1", description: "Building structure", estimatedHours: 10000, durationDays: 240, discipline: "civil" },
+          { name: "Power Systems", wbsCode: "2", description: "UPS & Generators", estimatedHours: 8000, durationDays: 180, discipline: "electrical" },
+          { name: "Cooling", wbsCode: "3", description: "Chillers & CRAH", estimatedHours: 6000, durationDays: 150, discipline: "mechanical" },
+          { name: "IT Fitout", wbsCode: "4", description: "Racks & Cabling", estimatedHours: 4000, durationDays: 90, discipline: "telecom" }
         ],
         risks: [
-          { title: "PUE Target", description: "Efficiency miss", impact: "medium", probability: 3, status: "identified", category: "technical", mitigationPlan: "CFD modeling" }
+          { title: "Supply Chain", description: "Chip shortage affecting UPS", impact: "high", probability: 4, status: "identified", category: "procurement", mitigationPlan: "Early procurement" }
         ],
         documents: [
-          { name: "Commissioning Script", description: "Test procedure", type: "procedure" }
+          { name: "Commissioning Script", description: "IST procedures", type: "document" }
         ]
       }
     },
     // 20. Hospital Complex
     {
       name: "Hospital Complex",
-      description: "500-bed tertiary care hospital.",
+      description: "500-bed General Hospital.",
       category: "Buildings",
       isPublic: true,
-      metadata: { estimatedDuration: 1095, complexity: "high", typicalTeamSize: 200, industry: "Buildings", taskCount: 60 },
+      metadata: { estimatedDuration: 1095, complexity: "very high", typicalTeamSize: 300, industry: "Healthcare", taskCount: 150 },
       templateData: {
         tasks: [
-          { name: "Structure", wbsCode: "1", description: "Frame", estimatedHours: 20000, durationDays: 365, discipline: "construction" },
-          { name: "MEP First Fix", wbsCode: "2", description: "Ducts & pipes", estimatedHours: 15000, durationDays: 200, discipline: "mechanical", predecessors: ["1"] },
-          { name: "Medical Gas", wbsCode: "3", description: "O2, Air, Vac", estimatedHours: 3000, durationDays: 120, discipline: "mechanical" },
-          { name: "Finishes", wbsCode: "4", description: "Floors & Walls", estimatedHours: 10000, durationDays: 240, discipline: "architectural", predecessors: ["2"] }
+          { name: "Structure", wbsCode: "1", description: "Concrete frame", estimatedHours: 40000, durationDays: 365, discipline: "civil" },
+          { name: "MEP Services", wbsCode: "2", description: "Medical gas, HVAC", estimatedHours: 60000, durationDays: 500, discipline: "mechanical" },
+          { name: "Medical Equipment", wbsCode: "3", description: "MRI, CT Install", estimatedHours: 5000, durationDays: 120, discipline: "medical" },
+          { name: "Interiors", wbsCode: "4", description: "Finishes", estimatedHours: 30000, durationDays: 300, discipline: "architectural" }
         ],
         risks: [
-          { title: "Infection Control", description: "Dust during works", impact: "high", probability: 3, status: "identified", category: "quality", mitigationPlan: "ICRA protocols" }
+          { title: "Design Changes", description: "Clinical requirement changes", impact: "high", probability: 5, status: "identified", category: "technical", mitigationPlan: "Freeze date" }
         ],
         documents: [
-          { name: "Room Data Sheets", description: "RDS", type: "report" }
+          { name: "Room Data Sheets", description: "RDS", type: "document" }
         ]
       }
     }
   ];
 
   for (const t of templates) {
-    const templateInput: any = {
-      name: t.name,
-      description: t.description,
-      category: t.category,
-      isPublic: t.isPublic,
-      metadata: t.metadata,
-      templateData: t.templateData,
-      organizationId: orgId
-    };
-
-    await storage.createProjectTemplate(templateInput);
+    // Check if template exists by name to avoid duplicates
+    const existing = await db.select().from(projectTemplates).where(eq(projectTemplates.name, t.name)).limit(1);
+    
+    if (existing.length === 0) {
+      await storage.createProjectTemplate({
+        ...t,
+        organizationId: TEMPLATES_ORG_ID, // Use Template Org
+        userId: null
+      });
+      console.log(`Created template: ${t.name}`);
+    } else {
+      console.log(`Template already exists: ${t.name}`);
+    }
   }
 
-  console.log(`Seeded ${templates.length} templates.`);
+  console.log("Template seeding completed.");
 }
 
-seedTemplates()
-  .then(() => process.exit(0))
-  .catch((err) => {
-    console.error(err);
-    process.exit(1);
-  });
+// Run if called directly
+if (import.meta.url === `file://${process.argv[1]}`) {
+  seedTemplates().catch(console.error);
+}
