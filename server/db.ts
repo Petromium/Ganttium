@@ -7,11 +7,13 @@ import * as schema from "@shared/schema";
 
 neonConfig.webSocketConstructor = ws;
 
-// Use standard pg driver for local development, testing, and Docker
-// We should use pg for Docker to avoid websocket issues with neon-serverless in local containers
+// Use standard pg driver for local development, testing, Docker, and Cloud Run
+// We should use pg for Docker and Cloud Run to avoid websocket issues with neon-serverless
+// WebSocket connections fail in Cloud Run environment, so we use standard pg driver
 const isDev = process.env.NODE_ENV === "development" || 
               process.env.NODE_ENV === "test" || 
-              process.env.DOCKER_ENV === "true"; // Added flag for Docker
+              process.env.DOCKER_ENV === "true" || // Docker flag
+              process.env.K_SERVICE !== undefined; // Cloud Run detection (K_SERVICE is set by Cloud Run)
 
 /**
  * Initialize database pool
