@@ -188,13 +188,6 @@ curl.exe -X POST "https://ganttium-303401483984.us-central1.run.app/api/organiza
 - ✅ Environment variables validated successfully
 - ✅ Application serves requests without crashing
 
-# CI/CD Pipeline Mandate (GitHub Actions)
-1. `.github/workflows/ci-cd-pipeline.yml` runs on every push to `main`. It lint/types checks (`npm run check`), builds, runs Vitest + Playwright suites, performs `npm audit`, builds the Docker image, pushes to `gcr.io/${GCP_PROJECT_ID}/ganttium-app`, and deploys to Cloud Run.
-2. `.github/workflows/security-scan.yml` runs on push + weekly schedule. It executes CodeQL, npm audit, Snyk (if `SNYK_TOKEN` set), and OWASP ZAP DAST. Review artifacts in the Actions tab and remediate failing checks before merging.
-3. Required GitHub secrets: `GCP_PROJECT_ID`, `GCP_REGION`, `GCP_SERVICE_ACCOUNT_EMAIL`, `GCP_SERVICE_ACCOUNT_KEY`, and optional `SNYK_TOKEN`. Do not rename without updating both workflows.
-4. Deployment is fully automatic on green pipelines. Never force-push failing code. Fix the workflow, re-run locally, and re-push.
-5. Keep Dockerfile and docker-compose in sync with the container the pipeline builds. Any change that affects runtime config must be validated locally before allowing the workflow to deploy.
-
 # Operational Workflow
 1.  **Context Loading:** Index the current project state. Read relevant documentation files to understand the architectural constraints.
 2.  **Story Alignment:** Confirm which User Story from `Documents/Scrum_Backlog.md` is being addressed.

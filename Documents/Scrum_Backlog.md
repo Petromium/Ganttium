@@ -33,3 +33,18 @@
 | **SP6-T18** | **Template: Mineral Processing Plant** | As a Project Manager, I want a comprehensive Mineral Processing Plant template with realistic WBS (5 levels max), 150+ tasks with dependencies, 25 risks, and 12 document templates. | 13 | High | 🔴 Pending |
 | **SP6-T19** | **Template: Data Center (Tier III)** | As a Project Manager, I want a comprehensive Data Center (Tier III) template with realistic WBS (5 levels max), 150+ tasks with dependencies, 25 risks, and 12 document templates. | 13 | High | 🔴 Pending |
 | **SP6-T20** | **Template: Hospital Complex** | As a Project Manager, I want a comprehensive Hospital Complex template with realistic WBS (5 levels max), 150+ tasks with dependencies, 25 risks, and 12 document templates. | 13 | High | 🔴 Pending |
+| **SP6-OPS01** | **CI/CD Hardening** | As a DevOps Engineer, I want GitHub Actions to lint, test, scan, and deploy every commit to main automatically so that Cloud Run stays production-ready. | 8 | Critical | 🟡 In Progress |
+
+#### SP6-OPS01 Acceptance Criteria
+```
+Scenario: Automated delivery on main
+  Given code is pushed to main
+  When the CI/CD workflow runs
+  Then lint, build, unit tests, Playwright tests, security scans, Docker build, and Cloud Run deploy execute
+  And the pipeline fails if any stage errors
+
+Scenario: Security coverage
+  Given security workflows run on push or schedule
+  When CodeQL, npm audit, Snyk, and OWASP ZAP complete
+  Then actionable reports are published and deployments block on configured severity
+```

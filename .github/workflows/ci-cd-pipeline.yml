@@ -1,0 +1,125 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+  REGION: ${{ secrets.GCP_REGION }}
+  IMAGE_NAME: ganttium-app
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5432/projectflow_test
+  REDIS_URL: redis://localhost:6379
+  SESSION_SECRET: temp-session-secret-1234567890abcdef
+  ALLOWED_ORIGINS: http://localhost:5000
+  NODE_ENV: test
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: projectflow_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run check
+
+      - name: Build application
+        run: npm run build
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+
+      - name: Run unit tests
+        run: npm test -- --runInBand
+
+      - name: Run E2E tests
+        env:
+          PLAYWRIGHT_TEST_BASE_URL: http://localhost:5000
+        run: npm run test:e2e
+
+      - name: Security audit (npm)
+        run: npm audit --audit-level=moderate
+
+  build-deploy:
+    needs: lint-test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v1
+        with:
+          version: latest
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+
+      - name: Configure Docker auth
+        run: gcloud auth configure-docker gcr.io --quiet
+
+      - name: Build Docker image
+        run: |
+          IMAGE_URI="gcr.io/${PROJECT_ID}/${IMAGE_NAME}:${{ github.sha }}"
+          docker build -t "$IMAGE_URI" .
+          echo "IMAGE_URI=$IMAGE_URI" >> $GITHUB_ENV
+
+      - name: Push Docker image
+        run: |
+          docker push "$IMAGE_URI"
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy ganttium \
+            --project "${PROJECT_ID}" \
+            --region "${REGION}" \
+            --image "$IMAGE_URI" \
+            --platform managed \
+            --allow-unauthenticated \
+            --set-env-vars ENVIRONMENT=production \
+            --service-account "${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}"
+
+      - name: Smoke test deployed service
+        run: |
+          sleep 10
+          gcloud run services describe ganttium --project "${PROJECT_ID}" --region "${REGION}" --format='value(status.url)'
+          SERVICE_URL=$(gcloud run services describe ganttium --project "${PROJECT_ID}" --region "${REGION}" --format='value(status.url)')
+          curl --fail "$SERVICE_URL/api/health"
+
