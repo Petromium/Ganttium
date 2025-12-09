@@ -4,6 +4,7 @@
  */
 
 import { beforeAll, afterAll } from 'vitest';
+import '@testing-library/jest-dom';
 import dotenv from 'dotenv';
 import path from 'path';
 import { initializeTestDatabase } from './setup/db-setup';

@@ -7779,8 +7779,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/project-templates', isAuthenticated, async (req: any, res) => {
     try {
       const userId = getUserId(req);
+      const requestId = crypto.randomUUID();
+      console.info(`[api/project-templates] requestId=${requestId} userId=${userId}`);
       // Get templates for user's organization or public templates
       const templates = await storage.getProjectTemplates(userId);
+      console.info(`[api/project-templates] requestId=${requestId} storage returned ${templates.length} templates`);
       
       // Transform templates to match client expectations
       const transformedTemplates = templates.map(t => ({
@@ -7797,11 +7800,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       res.json(transformedTemplates);
     } catch (error: any) {
-      console.error("Error fetching templates:", error);
+      console.error("[api/project-templates] Error fetching templates:", error);
       logger.error("Error fetching templates", error instanceof Error ? error : new Error(String(error)));
       res.status(500).json({ 
         message: "Failed to fetch templates",
-        details: process.env.NODE_ENV === 'development' ? error?.stack : undefined
+        details: process.env.NODE_ENV === 'development' ? error?.stack || error?.message : undefined
       });
     }
   });

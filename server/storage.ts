@@ -1,4 +1,5 @@
 import { eq, and, desc, asc, isNull, inArray, sql, ne, or } from "drizzle-orm";
+import crypto from "crypto";
 import * as schema from "@shared/schema";
 import { db, pool } from "./db";
 import { logger } from "./lib/logger";
@@ -1452,39 +1453,56 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getProjectTemplates(userId?: string): Promise<ProjectTemplate[]> {
-    // Get Templates organization by slug (not hardcoded ID)
-    const templatesOrg = await this.getOrganizationBySlug("templates");
-    const conditions: any[] = [];
+    const requestId = crypto.randomUUID();
+    console.info(`[storage:getProjectTemplates] requestId=${requestId} userId=${userId ?? "anonymous"}`);
+    try {
+      // Get Templates organization by slug (not hardcoded ID)
+      const templatesOrg = await this.getOrganizationBySlug("templates");
+      const conditions: any[] = [];
 
-    // Always include Templates org templates
-    if (templatesOrg) {
-      conditions.push(eq(schema.projectTemplates.organizationId, templatesOrg.id));
-    }
-
-    // Always include public templates
-    conditions.push(eq(schema.projectTemplates.isPublic, true));
-
-    // Include user's organization templates if userId provided
-    if (userId) {
-      try {
-        const userOrgs = await this.getOrganizationsByUser(userId);
-        if (userOrgs.length > 0) {
-          conditions.push(inArray(schema.projectTemplates.organizationId, userOrgs.map(o => o.id)));
-        }
-      } catch (error) {
-        // Fallback if user lookup fails (e.g. invalid ID)
-        console.warn("Failed to get user organizations for template filtering:", error);
+      // Always include Templates org templates
+      if (templatesOrg) {
+        conditions.push(eq(schema.projectTemplates.organizationId, templatesOrg.id));
+      } else {
+        console.warn(`[storage:getProjectTemplates] requestId=${requestId} templates org not found`);
       }
-    }
 
-    // If no conditions, return empty array (shouldn't happen, but safe)
-    if (conditions.length === 0) {
-      return [];
-    }
+      // Always include public templates
+      conditions.push(eq(schema.projectTemplates.isPublic, true));
 
-    return await db.select().from(schema.projectTemplates)
-      .where(or(...conditions))
-      .orderBy(desc(schema.projectTemplates.createdAt));
+      // Include user's organization templates if userId provided
+      if (userId) {
+        try {
+          const userOrgs = await this.getOrganizationsByUser(userId);
+          if (userOrgs.length > 0) {
+            const orgIds = userOrgs.map((o) => o.id);
+            conditions.push(inArray(schema.projectTemplates.organizationId, orgIds));
+            console.info(`[storage:getProjectTemplates] requestId=${requestId} user belongs to orgIds=${orgIds.join(",")}`);
+          } else {
+            console.info(`[storage:getProjectTemplates] requestId=${requestId} user has no organization memberships`);
+          }
+        } catch (error) {
+          // Fallback if user lookup fails (e.g. invalid ID)
+          console.warn(`[storage:getProjectTemplates] requestId=${requestId} failed to load user organizations:`, error);
+        }
+      }
+
+      // If no conditions, return empty array (shouldn't happen, but safe)
+      if (conditions.length === 0) {
+        console.warn(`[storage:getProjectTemplates] requestId=${requestId} no conditions generated`);
+        return [];
+      }
+
+      const templates = await db.select().from(schema.projectTemplates)
+        .where(or(...conditions))
+        .orderBy(desc(schema.projectTemplates.createdAt));
+
+      console.info(`[storage:getProjectTemplates] requestId=${requestId} returning ${templates.length} templates`);
+      return templates;
+    } catch (error) {
+      console.error(`[storage:getProjectTemplates] requestId=${requestId} ERROR:`, error);
+      throw error;
+    }
   }
 
   async createProjectTemplate(template: InsertProjectTemplate): Promise<ProjectTemplate> {

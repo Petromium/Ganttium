@@ -4,9 +4,10 @@ import path from 'path';
 export default defineConfig({
   test: {
     globals: true,
-    environment: 'node',
+    environment: 'jsdom',
     include: [
-      'tests/unit/**/*.test.ts', 
+      'tests/unit/**/*.test.ts',
+      'tests/unit/**/*.test.tsx',
       'tests/unit/**/*.spec.ts',
       'tests/integration/**/*.test.ts',
       'tests/integration/**/*.spec.ts',
