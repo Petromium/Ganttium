@@ -1,4 +1,4 @@
-import { eq, and, desc, asc, isNull, inArray, sql, ne } from "drizzle-orm";
+import { eq, and, desc, asc, isNull, inArray, sql, ne, or } from "drizzle-orm";
 import * as schema from "@shared/schema";
 import { db, pool } from "./db";
 import { logger } from "./lib/logger";
@@ -1452,11 +1452,19 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getProjectTemplates(userId?: string): Promise<ProjectTemplate[]> {
-    const conditions = [
-      eq(schema.projectTemplates.organizationId, 1),
-      eq(schema.projectTemplates.isPublic, true)
-    ];
+    // Get Templates organization by slug (not hardcoded ID)
+    const templatesOrg = await this.getOrganizationBySlug("templates");
+    const conditions: any[] = [];
 
+    // Always include Templates org templates
+    if (templatesOrg) {
+      conditions.push(eq(schema.projectTemplates.organizationId, templatesOrg.id));
+    }
+
+    // Always include public templates
+    conditions.push(eq(schema.projectTemplates.isPublic, true));
+
+    // Include user's organization templates if userId provided
     if (userId) {
       try {
         const userOrgs = await this.getOrganizationsByUser(userId);
@@ -1467,6 +1475,11 @@ export class DatabaseStorage implements IStorage {
         // Fallback if user lookup fails (e.g. invalid ID)
         console.warn("Failed to get user organizations for template filtering:", error);
       }
+    }
+
+    // If no conditions, return empty array (shouldn't happen, but safe)
+    if (conditions.length === 0) {
+      return [];
     }
 
     return await db.select().from(schema.projectTemplates)

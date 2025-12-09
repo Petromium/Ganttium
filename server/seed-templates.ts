@@ -48,47 +48,59 @@ interface EPCProjectTemplate {
 export async function seedTemplates() {
   console.log("Seeding EPC Project Templates...");
 
-  // 1. Ensure Organization 1 [Templates] exists
-  let templatesOrg = await storage.getOrganization(1);
+  // 1. Ensure Organization [Templates] exists (check by slug, not ID)
+  let templatesOrg = await storage.getOrganizationBySlug("templates");
   if (!templatesOrg) {
-    console.log("Creating Organization 1 [Templates]...");
+    console.log("Creating Organization [Templates]...");
     try {
-      // Direct insert to force ID 1 if possible, or create and assume it gets ID 1 if empty
-      // Drizzle doesn't easily support forcing ID on serial unless we use raw sql
-      // But we can check if ID 1 exists. If not, we might need to be careful.
-      // For now, let's try to create it normally and hope it's ID 1 or we use whatever ID it gets
-      // But the user SPECIFICALLY asked for Org 1.
-      // If the DB is empty, the first org created will be ID 1.
       templatesOrg = await storage.createOrganization({
         name: "Templates",
         slug: "templates"
       });
-      console.log(`Created Templates Org with ID: ${templatesOrg.id}`);
-    } catch (e) {
-      console.error("Failed to create Templates org:", e);
+      console.log(`✅ Created Templates Org with ID: ${templatesOrg.id}`);
+    } catch (e: any) {
+      // If it already exists (by slug), fetch it
+      if (e?.code === '23505') {
+        templatesOrg = await storage.getOrganizationBySlug("templates");
+        console.log(`✅ Templates Org already exists with ID: ${templatesOrg?.id}`);
+      } else {
+        console.error("❌ Failed to create Templates org:", e);
+        throw e;
+      }
     }
   } else {
-    console.log("Organization 1 [Templates] already exists.");
+    console.log(`✅ Templates Org already exists with ID: ${templatesOrg.id}`);
   }
 
-  // 2. Ensure Organization 2 [Demo] exists
-  let demoOrg = await storage.getOrganization(2);
+  // 2. Ensure Organization [Demo] exists (check by slug, not ID)
+  let demoOrg = await storage.getOrganizationBySlug("demo");
   if (!demoOrg) {
-    console.log("Creating Organization 2 [Demo]...");
+    console.log("Creating Organization [Demo]...");
     try {
       demoOrg = await storage.createOrganization({
         name: "Demo",
         slug: "demo"
       });
-      console.log(`Created Demo Org with ID: ${demoOrg.id}`);
-    } catch (e) {
-      console.error("Failed to create Demo org:", e);
+      console.log(`✅ Created Demo Org with ID: ${demoOrg.id}`);
+    } catch (e: any) {
+      // If it already exists (by slug), fetch it
+      if (e?.code === '23505') {
+        demoOrg = await storage.getOrganizationBySlug("demo");
+        console.log(`✅ Demo Org already exists with ID: ${demoOrg?.id}`);
+      } else {
+        console.error("❌ Failed to create Demo org:", e);
+        throw e;
+      }
     }
   } else {
-    console.log("Organization 2 [Demo] already exists.");
+    console.log(`✅ Demo Org already exists with ID: ${demoOrg.id}`);
   }
 
-  const TEMPLATES_ORG_ID = 1; // We aim for 1, but should use templatesOrg.id if we want robustness, but user requested 1.
+  // Use the actual organization ID that was created/retrieved
+  if (!templatesOrg) {
+    console.error("❌ Templates organization not found or created. Cannot proceed.");
+    throw new Error("Templates organization is required");
+  }
 
   const templates: EPCProjectTemplate[] = [
     // 1. Solar PV Farm (100MW)
@@ -547,7 +559,7 @@ export async function seedTemplates() {
     if (existing.length === 0) {
       await storage.createProjectTemplate({
         ...t,
-        organizationId: TEMPLATES_ORG_ID, // Use Template Org
+        organizationId: templatesOrg.id, // Use actual Template Org ID
         userId: null
       });
       console.log(`Created template: ${t.name}`);
@@ -560,6 +572,12 @@ export async function seedTemplates() {
 }
 
 // Run if called directly
-if (import.meta.url === `file://${process.argv[1]}`) {
-  seedTemplates().catch(console.error);
-}
+seedTemplates()
+  .then(() => {
+    console.log("✅ Template seeding completed successfully!");
+    process.exit(0);
+  })
+  .catch((error) => {
+    console.error("❌ Template seeding failed:", error);
+    process.exit(1);
+  });
