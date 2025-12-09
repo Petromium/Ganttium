@@ -1493,8 +1493,14 @@ export class DatabaseStorage implements IStorage {
         return [];
       }
 
-      const templates = await db.select().from(schema.projectTemplates)
-        .where(or(...conditions))
+      let query = db.select().from(schema.projectTemplates);
+      if (conditions.length > 0) {
+        const [firstCondition, ...restConditions] = conditions;
+        const whereClause = restConditions.reduce((acc, condition) => or(acc, condition), firstCondition);
+        query = query.where(whereClause);
+      }
+
+      const templates = await query
         .orderBy(desc(schema.projectTemplates.createdAt));
 
       console.info(`[storage:getProjectTemplates] requestId=${requestId} returning ${templates.length} templates`);

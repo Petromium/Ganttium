@@ -5,7 +5,7 @@ import { storage } from "./storage";
 import { setupAuth, isAuthenticated } from "./auth";
 import { db } from "./db";
 import * as schema from "@shared/schema";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, or } from "drizzle-orm";
 import {
   insertOrganizationSchema,
   insertProjectSchema,
@@ -122,6 +122,40 @@ function getUserId(req: any): string {
   }
   return req.user.id;
 }
+
+const updateProjectSchema = insertProjectSchema.partial();
+
+const coerceDate = (value: unknown): Date | undefined => {
+  if (value === null || value === undefined || value === "") {
+    return undefined;
+  }
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? undefined : value;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+};
+
+const normalizeProjectPayload = (payload: Record<string, any>) => {
+  const normalized = { ...payload };
+  if ("startDate" in normalized) {
+    const startDate = coerceDate(normalized.startDate);
+    if (startDate) {
+      normalized.startDate = startDate;
+    } else {
+      delete normalized.startDate;
+    }
+  }
+  if ("endDate" in normalized) {
+    const endDate = coerceDate(normalized.endDate);
+    if (endDate) {
+      normalized.endDate = endDate;
+    } else {
+      delete normalized.endDate;
+    }
+  }
+  return normalized;
+};
 
 // Helper to check if user has access to organization
 async function checkOrganizationAccess(userId: string, organizationId: number): Promise<boolean> {
@@ -1492,7 +1526,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/projects', isAuthenticated, async (req: any, res) => {
     try {
       const userId = getUserId(req);
-      const data = insertProjectSchema.parse(req.body);
+      const payload = normalizeProjectPayload(req.body);
+      const data = insertProjectSchema.parse(payload);
 
       // Check access to organization
       if (!await checkOrganizationAccess(userId, data.organizationId)) {
@@ -1547,7 +1582,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(404).json({ message: "Project not found" });
       }
 
-      const data = updateProjectSchema.parse(req.body);
+      const payload = normalizeProjectPayload(req.body);
+      const data = updateProjectSchema.parse(payload);
       const project = await storage.updateProject(id, data);
       res.json(project);
     } catch (error) {

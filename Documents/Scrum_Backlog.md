@@ -34,6 +34,7 @@
 | **SP6-T19** | **Template: Data Center (Tier III)** | As a Project Manager, I want a comprehensive Data Center (Tier III) template with realistic WBS (5 levels max), 150+ tasks with dependencies, 25 risks, and 12 document templates. | 13 | High | 🔴 Pending |
 | **SP6-T20** | **Template: Hospital Complex** | As a Project Manager, I want a comprehensive Hospital Complex template with realistic WBS (5 levels max), 150+ tasks with dependencies, 25 risks, and 12 document templates. | 13 | High | 🔴 Pending |
 | **SP6-OPS01** | **CI/CD Hardening** | As a DevOps Engineer, I want GitHub Actions to lint, test, scan, and deploy every commit to main automatically so that Cloud Run stays production-ready. | 8 | Critical | 🟡 In Progress |
+| **SP6-BUG01** | **Project Creation Reliability** | As a Delivery Lead, I want creating projects (blank, from templates, AI, JSON import) to succeed without 5xx errors so that onboarding new programs is not blocked. | 8 | Critical | 🟡 In Progress |
 
 #### SP6-OPS01 Acceptance Criteria
 ```
@@ -47,4 +48,22 @@ Scenario: Security coverage
   Given security workflows run on push or schedule
   When CodeQL, npm audit, Snyk, and OWASP ZAP complete
   Then actionable reports are published and deployments block on configured severity
+```
+
+#### SP6-BUG01 Acceptance Criteria
+```
+Scenario: Create blank project
+  Given I am an authenticated owner/admin
+  When I submit the create-project form without template/AI/import
+  Then the API responds 201 and the project is visible in the list
+
+Scenario: Create from template
+  Given public templates are available
+  When I select a template and confirm creation
+  Then template data loads without 5xx errors and the new project has seeded tasks/risks
+
+Scenario: Create from AI and JSON import
+  Given the AI assistant or JSON import wizard is used
+  When the request completes
+  Then the API returns success and audit logs capture the operation with no “503 Service Unavailable”
 ```

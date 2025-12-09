@@ -54,6 +54,30 @@ User unable to log in via Google OAuth in production environment. Logs showed `T
 
 ---
 
+### Issue #011: Project Creation Failure Across All Entry Points
+**Status:** ✅ RESOLVED  
+**Priority:** Critical  
+**Category:** API / Templates  
+**Reported:** 2025-12-09  
+
+**Description:**  
+Creating projects (blank wizard, template instantiation, AI action, JSON import) intermittently returned 500/503 errors. Template selection also failed with `500: {"message":"Failed to fetch templates"}`.
+
+**Root Cause:**  
+1. `POST /api/projects` validated payloads with `insertProjectSchema`, which expects `Date` objects. The UI sends ISO strings, so Zod threw, Cloud Run bubbled the error as 503, and imports failed because the prerequisite project creation never succeeded.  
+2. `storage.getProjectTemplates()` always wrapped filters with `or(...conditions)`. When the Templates org slug was missing and the user was anonymous, only one condition remained, causing Drizzle to throw and the templates modal to 500.
+
+**Resolution:**  
+- Added shared helpers to coerce ISO strings before schema validation and defined `updateProjectSchema` via `insertProjectSchema.partial()`.  
+- Normalized project payloads for create/update routes so start/end dates are parsed server-side.  
+- Updated template query logic to fold OR conditions safely even when only the public filter is available.
+
+**Files Affected:**
+- `server/routes.ts`
+- `server/storage.ts`
+
+---
+
 ## High Priority Bugs 🟠
 
 ### Issue #002: Top Bar Actions Not Working
