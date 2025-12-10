@@ -2,11 +2,58 @@
 
 ## Current Issues
 
-*No critical issues at this time.*
+### 🟡 Google OAuth "invalid_client" Error - REQUIRES MANUAL CONFIGURATION
+
+**Status:** ⚠️ PENDING MANUAL CONFIGURATION
+
+**Summary:**
+Google Sign-in button redirects to Google but returns "Error 401: invalid_client - The OAuth client was not found."
+
+**Root Cause:**
+The Google Cloud Console OAuth 2.0 Client needs to be configured with the correct redirect URI.
+
+**Required Action:**
+1. Go to [Google Cloud Console → APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials?project=projectflow-479722)
+2. Edit the OAuth 2.0 Client ID: `303401483984-22aq5e79qcakisjlsdgukpfag46nhbuh.apps.googleusercontent.com`
+3. Add to "Authorized redirect URIs": `https://ganttium-303401483984.us-central1.run.app/api/auth/google/callback`
+4. Save changes
+
+**Environment Variables (Already Configured):**
+- ✅ `GOOGLE_CLIENT_ID` - Set via Secret Manager
+- ✅ `GOOGLE_CLIENT_SECRET` - Set via Secret Manager
+- ✅ `GOOGLE_CALLBACK_URL=https://ganttium-303401483984.us-central1.run.app/api/auth/google/callback`
 
 ---
 
 ## Resolved Issues
+
+### 🟢 CRITICAL SECURITY: User Data Isolation - FIXED (2025-12-10)
+
+**Status:** ✅ FULLY RESOLVED
+
+**Summary:**
+All new users were being assigned to the SAME shared "Demo Organization", causing users to see each other's data - a critical security vulnerability.
+
+**Root Cause Analysis:**
+- `assignDemoOrgToUser()` function in `server/storage.ts` was assigning ALL users to a shared organization (slug: `demo-solar-project`)
+- This meant User A and User B could see each other's projects, tasks, and data
+
+**The Fix:**
+Modified `assignDemoOrgToUser()` to create a PERSONAL organization for each new user:
+- Each user gets their own unique organization: `user-org-{userId}`
+- Named as "{FirstName}'s Organization" for a friendly UX
+- User is assigned as owner of their personal org
+- A welcome project is created in their personal org
+
+**Files Changed:**
+- `server/storage.ts:1032-1094` - Complete rewrite of `assignDemoOrgToUser()`
+
+**Security Impact:**
+- ✅ Each user's data is now isolated
+- ✅ No data leakage between users
+- ✅ Proper multi-tenant architecture
+
+---
 
 ### 🟢 CRITICAL: CORS 403 "Origin not allowed" - FIXED (2025-12-10)
 

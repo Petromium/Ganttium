@@ -1029,62 +1029,70 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
+  /**
+   * Creates a PERSONAL organization for a new user.
+   * SECURITY FIX: Each user gets their own isolated organization instead of 
+   * sharing a common "demo" organization which caused data leaks between users.
+   */
   async assignDemoOrgToUser(userId: string): Promise<void> {
-    const DEMO_ORG_SLUG = "demo-solar-project";
+    // Generate a unique slug for this user's personal organization
+    const personalOrgSlug = `user-org-${userId.substring(0, 12)}`;
 
-    let demoOrg = await this.getOrganizationBySlug(DEMO_ORG_SLUG);
-    if (!demoOrg) {
-      // Auto-create default organization in development mode
-      demoOrg = await this.createOrganization({
-        name: "Demo Organization",
-        slug: DEMO_ORG_SLUG,
-      });
-      logger.info(`Created demo organization`, { organizationId: demoOrg.id, name: demoOrg.name });
-    }
-
-    const existingAssignment = await this.getUserOrganization(userId, demoOrg.id);
-    if (existingAssignment) {
-      // User already assigned, but check if org has projects
-      const projects = await this.getProjectsByOrganization(demoOrg.id);
-      if (projects.length === 0) {
-        // Create a demo project for the user
-        await this.createProject({
-          organizationId: demoOrg.id,
-          name: "Welcome Project",
-          code: "DEMO-001",
-          description: "This is a demo project to help you get started. You can explore the features or create your own organization and projects.",
-          status: "active",
-          startDate: new Date(),
-          endDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), // 90 days from now
-          currency: "USD",
-        });
-        logger.info(`Created demo project for user`, { userId, organizationId: demoOrg.id });
-      }
+    // Check if user already has an organization
+    const existingOrgs = await this.getOrganizationsByUser(userId);
+    if (existingOrgs.length > 0) {
+      logger.info(`User already has ${existingOrgs.length} organization(s), skipping auto-creation`, { userId });
       return;
     }
 
+    // Check if personal org already exists (shouldn't happen, but be safe)
+    let personalOrg = await this.getOrganizationBySlug(personalOrgSlug);
+    if (!personalOrg) {
+      // Get user info for a friendly org name
+      const user = await this.getUser(userId);
+      const orgName = user?.firstName 
+        ? `${user.firstName}'s Organization` 
+        : "My Organization";
+      
+      // Create a PERSONAL organization for this user
+      personalOrg = await this.createOrganization({
+        name: orgName,
+        slug: personalOrgSlug,
+      });
+      logger.info(`Created personal organization for user`, { 
+        userId, 
+        organizationId: personalOrg.id, 
+        orgName: personalOrg.name 
+      });
+    }
+
+    // Check if user is already assigned (shouldn't happen with the check above)
+    const existingAssignment = await this.getUserOrganization(userId, personalOrg.id);
+    if (existingAssignment) {
+      logger.info(`User already assigned to personal organization`, { userId, organizationId: personalOrg.id });
+      return;
+    }
+
+    // Assign user as OWNER of their personal organization
     await db.insert(schema.userOrganizations).values({
       userId,
-      organizationId: demoOrg.id,
+      organizationId: personalOrg.id,
       role: "owner",
     });
-    logger.info(`Assigned user to organization as owner`, { userId, organizationId: demoOrg.id });
+    logger.info(`Assigned user to personal organization as owner`, { userId, organizationId: personalOrg.id });
 
-    // Create a demo project for new users
-    const projects = await this.getProjectsByOrganization(demoOrg.id);
-    if (projects.length === 0) {
-      await this.createProject({
-        organizationId: demoOrg.id,
-        name: "Welcome Project",
-        code: "DEMO-001",
-        description: "This is a demo project to help you get started. You can explore the features or create your own organization and projects.",
-        status: "active",
-        startDate: new Date(),
-        endDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), // 90 days from now
-        currency: "USD",
-      });
-      logger.info(`Created demo project for new user`, { userId, organizationId: demoOrg.id });
-    }
+    // Create a welcome project in the user's personal organization
+    await this.createProject({
+      organizationId: personalOrg.id,
+      name: "Welcome Project",
+      code: "WELCOME-001",
+      description: "Welcome to ProjectFlow! This is your personal project to help you get started. Feel free to explore the features, create tasks, and manage your work.",
+      status: "active",
+      startDate: new Date(),
+      endDate: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000), // 90 days from now
+      currency: "USD",
+    });
+    logger.info(`Created welcome project for new user`, { userId, organizationId: personalOrg.id });
   }
 
   // User Organizations
