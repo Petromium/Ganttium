@@ -1033,53 +1033,115 @@ export class DatabaseStorage implements IStorage {
    * Creates a PERSONAL organization for a new user.
    * SECURITY FIX: Each user gets their own isolated organization instead of 
    * sharing a common "demo" organization which caused data leaks between users.
+   * 
+   * SECURITY NOTES:
+   * - Uses FULL userId in slug to prevent collisions (not truncated)
+   * - Verifies ownership before assigning to prevent cross-user data access
+   * - Handles race conditions by verifying user ownership after org lookup
    */
   async assignDemoOrgToUser(userId: string): Promise<void> {
-    // Generate a unique slug for this user's personal organization
-    const personalOrgSlug = `user-org-${userId.substring(0, 12)}`;
-
-    // Check if user already has an organization
+    // Check if user already has an organization (most common case - fast return)
     const existingOrgs = await this.getOrganizationsByUser(userId);
     if (existingOrgs.length > 0) {
       logger.info(`User already has ${existingOrgs.length} organization(s), skipping auto-creation`, { userId });
       return;
     }
 
-    // Check if personal org already exists (shouldn't happen, but be safe)
-    let personalOrg = await this.getOrganizationBySlug(personalOrgSlug);
-    if (!personalOrg) {
-      // Get user info for a friendly org name
-      const user = await this.getUser(userId);
-      const orgName = user?.firstName 
-        ? `${user.firstName}'s Organization` 
-        : "My Organization";
+    // Generate a UNIQUE slug using the FULL userId to prevent collisions
+    // Sanitize userId: remove non-alphanumeric chars and lowercase for valid slug
+    const sanitizedUserId = userId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+    const personalOrgSlug = `user-${sanitizedUserId}`;
+
+    // Get user info for a friendly org name
+    const user = await this.getUser(userId);
+    const orgName = user?.firstName 
+      ? `${user.firstName}'s Organization` 
+      : "My Organization";
+
+    let personalOrg: Organization | undefined;
+
+    // Check if an organization with this slug exists
+    const existingOrg = await this.getOrganizationBySlug(personalOrgSlug);
+    
+    if (existingOrg) {
+      // SECURITY CHECK: Verify this org belongs to the current user
+      // This prevents race condition where another user could have created
+      // an org with a similar slug (shouldn't happen with full userId, but be safe)
+      const userOrgAssignment = await this.getUserOrganization(userId, existingOrg.id);
       
-      // Create a PERSONAL organization for this user
+      if (userOrgAssignment) {
+        // User is already assigned to this org - nothing to do
+        logger.info(`User already assigned to organization`, { userId, organizationId: existingOrg.id });
+        return;
+      }
+      
+      // Org exists but user is NOT assigned - this is another user's org!
+      // This should NOT happen with full userId in slug, but handle it safely
+      logger.warn(`Organization slug collision detected, creating unique org`, { 
+        userId, 
+        existingOrgId: existingOrg.id,
+        slug: personalOrgSlug 
+      });
+      
+      // Create a new org with a guaranteed unique slug using timestamp
+      const uniqueSlug = `user-${sanitizedUserId}-${Date.now()}`;
       personalOrg = await this.createOrganization({
         name: orgName,
-        slug: personalOrgSlug,
+        slug: uniqueSlug,
       });
-      logger.info(`Created personal organization for user`, { 
+      logger.info(`Created personal organization with unique slug`, { 
         userId, 
         organizationId: personalOrg.id, 
-        orgName: personalOrg.name 
+        slug: uniqueSlug 
       });
-    }
-
-    // Check if user is already assigned (shouldn't happen with the check above)
-    const existingAssignment = await this.getUserOrganization(userId, personalOrg.id);
-    if (existingAssignment) {
-      logger.info(`User already assigned to personal organization`, { userId, organizationId: personalOrg.id });
-      return;
+    } else {
+      // No existing org - create one
+      try {
+        personalOrg = await this.createOrganization({
+          name: orgName,
+          slug: personalOrgSlug,
+        });
+        logger.info(`Created personal organization for user`, { 
+          userId, 
+          organizationId: personalOrg.id, 
+          orgName: personalOrg.name 
+        });
+      } catch (error: any) {
+        // Handle unique constraint violation (race condition)
+        if (error.code === '23505' || error.message?.includes('unique')) {
+          logger.warn(`Slug collision during org creation, retrying with unique slug`, { userId, slug: personalOrgSlug });
+          const uniqueSlug = `user-${sanitizedUserId}-${Date.now()}`;
+          personalOrg = await this.createOrganization({
+            name: orgName,
+            slug: uniqueSlug,
+          });
+          logger.info(`Created personal organization with fallback unique slug`, { 
+            userId, 
+            organizationId: personalOrg.id, 
+            slug: uniqueSlug 
+          });
+        } else {
+          throw error;
+        }
+      }
     }
 
     // Assign user as OWNER of their personal organization
-    await db.insert(schema.userOrganizations).values({
-      userId,
-      organizationId: personalOrg.id,
-      role: "owner",
-    });
-    logger.info(`Assigned user to personal organization as owner`, { userId, organizationId: personalOrg.id });
+    try {
+      await db.insert(schema.userOrganizations).values({
+        userId,
+        organizationId: personalOrg.id,
+        role: "owner",
+      });
+      logger.info(`Assigned user to personal organization as owner`, { userId, organizationId: personalOrg.id });
+    } catch (error: any) {
+      // Handle duplicate assignment (race condition)
+      if (error.code === '23505' || error.message?.includes('unique') || error.message?.includes('duplicate')) {
+        logger.info(`User already assigned to organization (concurrent request)`, { userId, organizationId: personalOrg.id });
+        return;
+      }
+      throw error;
+    }
 
     // Create a welcome project in the user's personal organization
     await this.createProject({
