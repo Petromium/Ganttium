@@ -1,0 +1,53 @@
+# Snyk (https://snyk.io) policy file, patches or ignores known vulnerabilities.
+version: v1.25.1
+# ignores vulnerabilities until expiry date; change duration by modifying expiry date
+ignore:
+  SNYK-CODE-0001:
+    - path: server/routes.ts
+    - reason: 'False positive - uses process.env.SESSION_SECRET, not hardcoded'
+    - expires: 2026-12-10T00:00:00.000Z
+  SNYK-CODE-0002:
+    - path: server/index-dev.ts
+    - reason: Mitigated - XSS sanitization implemented. Dev-only code.
+    - expires: 2026-12-10T00:00:00.000Z
+  SNYK-CODE-0003:
+    - path: server/scripts/setupAdmin.ts
+    - reason: False positive - uses process.env.ADMIN_PASSWORD
+    - expires: 2026-12-10T00:00:00.000Z
+  SNYK-CODE-0004:
+    - path: client/src/pages/ReportsPage.tsx
+    - reason: 'False positive - uses blob URL from createObjectURL, not user input'
+    - expires: 2026-12-10T00:00:00.000Z
+  SNYK-CODE-0005:
+    - path: server/routes.ts
+    - reason: By design - Cloud Run handles TLS termination
+    - expires: 2026-12-10T00:00:00.000Z
+  SNYK-CODE-0006:
+    - path: server/index-dev.ts
+    - reason: Development-only code. Production has rate limiting.
+    - expires: 2026-12-10T00:00:00.000Z
+  SNYK-CODE-0007:
+    - path: tests/**
+    - reason: Test fixtures - not production credentials
+    - expires: 2026-12-10T00:00:00.000Z
+  SNYK-CODE-0008:
+    - path: tests/**
+    - reason: Test code - production uses Helmet middleware
+    - expires: 2026-12-10T00:00:00.000Z
+  SNYK-CODE-0009:
+    - path: client/src/main.tsx
+    - reason: Service worker communication - origin check needed
+    - expires: 2025-03-10T00:00:00.000Z
+  SNYK-CODE-0010:
+    - path: client/src/components/ui/sidebar.tsx
+    - reason: 'False positive - UI state cookie, not auth. HttpOnly N/A for client.'
+    - expires: 2026-12-10T00:00:00.000Z
+  86fdd43d-e02d-4557-9c53-6cc4c102390a:
+    - '*':
+        reason: >-
+          Development-only code with path sanitization. Production uses
+          index-prod.ts. Vite transformIndexHtml uses template from disk, not
+          user input.
+        expires: 2026-01-09T15:19:01.291Z
+        created: 2025-12-10T15:19:01.294Z
+patch: {}

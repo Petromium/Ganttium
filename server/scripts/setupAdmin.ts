@@ -17,10 +17,23 @@ function generateUserId(): string {
 }
 
 async function setupAdmin() {
-  const email = "mohammad.al.jarad@petromium.com";
-  const password = "Bali.2026";
-  const firstName = "Mohammad";
-  const lastName = "Al Jarad";
+  // Read admin credentials from environment variables (never hardcode in production)
+  const email = process.env.ADMIN_EMAIL;
+  const password = process.env.ADMIN_PASSWORD;
+  const firstName = process.env.ADMIN_FIRST_NAME || "Admin";
+  const lastName = process.env.ADMIN_LAST_NAME || "User";
+
+  if (!email || !password) {
+    console.error("Error: ADMIN_EMAIL and ADMIN_PASSWORD environment variables are required");
+    console.error("Usage: ADMIN_EMAIL=admin@example.com ADMIN_PASSWORD=secure_password npm run setup:admin");
+    process.exit(1);
+  }
+
+  // Validate password strength
+  if (password.length < 8) {
+    console.error("Error: ADMIN_PASSWORD must be at least 8 characters");
+    process.exit(1);
+  }
 
   console.log(`Setting up admin user: ${email}...`);
 

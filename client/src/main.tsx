@@ -37,7 +37,16 @@ if ('serviceWorker' in navigator) {
   });
 
   // Listen for messages from service worker
+  // Security: Only accept messages from our own service worker
   navigator.serviceWorker.addEventListener('message', (event) => {
+    // Validate message source - must be from a ServiceWorker (not a Window)
+    // Service workers are same-origin by definition, but we verify the source type
+    if (!(event.source instanceof ServiceWorker)) {
+      console.warn('[SW] Ignored message from non-ServiceWorker source');
+      return;
+    }
+    
+    // Process trusted service worker messages
     if (event.data && event.data.type === 'SYNC_COMPLETE') {
       console.log('[SW] Background sync completed');
     }

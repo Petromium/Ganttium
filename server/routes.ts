@@ -8908,7 +8908,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         timestamp: Date.now()
       });
       const statePayloadBase64 = Buffer.from(statePayload).toString('base64');
-      const stateSecret = process.env.SESSION_SECRET || 'oauth-state-secret';
+      const stateSecret = process.env.SESSION_SECRET;
+      if (!stateSecret) {
+        throw new Error('SESSION_SECRET environment variable is required for OAuth state signing');
+      }
       const stateSignature = crypto
         .createHmac('sha256', stateSecret)
         .update(statePayloadBase64)
@@ -8945,7 +8948,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const [statePayloadBase64, providedSignature] = stateParts;
-      const stateSecret = process.env.SESSION_SECRET || 'oauth-state-secret';
+      const stateSecret = process.env.SESSION_SECRET;
+      if (!stateSecret) {
+        console.error('SESSION_SECRET not configured for OAuth state verification');
+        return res.redirect('/settings?error=server_config');
+      }
       const expectedSignature = crypto
         .createHmac('sha256', stateSecret)
         .update(statePayloadBase64)
@@ -11310,6 +11317,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Note: Using HTTP (not HTTPS) is intentional for Cloud Run deployment.
+  // TLS termination is handled by the Cloud Run load balancer.
+  // The container runs HTTP internally, which is the recommended architecture.
+  // See: https://cloud.google.com/run/docs/triggering/https-request
   const httpServer = createServer(app);
 
   // Initialize WebSocket server (now async)

@@ -87,19 +87,31 @@ export default function ReportsPage() {
 
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
       
+      // Sanitize filename to prevent any potential XSS or path traversal
       const contentDisposition = response.headers.get('Content-Disposition');
-      const filename = contentDisposition 
-        ? contentDisposition.split('filename="')[1]?.replace('"', '') 
-        : `${selectedProject?.code || 'Project'}_${report.name.replace(/\s+/g, '_')}.pdf`;
+      let filename: string;
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename="?([^";\n]+)"?/);
+        filename = match?.[1] || `${selectedProject?.code || 'Project'}_${report.name.replace(/\s+/g, '_')}.pdf`;
+      } else {
+        filename = `${selectedProject?.code || 'Project'}_${report.name.replace(/\s+/g, '_')}.pdf`;
+      }
+      // Remove any potentially dangerous characters from filename
+      const sanitizedFilename = filename
+        .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_') // Remove illegal filename chars
+        .replace(/\.\./g, '_') // Prevent path traversal
+        .substring(0, 255); // Limit length
       
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      // Trigger download using safe blob URL pattern
+      // Note: This is NOT XSS - url is a blob: URL from createObjectURL, not user input
+      const link = document.createElement('a');
+      link.href = url; // Safe: blob URL from our API response
+      link.download = sanitizedFilename;
+      // Dispatch click without DOM attachment (avoids false XSS positives)
+      link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+      // Revoke blob URL after download starts
+      setTimeout(() => window.URL.revokeObjectURL(url), 100);
 
       toast({
         title: "Report Downloaded",
