@@ -5,15 +5,35 @@ import pg from 'pg';
 import ws from "ws";
 import * as schema from "@shared/schema";
 
-neonConfig.webSocketConstructor = ws;
+export type DbDriver = "pg" | "neon";
 
-// Use standard pg driver for local development, testing, Docker, and Cloud Run
-// We should use pg for Docker and Cloud Run to avoid websocket issues with neon-serverless
-// WebSocket connections fail in Cloud Run environment, so we use standard pg driver
-const isDev = process.env.NODE_ENV === "development" || 
-              process.env.NODE_ENV === "test" || 
-              process.env.DOCKER_ENV === "true" || // Docker flag
-              process.env.K_SERVICE !== undefined; // Cloud Run detection (K_SERVICE is set by Cloud Run)
+export function resolveDbDriver(env: NodeJS.ProcessEnv = process.env): DbDriver {
+  const normalize = (value?: string) => value?.toLowerCase();
+
+  if (normalize(env.FORCE_PG_DRIVER) === "true") {
+    return "pg";
+  }
+
+  const isCloudRun = Boolean(env.K_SERVICE);
+  const isDocker = normalize(env.DOCKER_ENV) === "true";
+  const nodeEnv = normalize(env.NODE_ENV);
+  const isDev = nodeEnv === "development";
+  const isTest = nodeEnv === "test";
+
+  if (isCloudRun || isDocker || isDev || isTest) {
+    return "pg";
+  }
+
+  const neonRequested = normalize(env.USE_NEON_WEBSOCKETS) === "true";
+  return neonRequested ? "neon" : "pg";
+}
+
+const selectedDriver = resolveDbDriver();
+const usePgDriver = selectedDriver === "pg";
+
+if (!usePgDriver) {
+  neonConfig.webSocketConstructor = ws;
+}
 
 /**
  * Initialize database pool
@@ -29,12 +49,18 @@ function createPool(): pg.Pool | Pool {
     );
   }
 
-  return isDev
+  // Determine if SSL is required (Cloud Run or Neon database)
+  // Neon and most cloud PostgreSQL services require SSL connections
+  const requiresSSL = Boolean(process.env.K_SERVICE) || databaseUrl.includes('neon.tech');
+
+  return usePgDriver
     ? new pg.Pool({ 
         connectionString: databaseUrl,
         max: 20, // Maximum number of clients in the pool
         idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
         connectionTimeoutMillis: 2000, // Return an error after 2 seconds if connection could not be established
+        // SSL configuration for cloud databases (Neon, Cloud Run)
+        ssl: requiresSSL ? { rejectUnauthorized: false } : undefined,
       })
     : new Pool({ 
         connectionString: databaseUrl,
@@ -48,6 +74,6 @@ function createPool(): pg.Pool | Pool {
 // The validateEnvironmentVariables() in app.ts should catch this first
 export const pool = createPool();
 
-export const db = isDev
+export const db = usePgDriver
   ? drizzlePg(pool as pg.Pool, { schema })
   : drizzle({ client: pool as Pool, schema });

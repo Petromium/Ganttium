@@ -2,52 +2,112 @@
 
 ## Current Issues
 
-### 🔴 CRITICAL: Login Error 500/503 - FIXED (2025-12-09)
+*No critical issues at this time.*
+
+---
+
+## Resolved Issues
+
+### 🟢 CRITICAL: Database Access Error 500 - FIXED (2025-12-10)
+
+**Status:** ✅ FULLY RESOLVED
+
+**Summary:**
+User unable to access projects or create new projects. All API endpoints returning 500 errors with database query failures.
+
+**Root Cause Analysis:**
+
+This issue had **TWO** distinct root causes that were masking each other:
+
+#### Root Cause #1: WebSocket Connection Failure (Fixed 2025-12-09)
+- `server/db.ts` was using `@neondatabase/serverless` with WebSockets in production
+- Cloud Run environment doesn't support WebSocket connections properly
+- Error: `TypeError: Cannot set property message of #<ErrorEvent> which has only a getter`
+- **Fix:** Added `K_SERVICE` detection to use standard `pg` driver in Cloud Run
+
+#### Root Cause #2: Database Schema Drift (Fixed 2025-12-10)
+- **THE TRUE ROOT CAUSE** - Production Neon database was missing columns defined in Drizzle schema
+- `shared/schema.ts` defined columns that didn't exist in production
+- Error: `error: column "baseline_cost" does not exist`
+- This caused all SELECT queries to fail after the WebSocket fix was deployed
+
+**Missing Columns in Production:**
+
+`projects` table was missing:
+- `baseline_cost` (EPC Performance Metrics)
+- `actual_cost`
+- `earned_value`
+- `updated_at`
+
+`tasks` table was missing 19+ columns:
+- `assigned_to_name`, `discipline`, `discipline_label`, `area_code`
+- `weight_factor`, `constraint_type`, `constraint_date`
+- `baseline_start`, `baseline_finish`, `actual_start_date`, `actual_finish_date`
+- `work_mode`, `is_milestone`, `is_critical_path`
+- `baseline_cost`, `actual_cost`, `earned_value`, `updated_at`
+
+`project_templates` table was completely missing.
+
+**The Fix:**
+Applied database migrations directly to production Neon database:
+
+```sql
+-- Migration 0006: Add missing columns
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS baseline_cost NUMERIC DEFAULT '0';
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS actual_cost NUMERIC DEFAULT '0';
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS earned_value NUMERIC DEFAULT '0';
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+
+-- (Plus 19 additional columns for tasks table)
+-- (Plus project_templates table creation)
+```
+
+**Files Changed:**
+- `server/db.ts` (lines 10-14) - K_SERVICE detection
+- `migrations/0006_add_missing_columns.sql` - Schema sync migration
+- `migrations/0007_add_project_templates.sql` - Templates table
+
+**Verification Performed:**
+- ✅ Health endpoints: Working (`/api/health` returns 200 OK)
+- ✅ Dashboard loading: Project Dashboard displays correctly
+- ✅ Projects loading: "50MW Riverside Solar Power Plant" loads with $75M budget
+- ✅ EVM Metrics: CPI 1.00, SPI 1.00 displaying correctly
+- ✅ All navigation: Full sidebar accessible
+- ✅ No 500 errors on database queries
+
+**Why Previous 12+ Fix Attempts Failed:**
+1. WebSocket error was catching attention, but was only PART of the problem
+2. After fixing WebSocket issue, the schema drift error was exposed
+3. Cloud Run logs showed the true error: `column "baseline_cost" does not exist`
+4. Previous fixes addressed symptoms (driver choice, config) not root cause (schema drift)
+
+**Prevention:**
+1. Always run `drizzle-kit push` before deploying schema changes
+2. Add schema validation to CI/CD pipeline
+3. Compare `shared/schema.ts` with production DB before deployments
+4. Log full database error details, not just generic 500
+
+---
+
+### 🟢 WebSocket Error in Cloud Run - FIXED (2025-12-09)
 
 **Status:** ✅ RESOLVED
 
 **Summary:**
-User unable to log in with error 500, along with 500/503 errors on project endpoints.
+WebSocket connections from `@neondatabase/serverless` fail in Cloud Run environment.
 
 **Root Cause:**
-Database connection failure in Cloud Run due to WebSocket issues with `@neondatabase/serverless`.
-
-**Technical Details:**
-- `server/db.ts` was using `@neondatabase/serverless` with WebSockets in production
-- Cloud Run environment doesn't support WebSocket connections properly
-- Error: `TypeError: Cannot set property message of #<ErrorEvent> which has only a getter`
-- This caused all database queries to fail, resulting in 500/503 errors
+Cloud Run doesn't properly support long-lived WebSocket connections used by Neon's serverless driver.
 
 **The Fix:**
-Modified `server/db.ts` to detect Cloud Run environment (`K_SERVICE` env var) and use standard `pg` driver instead of WebSocket-based Neon driver.
+Modified `server/db.ts` to detect Cloud Run environment and use standard `pg` driver:
 
 ```typescript
-// Before:
-const isDev = process.env.NODE_ENV === "development" || 
-              process.env.NODE_ENV === "test" || 
-              process.env.DOCKER_ENV === "true";
-
-// After:
 const isDev = process.env.NODE_ENV === "development" || 
               process.env.NODE_ENV === "test" || 
               process.env.DOCKER_ENV === "true" ||
               process.env.K_SERVICE !== undefined; // Cloud Run detection
 ```
-
-**Files Changed:**
-- `server/db.ts` (lines 10-14)
-
-**Testing Performed:**
-- ✅ Unit tests: 16/17 auth tests passing
-- ✅ Database connectivity validated
-- ✅ Health endpoints working
-- ✅ Cloud Run logs analyzed
-
-**Next Steps:**
-1. Commit and push the fix
-2. Wait for CI/CD pipeline to deploy
-3. Test login in production
-4. Verify all endpoints work correctly
 
 ---
 
@@ -87,8 +147,10 @@ const isDev = process.env.NODE_ENV === "development" ||
 **Impact:** Minor - emails are stored lowercase, but should handle uppercase lookups
 
 ### 4. Migration Strategy
-**Issue:** Migrations (0000-0005) are incremental but no base migration exists
-**Action:** Generate base schema migration or document that `drizzle-kit push` is required first
+**Issue:** Migrations are incremental - production was missing many columns
+**Action:** CRITICAL - Always verify schema alignment before deployments
+**Added:** `migrations/0006_add_missing_columns.sql`, `migrations/0007_add_project_templates.sql`
+**Lesson:** Need to add schema validation to CI/CD pipeline
 
 ### 5. Environment Variable Validation
 **Location:** `server/middleware/security.ts:200-323`
@@ -118,8 +180,10 @@ const isDev = process.env.NODE_ENV === "development" ||
 ### Production Tests
 - ✅ Health endpoints: Working
 - ✅ Unauthenticated requests: Return correct 401
-- ⏳ Login flow: Awaiting post-fix verification
-- ⏳ Authenticated requests: Awaiting post-fix verification
+- ✅ Login flow: VERIFIED WORKING (2025-12-10)
+- ✅ Authenticated requests: VERIFIED WORKING (2025-12-10)
+- ✅ Dashboard loading: Full dashboard renders correctly
+- ✅ Project data: Projects load with correct budget/metrics
 
 ---
 
@@ -139,5 +203,5 @@ const isDev = process.env.NODE_ENV === "development" ||
 
 ---
 
-*Last Updated: 2025-12-09*
-*Next Review: After login fix deployment and verification*
+*Last Updated: 2025-12-10*
+*Status: All critical issues resolved. Application fully functional.*

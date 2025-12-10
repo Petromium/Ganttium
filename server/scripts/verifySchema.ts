@@ -1,84 +1,143 @@
 /**
  * Schema Verification Script
- * Verifies database schema matches Drizzle ORM schema before removing fallbacks
+ * Verifies database schema matches Drizzle ORM schema before deployments
  * 
- * Run this after deploying migrations to verify schema alignment:
- * npm run verify:schema
+ * Usage: npx tsx server/scripts/verifySchema.ts
+ * 
+ * This script compares the actual database schema with the Drizzle schema
+ * to detect schema drift before it causes production errors.
  */
 
-import { db } from '../server/db';
-import { sql } from 'drizzle-orm';
+import 'dotenv/config';
+import pg from 'pg';
 import * as schema from '@shared/schema';
 
 interface ColumnInfo {
   column_name: string;
   data_type: string;
   is_nullable: string;
+  column_default: string | null;
 }
 
 interface VerificationResult {
   table: string;
   status: 'pass' | 'fail' | 'warning';
   message: string;
-  expectedColumns?: string[];
-  actualColumns?: ColumnInfo[];
+  missingColumns?: string[];
+  extraColumns?: string[];
 }
 
+// Tables to verify - add more as needed
 const VERIFICATION_TABLES = [
   'users',
+  'organizations',
+  'projects',
+  'tasks',
   'stakeholders',
   'risks',
+  'issues',
+  'change_requests',
   'resource_assignments',
+  'project_templates',
+  'project_statuses',
 ] as const;
+
+// Map Drizzle schema objects to table names
+const schemaMap: Record<string, any> = {
+  users: schema.users,
+  organizations: schema.organizations,
+  projects: schema.projects,
+  tasks: schema.tasks,
+  stakeholders: schema.stakeholders,
+  risks: schema.risks,
+  issues: schema.issues,
+  change_requests: schema.changeRequests,
+  resource_assignments: schema.resourceAssignments,
+  project_templates: schema.projectTemplates,
+  project_statuses: schema.projectStatuses,
+};
 
 /**
  * Get actual columns from database
  */
-async function getTableColumns(tableName: string): Promise<ColumnInfo[]> {
-  const result = await db.execute(sql`
-    SELECT column_name, data_type, is_nullable
+async function getTableColumns(pool: pg.Pool, tableName: string): Promise<ColumnInfo[]> {
+  const result = await pool.query(`
+    SELECT column_name, data_type, is_nullable, column_default
     FROM information_schema.columns
-    WHERE table_name = ${tableName}
+    WHERE table_schema = 'public' AND table_name = $1
     ORDER BY ordinal_position
-  `);
+  `, [tableName]);
   
   return result.rows as ColumnInfo[];
 }
 
 /**
+ * Check if table exists in database
+ */
+async function tableExists(pool: pg.Pool, tableName: string): Promise<boolean> {
+  const result = await pool.query(`
+    SELECT EXISTS (
+      SELECT FROM information_schema.tables 
+      WHERE table_schema = 'public' AND table_name = $1
+    )
+  `, [tableName]);
+  
+  return result.rows[0].exists;
+}
+
+/**
  * Get expected columns from Drizzle schema
+ * Drizzle stores column definitions in the table object
  */
 function getExpectedColumns(tableName: string): string[] {
-  switch (tableName) {
-    case 'users':
-      return Object.keys(schema.users).map(key => {
-        // Convert camelCase to snake_case
-        return key.replace(/([A-Z])/g, '_$1').toLowerCase();
-      });
-    case 'stakeholders':
-      return Object.keys(schema.stakeholders).map(key => {
-        return key.replace(/([A-Z])/g, '_$1').toLowerCase();
-      });
-    case 'risks':
-      return Object.keys(schema.risks).map(key => {
-        return key.replace(/([A-Z])/g, '_$1').toLowerCase();
-      });
-    case 'resource_assignments':
-      return Object.keys(schema.resourceAssignments).map(key => {
-        return key.replace(/([A-Z])/g, '_$1').toLowerCase();
-      });
-    default:
-      return [];
+  const tableSchema = schemaMap[tableName];
+  if (!tableSchema) {
+    return [];
   }
+  
+  // Drizzle table objects have column definitions as properties
+  // We need to extract the column names (snake_case in database)
+  const columns: string[] = [];
+  
+  for (const key in tableSchema) {
+    // Skip non-column properties (Drizzle adds metadata)
+    if (typeof tableSchema[key] === 'object' && tableSchema[key] !== null) {
+      const col = tableSchema[key];
+      // Check if it's a column definition (has name property)
+      if (col.name) {
+        columns.push(col.name);
+      }
+    }
+  }
+  
+  return columns;
 }
 
 /**
  * Verify a single table
  */
-async function verifyTable(tableName: string): Promise<VerificationResult> {
+async function verifyTable(pool: pg.Pool, tableName: string): Promise<VerificationResult> {
   try {
-    const actualColumns = await getTableColumns(tableName);
+    // Check if table exists
+    const exists = await tableExists(pool, tableName);
+    if (!exists) {
+      return {
+        table: tableName,
+        status: 'fail',
+        message: `Table does not exist in database`,
+      };
+    }
+    
+    const actualColumns = await getTableColumns(pool, tableName);
     const expectedColumns = getExpectedColumns(tableName);
+    
+    if (expectedColumns.length === 0) {
+      return {
+        table: tableName,
+        status: 'warning',
+        message: 'Could not extract expected columns from schema (schema mapping may be missing)',
+      };
+    }
     
     const actualColumnNames = actualColumns.map(col => col.column_name);
     const missingColumns = expectedColumns.filter(col => !actualColumnNames.includes(col));
@@ -89,8 +148,8 @@ async function verifyTable(tableName: string): Promise<VerificationResult> {
         table: tableName,
         status: 'fail',
         message: `Missing columns: ${missingColumns.join(', ')}`,
-        expectedColumns,
-        actualColumns,
+        missingColumns,
+        extraColumns: extraColumns.length > 0 ? extraColumns : undefined,
       };
     }
     
@@ -98,72 +157,15 @@ async function verifyTable(tableName: string): Promise<VerificationResult> {
       return {
         table: tableName,
         status: 'warning',
-        message: `Extra columns found (not in schema): ${extraColumns.join(', ')}`,
-        expectedColumns,
-        actualColumns,
+        message: `Extra columns in database (not in schema): ${extraColumns.join(', ')}`,
+        extraColumns,
       };
-    }
-    
-    // Check critical columns for known issues
-    if (tableName === 'users') {
-      const hasPasswordHash = actualColumnNames.includes('password_hash') || actualColumnNames.includes('passwordhash');
-      if (!hasPasswordHash) {
-        return {
-          table: tableName,
-          status: 'fail',
-          message: 'Missing password_hash column',
-          expectedColumns,
-          actualColumns,
-        };
-      }
-    }
-    
-    if (tableName === 'stakeholders') {
-      const hasCreatedAt = actualColumnNames.includes('created_at') || actualColumnNames.includes('createdat');
-      if (!hasCreatedAt) {
-        return {
-          table: tableName,
-          status: 'fail',
-          message: 'Missing created_at column',
-          expectedColumns,
-          actualColumns,
-        };
-      }
-    }
-    
-    if (tableName === 'risks') {
-      const hasCreatedAt = actualColumnNames.includes('created_at') || actualColumnNames.includes('createdat');
-      const hasClosedDate = actualColumnNames.includes('closed_date') || actualColumnNames.includes('closeddate');
-      if (!hasCreatedAt || !hasClosedDate) {
-        return {
-          table: tableName,
-          status: 'fail',
-          message: `Missing columns: ${!hasCreatedAt ? 'created_at' : ''} ${!hasClosedDate ? 'closed_date' : ''}`.trim(),
-          expectedColumns,
-          actualColumns,
-        };
-      }
-    }
-    
-    if (tableName === 'resource_assignments') {
-      const hasCost = actualColumnNames.includes('cost');
-      if (!hasCost) {
-        return {
-          table: tableName,
-          status: 'fail',
-          message: 'Missing cost column',
-          expectedColumns,
-          actualColumns,
-        };
-      }
     }
     
     return {
       table: tableName,
       status: 'pass',
-      message: 'All columns verified',
-      expectedColumns,
-      actualColumns,
+      message: `All ${actualColumnNames.length} columns verified`,
     };
   } catch (error: any) {
     return {
@@ -178,55 +180,86 @@ async function verifyTable(tableName: string): Promise<VerificationResult> {
  * Main verification function
  */
 async function verifySchema(): Promise<void> {
-  console.log('🔍 Verifying database schema alignment...\n');
+  const databaseUrl = process.env.DATABASE_URL;
   
-  const results: VerificationResult[] = [];
-  
-  for (const table of VERIFICATION_TABLES) {
-    console.log(`Checking ${table}...`);
-    const result = await verifyTable(table);
-    results.push(result);
-    
-    const icon = result.status === 'pass' ? '✅' : result.status === 'warning' ? '⚠️' : '❌';
-    console.log(`${icon} ${result.table}: ${result.message}`);
-    
-    if (result.status === 'fail' && result.actualColumns) {
-      console.log(`   Expected columns: ${result.expectedColumns?.join(', ')}`);
-      console.log(`   Actual columns: ${result.actualColumns.map(c => c.column_name).join(', ')}`);
-    }
-    console.log('');
+  if (!databaseUrl) {
+    console.error('❌ DATABASE_URL environment variable is not set');
+    process.exit(1);
   }
   
-  const passed = results.filter(r => r.status === 'pass').length;
-  const warnings = results.filter(r => r.status === 'warning').length;
-  const failed = results.filter(r => r.status === 'fail').length;
+  console.log('🔍 Verifying database schema alignment...\n');
+  console.log(`Database: ${databaseUrl.replace(/:[^:@]+@/, ':****@')}\n`);
   
-  console.log('\n📊 Verification Summary:');
-  console.log(`   ✅ Passed: ${passed}/${results.length}`);
-  console.log(`   ⚠️  Warnings: ${warnings}`);
-  console.log(`   ❌ Failed: ${failed}`);
+  // Determine SSL requirement
+  const requiresSSL = databaseUrl.includes('neon.tech') || process.env.K_SERVICE !== undefined;
   
-  if (failed > 0) {
-    console.log('\n❌ Schema verification FAILED. Do not remove fallbacks yet.');
-    console.log('   Run migrations to align schema: npm run db:push');
+  const pool = new pg.Pool({
+    connectionString: databaseUrl,
+    ssl: requiresSSL ? { rejectUnauthorized: false } : undefined,
+  });
+  
+  try {
+    // Test connection
+    await pool.query('SELECT 1');
+    console.log('✅ Database connection successful\n');
+    
+    const results: VerificationResult[] = [];
+    
+    for (const table of VERIFICATION_TABLES) {
+      process.stdout.write(`Checking ${table}... `);
+      const result = await verifyTable(pool, table);
+      results.push(result);
+      
+      const icon = result.status === 'pass' ? '✅' : result.status === 'warning' ? '⚠️' : '❌';
+      console.log(`${icon} ${result.message}`);
+    }
+    
+    // Summary
+    const passed = results.filter(r => r.status === 'pass').length;
+    const warnings = results.filter(r => r.status === 'warning').length;
+    const failed = results.filter(r => r.status === 'fail').length;
+    
+    console.log('\n' + '='.repeat(60));
+    console.log('📊 Verification Summary:');
+    console.log(`   ✅ Passed: ${passed}/${results.length}`);
+    console.log(`   ⚠️  Warnings: ${warnings}`);
+    console.log(`   ❌ Failed: ${failed}`);
+    console.log('='.repeat(60));
+    
+    if (failed > 0) {
+      console.log('\n❌ Schema verification FAILED.');
+      console.log('   Run migrations to align schema: npm run db:push');
+      console.log('   Or create a migration file to add missing columns.');
+      
+      // Show details of failures
+      console.log('\n📋 Failed Tables Details:');
+      for (const result of results.filter(r => r.status === 'fail')) {
+        console.log(`\n   ${result.table}:`);
+        if (result.missingColumns) {
+          console.log(`   Missing: ${result.missingColumns.join(', ')}`);
+        }
+        if (result.extraColumns) {
+          console.log(`   Extra: ${result.extraColumns.join(', ')}`);
+        }
+      }
+      
+      process.exit(1);
+    } else if (warnings > 0) {
+      console.log('\n⚠️  Schema verification passed with warnings.');
+      console.log('   Review extra columns - they may be technical debt.');
+      process.exit(0);
+    } else {
+      console.log('\n✅ Schema verification PASSED.');
+      console.log('   Database schema is aligned with Drizzle schema.');
+      process.exit(0);
+    }
+  } catch (error: any) {
+    console.error('\n❌ Verification script error:', error.message);
     process.exit(1);
-  } else if (warnings > 0) {
-    console.log('\n⚠️  Schema verification passed with warnings.');
-    console.log('   Review extra columns and remove fallbacks if safe.');
-    process.exit(0);
-  } else {
-    console.log('\n✅ Schema verification PASSED. Safe to remove fallbacks.');
-    console.log('   Next steps:');
-    console.log('   1. Remove try-catch fallback blocks in server/storage.ts');
-    console.log('   2. Remove raw SQL queries');
-    console.log('   3. Test all affected methods');
-    process.exit(0);
+  } finally {
+    await pool.end();
   }
 }
 
 // Run verification
-verifySchema().catch((error) => {
-  console.error('❌ Verification script error:', error);
-  process.exit(1);
-});
-
+verifySchema();
