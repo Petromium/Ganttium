@@ -687,6 +687,35 @@ export class DatabaseStorage implements IStorage {
   }
 
   async deleteOrganization(id: number): Promise<void> {
+    // Must delete in correct order due to foreign key constraints
+    // Get all projects in the organization first
+    const projects = await this.getProjectsByOrganization(id);
+    const projectIds = projects.map(p => p.id);
+
+    // Delete project-related data for each project
+    for (const projectId of projectIds) {
+      // Delete tasks first (they have many dependencies)
+      await db.delete(schema.tasks).where(eq(schema.tasks.projectId, projectId));
+      // Delete other project data
+      await db.delete(schema.risks).where(eq(schema.risks.projectId, projectId));
+      await db.delete(schema.issues).where(eq(schema.issues.projectId, projectId));
+      await db.delete(schema.stakeholders).where(eq(schema.stakeholders.projectId, projectId));
+      await db.delete(schema.costItems).where(eq(schema.costItems.projectId, projectId));
+      await db.delete(schema.documents).where(eq(schema.documents.projectId, projectId));
+      await db.delete(schema.resources).where(eq(schema.resources.projectId, projectId));
+      await db.delete(schema.resourceAssignments).where(eq(schema.resourceAssignments.projectId, projectId));
+      await db.delete(schema.changeRequests).where(eq(schema.changeRequests.projectId, projectId));
+    }
+
+    // Delete all projects
+    await db.delete(schema.projects).where(eq(schema.projects.organizationId, id));
+
+    // Delete organization-level data
+    await db.delete(schema.programs).where(eq(schema.programs.organizationId, id));
+    await db.delete(schema.userOrganizations).where(eq(schema.userOrganizations.organizationId, id));
+    await db.delete(schema.tags).where(eq(schema.tags.organizationId, id));
+
+    // Finally delete the organization
     await db.delete(schema.organizations).where(eq(schema.organizations.id, id));
   }
 
