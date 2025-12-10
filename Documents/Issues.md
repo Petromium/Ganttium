@@ -8,6 +8,56 @@
 
 ## Resolved Issues
 
+### 🟢 CRITICAL: CORS 403 "Origin not allowed" - FIXED (2025-12-10)
+
+**Status:** ✅ FULLY RESOLVED
+
+**Summary:**
+All API requests in production returning `403: {"message":"Origin not allowed"}`. Users could not create projects, import data, or use AI features.
+
+**Root Cause Analysis:**
+- `ALLOWED_ORIGINS` environment variable was **NOT SET** in Cloud Run deployment
+- The `server/middleware/security.ts` CORS middleware requires explicit origin allowlist
+- Without `ALLOWED_ORIGINS`, all cross-origin requests were rejected
+
+**Evidence:**
+- Console errors: `403: {"message":"Origin not allowed"}` on `/api/projects`, `/api/ai/conversations`
+- Network requests: All API calls returning 403 Forbidden
+
+**The Fix:**
+Set the `ALLOWED_ORIGINS` environment variable in Cloud Run:
+
+```bash
+gcloud run services update ganttium \
+  --region us-central1 \
+  --set-env-vars="ALLOWED_ORIGINS=https://ganttium-303401483984.us-central1.run.app"
+```
+
+**Files Involved:**
+- `server/middleware/security.ts:115-141` - CORS configuration
+- Cloud Run environment variables
+
+**Verification Performed:**
+- ✅ CORS preflight (OPTIONS) returns proper headers
+- ✅ `/api/projects` returns 200 OK
+- ✅ `/api/organizations` returns 200 OK
+- ✅ Dashboard loads with full project data
+- ✅ Projects page shows 2 projects with budgets
+- ✅ Create Project dialog opens correctly
+
+**Why This Was Missed:**
+1. Initial deployment focused on secrets (DATABASE_URL, SESSION_SECRET, etc.)
+2. `ALLOWED_ORIGINS` is a configuration variable, not a secret
+3. Error message "Origin not allowed" was being displayed but confused with other issues
+4. Previous investigations focused on database/auth, not CORS
+
+**Prevention:**
+1. Add `ALLOWED_ORIGINS` to deployment checklist
+2. Update `Documents/Vault.md` to list all required environment variables (secrets + config)
+3. Add CORS health check to CI/CD pipeline
+
+---
+
 ### 🟢 CRITICAL: Database Access Error 500 - FIXED (2025-12-10)
 
 **Status:** ✅ FULLY RESOLVED
@@ -130,6 +180,12 @@ const isDev = process.env.NODE_ENV === "development" ||
 
 ## Technical Debt
 
+### 0. Missing Google Analytics Configuration (Low Priority)
+**Location:** Client-side JavaScript
+**Issue:** Console warning: "Missing Google Analytics Measurement ID: VITE_GA_MEASUREMENT_ID"
+**Impact:** Minor - analytics not tracking, but app functions correctly
+**Action:** Set `VITE_GA_MEASUREMENT_ID` environment variable for production analytics
+
 ### 1. Password Column Fallback Logic
 **Location:** `server/storage.ts:897-912`
 **Issue:** Has try-catch fallback for schema mismatches
@@ -203,5 +259,6 @@ const isDev = process.env.NODE_ENV === "development" ||
 
 ---
 
-*Last Updated: 2025-12-10*
+*Last Updated: 2025-12-10 07:00 UTC*
 *Status: All critical issues resolved. Application fully functional.*
+*Latest Fix: CORS configuration - ALLOWED_ORIGINS now set in Cloud Run.*
