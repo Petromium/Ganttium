@@ -3,10 +3,11 @@
  * Implements caching strategies for offline support (7-day requirement)
  */
 
-const CACHE_NAME = 'projectflow-v1';
-const STATIC_CACHE_NAME = 'projectflow-static-v1';
-const API_CACHE_NAME = 'projectflow-api-v1';
-const OFFLINE_DATA_CACHE_NAME = 'projectflow-data-v1';
+// Version 2: Force cache refresh to fix white page issue
+const CACHE_NAME = 'projectflow-v2';
+const STATIC_CACHE_NAME = 'projectflow-static-v2';
+const API_CACHE_NAME = 'projectflow-api-v2';
+const OFFLINE_DATA_CACHE_NAME = 'projectflow-data-v2';
 
 // Cache duration: 7 days in milliseconds
 const CACHE_DURATION = 7 * 24 * 60 * 60 * 1000;
